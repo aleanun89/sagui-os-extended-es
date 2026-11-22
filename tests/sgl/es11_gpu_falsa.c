@@ -204,16 +204,102 @@ static void v1_a_v2(gpu3d_estado2_t *e)
     }
 }
 
+/* ---- gpu3d v3 (D457; con -DFALSA_V3 y kernel/gui/gpu3d_v3.c enlazado: tests/h457_gpu3d_v3.py) ----
+ * La GPU falsa guarda los búferes y los transforma con la misma función que el driver simulado del kernel
+ * (g3d_v3_cpu); lo que sale se pinta con tri(), como un lote v2. Tiene «memoria» limitada para búferes
+ * (falsa_vb_max) y expulsa el menos usado, como la capa del kernel. */
+#ifdef FALSA_V3
+#define G3D_OK   0
+#define G3D_NAO  1
+#include "../../kernel/inc/gpu3d_v3.h"
+static uint32_t bits3_anunciados;
+static int n_v3, n_vb_subidas, n_vb_trozos, n_vb_expulsos, n_transf, n_estado2;
+static unsigned falsa_vb_max = 1u << 20, falsa_vb_bytes, falsa_vb_rel;
+static struct { uint8_t *p; unsigned bytes, cheio, uso, rel; } fvb[GPU3D_VBUFS];
+static gpu3d_transf_t ft;
+static int ft_ok;
+static void tri(const gpu3d_estado2_t *e, const gpu3d_vert2_t *v);
+static g3d_v3_mem_t fv_mem(void *ctx, int vaga) { (void)ctx; g3d_v3_mem_t m = { fvb[vaga].p, fvb[vaga].cheio }; return m; }
+static int fv_sair(void *ctx, const gpu3d_estado2_t *e, const gpu3d_vert2_t *v, int n) { (void)ctx; for (int i = 0; i + 2 < n; i += 3) tri(e, v + i); return G3D_OK; }
+static void fvb_soltar(unsigned i) { if (fvb[i].p) { free(fvb[i].p); falsa_vb_bytes -= fvb[i].bytes; fvb[i].p = 0; } }
+
+static int falsa_v3(unsigned op, const void *ptr)
+{
+    if (!(bits3_anunciados & G3D_C3_V3)) { n_rechazos++; return GPU3D_SEM_SUPORTE; }
+    if (op == GPU3D_OP_VBUF) {
+        const gpu3d_vbuf_t *b = (const gpu3d_vbuf_t *)ptr;
+        if (b->vaga >= GPU3D_VBUFS) return -1;
+        if (!b->bytes) { fvb_soltar(b->vaga); return 0; }
+        if (b->flags & G3D_VB_NOVO) {
+            fvb_soltar(b->vaga);
+            if (b->bytes > falsa_vb_max) return GPU3D_SEM_SUPORTE;
+            while (falsa_vb_bytes + b->bytes > falsa_vb_max) {
+                int m = -1;
+                for (int i = 0; i < GPU3D_VBUFS; i++) if (fvb[i].p && (m < 0 || fvb[i].rel < fvb[m].rel)) m = i;
+                if (m < 0) return GPU3D_SEM_SUPORTE;
+                fvb_soltar((unsigned)m); n_vb_expulsos++;
+            }
+            fvb[b->vaga].p = calloc(1, b->bytes); fvb[b->vaga].bytes = b->bytes; fvb[b->vaga].cheio = 0; fvb[b->vaga].uso = b->uso;
+            fvb[b->vaga].rel = ++falsa_vb_rel;
+            falsa_vb_bytes += b->bytes;
+            n_vb_subidas++;
+        } else if (!fvb[b->vaga].p) return GPU3D_EXPULSO;
+        else { if (fvb[b->vaga].bytes != b->bytes || fvb[b->vaga].uso != b->uso) return -1; n_vb_trozos++; }
+        if (b->desloc > fvb[b->vaga].cheio || b->desloc + b->n > fvb[b->vaga].bytes) return -1;
+        memcpy(fvb[b->vaga].p + b->desloc, sgl_falsa_dados, b->n);
+        if (b->desloc + b->n > fvb[b->vaga].cheio) fvb[b->vaga].cheio = b->desloc + b->n;
+        return 0;
+    }
+    if (op == GPU3D_OP_TRANSF) {
+        ft = *(const gpu3d_transf_t *)ptr; ft_ok = ft.versao == 3; n_transf++;
+        if ((ft.flags & G3D3_LUZ) || ((ft.flags & G3D3_NEBLINA) && !(bits3_anunciados & G3D_C3_NEBLINA))) { ft_ok = 0; n_rechazos++; return GPU3D_SEM_SUPORTE; }
+        return ft_ok ? 0 : -1;
+    }
+    if (op == GPU3D_OP_DESENHAR3) {
+        static gpu3d_vert2_t lote[96];
+        if (!ft_ok) { n_rechazos++; return GPU3D_SEM_SUPORTE; }
+        g3d_desenho3_t g;
+        g.e = &e2; g.t = &ft; g.luz = 0; g.d = *(const gpu3d_desenho3_t *)ptr; g.max_vert = 0; g.bytes_indices = 0;
+        const gpu3d_atrib_t *at[6] = { &g.d.pos, &g.d.cor_a, &g.d.tc[0], &g.d.tc[1], &g.d.tc[2], &g.d.tc[3] };
+        for (int k = 0; k < 2 + e2.unidades; k++)
+            if (at[k]->formato != G3D_AT_NADA) { if (!fvb[at[k]->vaga].p) return GPU3D_EXPULSO; fvb[at[k]->vaga].rel = ++falsa_vb_rel; }
+        if (g.d.indices != GPU3D_SEM_INDICES) {
+            if (g.d.indices >= GPU3D_VBUFS || !fvb[g.d.indices].p) return GPU3D_EXPULSO;
+            fvb[g.d.indices].rel = ++falsa_vb_rel;
+            g.bytes_indices = fvb[g.d.indices].cheio;
+        }
+        g3d_v3_cpu_t c = { fv_mem, fv_sair, 0, lote, 96 };
+        int r = g3d_v3_cpu(&g, &c);
+        if (r != G3D_OK) { n_rechazos++; return GPU3D_SEM_SUPORTE; }
+        n_v3++;
+        return 0;
+    }
+    return -1;
+}
+#endif
+
 int sgl_gpu_falsa(unsigned op, unsigned a, unsigned b, unsigned c, const void *ptr)
 {
     switch (op) {
+#ifdef FALSA_V3
+    case GPU3D_OP_VBUF: case GPU3D_OP_TRANSF: case GPU3D_OP_DESENHAR3: return falsa_v3(op, ptr);
+#endif
     case GPU3D_OP_ABRIR: GL_ = (int)a; GA_ = (int)b; (void)c; return GL_ <= W && GA_ <= H ? 0 : GPU3D_SEM_SUPORTE;
-    case GPU3D_OP_FECHAR: for (int i = 0; i < 32; i++) vaga_soltar(i); return 0;
+    case GPU3D_OP_FECHAR:
+        for (int i = 0; i < 32; i++) vaga_soltar(i);
+#ifdef FALSA_V3
+        for (unsigned i = 0; i < GPU3D_VBUFS; i++) fvb_soltar(i);
+        ft_ok = 0;
+#endif
+        return 0;
     case GPU3D_OP_CAPACIDADES: {
         gpu3d_capas_t *k = (gpu3d_capas_t *)ptr;
         memset(k, 0, sizeof *k);
         k->versao = 2; k->bits = bits_anunciados; k->unidades = bits_anunciados ? 4 : 1; k->max_lado = 2048; k->max_aniso = 1;
         k->formatos = 1; k->zbits = 3; k->estencil_bits = bits_anunciados & G3D_CAP_ESTENCIL ? 8 : 0;
+#ifdef FALSA_V3
+        k->bits3 = bits3_anunciados; k->vbufs = bits3_anunciados ? GPU3D_VBUFS : 0;
+#endif
         return 0;
     }
     case GPU3D_OP_LIMPAR:
@@ -275,6 +361,9 @@ int sgl_gpu_falsa(unsigned op, unsigned a, unsigned b, unsigned c, const void *p
     case GPU3D_OP_ESTADO2:
         if (!(bits_anunciados & G3D_CAP_V2)) { n_rechazos++; return GPU3D_SEM_SUPORTE; }
         e2 = *(const gpu3d_estado2_t *)ptr;
+#ifdef FALSA_V3
+        n_estado2++;
+#endif
         return 0;
     case GPU3D_OP_TRIANGULOS2: {
         const gpu3d_vert2_t *v = (const gpu3d_vert2_t *)ptr;
@@ -402,6 +491,107 @@ static void cena_v1(void)
     glDisable(GL_TEXTURE_2D); glDisable(GL_DEPTH_TEST);
 }
 
+#ifdef FALSA_V3
+/* ---- escenas con búferes (VBO), para gpu3d v3 ---- */
+typedef struct { GLfloat x, y, z, s, t; GLubyte cor[4]; } vmundo_t;   /* como el vértice de Brumacanto */
+
+/* Un «mundo»: tres trozos en tres búferes entrelazados, con textura, prueba alfa, niebla, Z y descarte de caras;
+ * parte queda fuera del volumen de vista (la GPU recorta). */
+static void cena_vbo_mundo(void)
+{
+    base_(0);
+    glMatrixMode(GL_MODELVIEW); glLoadIdentity(); glTranslatef(0.3f, -0.4f, -2.2f); glRotatef(35, 0.2f, 1, 0);
+    textura(5, GL_RGBA); glEnable(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);
+    glEnable(GL_ALPHA_TEST); glAlphaFunc(GL_GREATER, 0.25f);
+    glEnable(GL_FOG); glFogf(GL_FOG_MODE, GL_LINEAR); glFogf(GL_FOG_START, 1.5f); glFogf(GL_FOG_END, 5.0f);
+    static const GLfloat fc[4] = { 0.6f, 0.7f, 0.9f, 1 };
+    glFogfv(GL_FOG_COLOR, fc);
+    GLuint b[3];
+    glGenBuffers(3, b);
+    for (int k = 0; k < 3; k++) {
+        static vmundo_t v[4 * 4 * 6];
+        int n = 0;
+        for (int j = 0; j < 4; j++)
+            for (int i = 0; i < 4; i++) {
+                float x0 = (float)(i - 2) * 0.9f + (float)k * 3.0f - 3.0f, z0 = (float)(j - 2) * 0.9f, y = (float)((i + j + k) % 3) * 0.3f - 0.5f;
+                const float q[6][2] = { { 0, 0 }, { 0, 1 }, { 1, 1 }, { 0, 0 }, { 1, 1 }, { 1, 0 } };
+                for (int c = 0; c < 6; c++) {
+                    vmundo_t *p = &v[n++];
+                    p->x = x0 + q[c][0] * 0.9f; p->z = z0 + q[c][1] * 0.9f; p->y = y; p->s = q[c][0]; p->t = q[c][1];
+                    p->cor[0] = (GLubyte)(120 + i * 40); p->cor[1] = (GLubyte)(255 - j * 50); p->cor[2] = (GLubyte)(90 + k * 70); p->cor[3] = 255;
+                }
+            }
+        glBindBuffer(GL_ARRAY_BUFFER, b[k]);
+        glBufferData(GL_ARRAY_BUFFER, sizeof v, v, GL_STATIC_DRAW);
+    }
+    glEnableClientState(GL_VERTEX_ARRAY); glEnableClientState(GL_TEXTURE_COORD_ARRAY); glEnableClientState(GL_COLOR_ARRAY);
+    for (int pase = 0; pase < 2; pase++)      /* dos veces: la segunda no sube nada */
+        for (int k = 0; k < 3; k++) {
+            glBindBuffer(GL_ARRAY_BUFFER, b[k]);
+            glVertexPointer(3, GL_FLOAT, sizeof(vmundo_t), (void *)0);
+            glTexCoordPointer(2, GL_FLOAT, sizeof(vmundo_t), (void *)12);
+            glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(vmundo_t), (void *)20);
+            glDrawArrays(GL_TRIANGLES, 0, 4 * 4 * 6);
+        }
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glDeleteBuffers(3, b);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY); glDisableClientState(GL_COLOR_ARRAY);
+    glDisable(GL_FOG); glDisable(GL_ALPHA_TEST); glDisable(GL_CULL_FACE); glDisable(GL_DEPTH_TEST); glDisable(GL_TEXTURE_2D);
+}
+
+/* Búferes separados, índices en un búfer, matriz de textura, color constante, tira y abanico, y un trozo
+ * cambiado con glBufferSubData entre dos dibujos. */
+static void cena_vbo_indices(void)
+{
+    base_(0);
+    textura(6, GL_RGBA); glEnable(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glMatrixMode(GL_TEXTURE); glLoadIdentity(); glTranslatef(0.25f, 0, 0); glScalef(1.5f, 0.75f, 1); glMatrixMode(GL_MODELVIEW);
+    static GLfloat pos[9 * 3], tc[9 * 2];
+    static const GLushort idx[] = { 0, 1, 3, 1, 4, 3, 1, 2, 4, 2, 5, 4,   3, 4, 6, 7,   4, 5, 8, 7 };
+    for (int i = 0; i < 9; i++) { pos[i * 3] = (float)(i % 3) - 1.0f; pos[i * 3 + 1] = (float)(i / 3) - 1.0f; pos[i * 3 + 2] = (i == 4) ? 0.5f : 0.0f; tc[i * 2] = (float)(i % 3) * 0.5f; tc[i * 2 + 1] = (float)(i / 3) * 0.5f; }
+    GLuint b[3];
+    glGenBuffers(3, b);
+    glBindBuffer(GL_ARRAY_BUFFER, b[0]); glBufferData(GL_ARRAY_BUFFER, sizeof pos, pos, GL_DYNAMIC_DRAW);
+    glEnableClientState(GL_VERTEX_ARRAY); glVertexPointer(3, GL_FLOAT, 0, (void *)0);
+    glBindBuffer(GL_ARRAY_BUFFER, b[1]); glBufferData(GL_ARRAY_BUFFER, sizeof tc, tc, GL_STATIC_DRAW);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY); glTexCoordPointer(2, GL_FLOAT, 0, (void *)0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, b[2]); glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof idx, idx, GL_STATIC_DRAW);
+    glColor4f(1, 0.8f, 0.6f, 1);
+    glDrawElements(GL_TRIANGLES, 12, GL_UNSIGNED_SHORT, (void *)0);
+    /* se mueve el vértice 7 y se dibujan la tira y el abanico */
+    static const GLfloat novo[3] = { 0.2f, 1.3f, 0.3f };
+    glBindBuffer(GL_ARRAY_BUFFER, b[0]); glBufferSubData(GL_ARRAY_BUFFER, 7 * 12, sizeof novo, novo);
+    glColor4f(0.6f, 1, 0.7f, 1);
+    glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_SHORT, (void *)(12 * 2));
+    glDrawElements(GL_TRIANGLE_FAN, 4, GL_UNSIGNED_SHORT, (void *)(16 * 2));
+    glBindBuffer(GL_ARRAY_BUFFER, 0); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    glDeleteBuffers(3, b);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glMatrixMode(GL_TEXTURE); glLoadIdentity(); glMatrixMode(GL_MODELVIEW);
+    glDisable(GL_TEXTURE_2D);
+}
+
+/* Lo que v3 no lleva (luces) con los arrays en búferes: debe ir por la CPU (v2) y dar lo mismo. */
+static void cena_vbo_luz(void)
+{
+    base_(0);
+    glEnable(GL_LIGHTING); glEnable(GL_LIGHT0); glEnable(GL_COLOR_MATERIAL);
+    static const GLfloat pos[12] = { -1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0 };
+    GLuint b;
+    glGenBuffers(1, &b);
+    glBindBuffer(GL_ARRAY_BUFFER, b); glBufferData(GL_ARRAY_BUFFER, sizeof pos, pos, GL_STATIC_DRAW);
+    glEnableClientState(GL_VERTEX_ARRAY); glVertexPointer(3, GL_FLOAT, 0, (void *)0);
+    glNormal3f(0, 0, 1); glColor4f(0.9f, 0.5f, 0.3f, 1);
+    glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glDeleteBuffers(1, &b);
+    glDisable(GL_COLOR_MATERIAL); glDisable(GL_LIGHT0); glDisable(GL_LIGHTING);
+}
+#endif
+
 typedef void (*cena_f)(void);
 static const cena_f cenas[] = { cena_combine, cena_fragmentos, cena_cubo_niebla, cena_v1 };
 static const char *nomes[] = { "combine", "fragmentos", "cubo_niebla", "v1" };
@@ -442,6 +632,48 @@ int main(void)
             if (!ok) mal++;
         }
     }
+#ifdef FALSA_V3
+    /* D457: las escenas con búferes, por software, por v2 (la CPU transforma) y por v3 (la GPU falsa guarda y
+     * transforma); y con poca «memoria de GPU», para que haya expulsiones. */
+    static const cena_f cenas3[] = { cena_vbo_mundo, cena_vbo_indices, cena_vbo_luz };
+    static const char *nomes3[] = { "vbo_mundo", "vbo_indices", "vbo_luz" };
+    static uint32_t ref[W * H];
+    bits_anunciados = 0xFFFFFFFFu & ~(G3D_CAP_TEX_MIPMAP | G3D_CAP_DESTINO_TEX | G3D_CAP_TEX_ANISO | G3D_CAP_TEX_NPOT_MIP);
+    for (int n = 0; n < 3; n++) {
+        sgl_ctx_t *c = sgl_criar_contexto_mem(ref, W, H, 32);
+        cenas3[n](); glFinish();
+        sgl_destruir_contexto(c);
+        for (int modo = 0; modo < 4; modo++) {
+            /* 0: sin v3; 1: v3; 2: v3 con memoria para un solo búfer del mundo; 3: v3 sin niebla en los píxeles (mezclada en el vértice) */
+            bits3_anunciados = modo ? G3D_V3_CPU_BITS3 : 0;
+            falsa_vb_max = modo == 2 ? 2400u : 1u << 20;
+            uint32_t bits_antes = bits_anunciados;
+            if (modo == 3) bits_anunciados &= ~G3D_CAP_NEBLINA;
+            n_v1 = n_v2 = n_v3 = n_rechazos = n_vb_subidas = n_vb_trozos = n_vb_expulsos = n_transf = n_estado2 = 0;
+            c = sgl_criar_contexto_mem(g, W, H, 32);
+            if (!sgl_gpu_ligar(c)) { printf("no se pudo ligar la GPU falsa\n"); return 1; }
+            cenas3[n](); glFinish();
+            sgl_destruir_contexto(c);
+            bits_anunciados = bits_antes;
+            int dif = 0;
+            for (int i = 0; i < W * H; i++)
+                for (int sh = 0; sh < 24; sh += 8) {
+                    int d = (int)((ref[i] >> sh) & 255) - (int)((g[i] >> sh) & 255);
+                    if (d > 12 || d < -12) { dif++; break; }
+                }
+            int ok = dif <= W * H / 20;
+            if (modo == 0 && (n_v3 || n_vb_subidas)) ok = 0;                 /* sin v3 anunciado no se usa */
+            if (modo && n == 0 && (n_v3 != 6 || n_v2 || n_v1)) ok = 0;       /* el mundo, entero por v3 */
+            if (modo == 1 && n == 0 && (n_vb_subidas != 3 || n_transf != 1)) ok = 0;   /* cada búfer se sube una vez; una transformación */
+            if (modo == 2 && n == 0 && (!n_vb_expulsos || n_vb_subidas <= 3)) ok = 0;  /* con poca memoria: expulsa y vuelve a subir */
+            if (modo == 1 && n == 1 && (n_v3 != 3 || n_vb_subidas != 3 || n_vb_trozos != 1 || n_v2 || n_v1)) ok = 0;   /* glBufferSubData: solo el trozo */
+            if (n == 2 && (n_v3 || n_vb_subidas || !(n_v2 + n_v1))) ok = 0;  /* con luces, por la CPU */
+            printf("v3 modo %d %s: %d pixeles distintos, %d dibujos v3, %d lotes v2, %d v1, %d subidas, %d trozos, %d expulsiones, %d TRANSF, %d ESTADO2, %d rechazos: %s\n",
+                   modo, nomes3[n], dif, n_v3, n_v2, n_v1, n_vb_subidas, n_vb_trozos, n_vb_expulsos, n_transf, n_estado2, n_rechazos, ok ? "bien" : "MAL");
+            if (!ok) mal++;
+        }
+    }
+#endif
     printf("gpu_falsa: %s\n", mal ? "MAL" : "bien");
     return mal ? 1 : 0;
 }

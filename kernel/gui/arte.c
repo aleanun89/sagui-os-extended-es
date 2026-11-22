@@ -1118,6 +1118,101 @@ static const char *const jabuti[] = {   /* Jabuti: una tortuga vista desde arrib
     "................",
 };
 
+static const char *const visorlogs[] = {   /* Visor de registros: una ventana con líneas verde, ámbar y roja, y una lupa (D463; dibujo propio) */
+    "................",
+    ".PPPPPPPPPPPPP..",
+    ".PVVVVVVVVVVVP..",
+    ".PBBBBBBBBBBBP..",
+    ".PBGBccccccBBP..",
+    ".PBBBBBBBBBBBP..",
+    ".PBYBcccccBBBP..",
+    ".PBBBBBBBBBBBP..",
+    ".PBrBccccccBBP..",
+    ".PBBBBBBBPPPPP..",
+    ".PBGBcccBPsssP..",
+    ".PBBBBBBBPsbsP..",
+    ".PPPPPPPPPPPPP..",
+    "..............P.",
+    "...............P",
+    "................",
+};
+
+static const char *const snake[] = {   /* Snake: una serpiente verde en zigzag que va hacia una manzana (D463; dibujo propio) */
+    "................",
+    ".PPPPPPPPPPPP...",
+    ".PGGGGGGGGGGP...",
+    ".PGggggggggGP...",
+    ".PPPPPPPPPGGP...",
+    ".........PGGP...",
+    ".PPPPPPPPPGGP...",
+    ".PGBGGGGGGGGP.rr",
+    ".PGGggggggggP.rr",
+    ".PPPPPPPPPPPP...",
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+};
+
+static const char *const capibara[] = {   /* Capibara: la cara de un capibara visto de frente (D452; dibujo propio) */
+    "................",
+    "................",
+    "..PP........PP..",
+    ".PEEP......PEEP.",
+    ".PEMPPPPPPPPMEP.",
+    "..PMMMMMMMMMMP..",
+    ".PMMMMMMMMMMMMP.",
+    ".PMMPPMMMMPPMMP.",
+    ".PMMPbMMMMPbMMP.",
+    ".PMMMMMMMMMMMMP.",
+    ".PMMMMEEEEMMMMP.",
+    "..PMMEPPPPEMMP..",
+    "..PMMEEEEEEMMP..",
+    "...PMMMMMMMMP...",
+    "....PPPPPPPP....",
+    "................",
+};
+
+static const char *const capibara_editor[] = {   /* Capibara: editor: la cara del capibara con un lápiz (D460; dibujo propio) */
+    "................",
+    "..PP........PP..",
+    ".PEEP......PEEP.",
+    ".PEMPPPPPPPPMEP.",
+    "..PMMMMMMMMMMP..",
+    ".PMMPPMMMMPPMMP.",
+    ".PMMPbMMMMPbMMP.",
+    ".PMMMMMMMMMMMMP.",
+    ".PMMMMEEEEMMMPYP",
+    "..PMMEPPPPEMPYAP",
+    "..PMMEEEEEEPYAP.",
+    "...PMMMMMMPYAP..",
+    "....PPPPPPYAP...",
+    "..........PP....",
+    "................",
+    "................",
+};
+
+static const char *const ayuda[] = {   /* Ayuda (D455): un cuadro azul con una interrogación blanca */
+    "................",
+    "...PPPPPPPPPP...",
+    "..PVVVVVVVVVVP..",
+    ".PVVVVBBBBVVVVP.",
+    ".PVVVBBVVBBVVVP.",
+    ".PVVVBBVVBBVVVP.",
+    ".PVVVVVVVBBVVVP.",
+    ".PVVVVVVBBVVVVP.",
+    ".PVVVVVBBVVVVVP.",
+    ".PVVVVVBBVVVVVP.",
+    ".PVVVVVVVVVVVVP.",
+    ".PVVVVVBBVVVVVP.",
+    ".PVVVVVBBVVVVVP.",
+    "..PVVVVVVVVVVP..",
+    "...PPPPPPPPPP...",
+    "................",
+};
+
 static const char *const brumacanto[] = {   /* Brumacanto: un bloque con hierba arriba (D444; dibujo propio) */
     "................",
     ".......PP.......",
@@ -1448,8 +1543,13 @@ const desenho_t arte_mini_buscaminas  = { buscaminas, 16, 16 };   /* D248: el Bu
 const desenho_t arte_mini_jclic       = { jclic, 16, 16 };   /* D185: actividades JClic */
 const desenho_t arte_mini_jclicbajar  = { jclicbajar, 16, 16 };   /* D185: bajar actividades JClic */
 const desenho_t arte_mini_jabuti      = { jabuti, 16, 16 };   /* D377: Jabuti */
+const desenho_t arte_mini_visorlogs   = { visorlogs, 16, 16 };   /* D463: el Visor de registros */
+const desenho_t arte_mini_snake       = { snake, 16, 16 };   /* D463: Snake */
+const desenho_t arte_mini_ayuda       = { ayuda, 16, 16 };   /* D455: la aplicación Ayuda */
 const desenho_t arte_mini_aoen        = { aoen, 16, 16 };     /* D382: AoEN */
 const desenho_t arte_mini_brumacanto  = { brumacanto, 16, 16 };   /* D444: Brumacanto */
+const desenho_t arte_mini_capibara    = { capibara, 16, 16 };   /* D452: Capibara */
+const desenho_t arte_mini_capibara_editor = { capibara_editor, 16, 16 };   /* D460: el editor de Capibara */
 #ifndef SAGUI_SEM_GPL
 const desenho_t arte_mini_tyrian      = { tyrian, 16, 16 };   /* D180: o OpenTyrian */
 const desenho_t arte_mini_netsurf     = { netsurf, 16, 16 };  /* D184: el navegador NetSurf */

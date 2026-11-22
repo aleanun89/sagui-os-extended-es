@@ -4,7 +4,57 @@ La pila IPv4 está en `kernel/rede/` (`rede.c`: Ethernet, ARP, IP, ICMP, UDP, DH
 tarea «rede»; `tcp.c`: TCP; `socket.c`: los sockets; `tunel.c`: WireGuard). Corre siempre con
 las interrupciones apagadas: en la interrupción de la tarjeta (`ao_irq`) o en la tarea «rede».
 Los drivers que necesitan esperar (Wi-Fi USB, Ethernet USB) nunca entran en la pila: dejan las
-tramas en una cola y su propia tarea las mueve (D215, D433).
+tramas en una cola y su propia tarea las mueve (D215, D433). La elección de la ruta tampoco espera
+ni cede la CPU: solo mira el estado de las interfaces que la tarea «rede» ya leyó.
+
+## Varias interfaces a la vez (D445)
+
+Desde la v8.5.5.3 la pila tiene **varias interfaces activas a la vez** (hasta 4): las tarjetas PCI
+(`eth0`, `eth1`... en el orden en que se buscan: e1000, RTL8139, NE2000 PCI, RTL8169/Atheros),
+el Ethernet USB (`ure`, D433: `eth0` si no hay tarjeta PCI, si no la siguiente) y la Wi-Fi (`wlan0`,
+D215, cuando está conectada). Antes había una sola: la Wi-Fi conectada aparcaba la `eth0` y el
+USB solo se usaba sin tarjeta PCI.
+
+- **Cada interfaz** (`iface_t` en `rede.c`) tiene su tarjeta, su dirección, máscara, puerta de
+  enlace y DNS, su DHCP (estado, xid, concesión) y su desactivación (`ifconfig eth1 down`). Las
+  entradas ARP y los paquetes que esperan respuesta ARP son de una interfaz; un ARP solo se
+  contesta por la dirección de la interfaz por la que llegó.
+- **Rutas** (sin tabla aparte, salen de las interfaces, como en Linux con una dirección por
+  interfaz; `ifconfig route` o `ip route` las enseña):
+  1. la **red local** de cada interfaz con dirección (`ip & máscara`, sin puerta de enlace); si
+     dos interfaces están en la misma red, gana la de máscara más larga y, a igualdad, la mejor por
+     métrica;
+  2. una **ruta por defecto** por cada interfaz con puerta de enlace, con su **métrica** (cable 100,
+     Wi-Fi 600; `ifconfig eth1 metric 50` o Configuración > Red > Interfaces): gana la de métrica
+     menor **entre las que tienen enlace y no están desactivadas**; si ninguna lo tiene, la de métrica
+     menor igualmente (con una sola tarjeta, sin cable, se intenta como siempre). A igualdad de
+     métrica, la de índice menor (`eth0` antes que `eth1`).
+  3. **El origen manda**: un paquete cuya dirección de origen es de una interfaz que puede llevarlo
+     (está en su red local, o tiene puerta de enlace) sale por esa interfaz. El TCP guarda la dirección
+     local de cada conexión (la que usó al abrirla, o a la que llegó el SYN): las conexiones siguen por
+     su interfaz aunque cambie la ruta por defecto, y las respuestas a una conexión entrante salen con
+     la dirección a la que se llamó. Las respuestas a un ping, igual.
+- **Al caer una interfaz** (sin enlace, desactivada, el USB retirado o la Wi-Fi desconectada), la ruta
+  por defecto pasa sola a la siguiente; la tarea «rede» mira el enlace de cada tarjeta en cada vuelta
+  (`atualizar_enlaces`) y, con más de una interfaz, deja en el registro `[REDE] eth0: enlace caído` y
+  `[REDE] ruta por defecto: eth1 (puerta 10.0.3.2)`. Las conexiones TCP que iban por la que cayó se
+  pierden (su dirección ya no sale por ningún sitio que la conozca); al cambiar de red por defecto se
+  vacía la caché de DNS.
+- **La interfaz principal** es la de la ruta por defecto (o, si no hay, la primera con dirección): la
+  que ven las llamadas sin nombre de interfaz (`REDE_CONSULTAR`, `INFO_REDE`, la bandeja de la barra,
+  la línea del arranque), y **su DNS es el del sistema**. `SIS_CONFIG_REDE` lleva en el tercer argumento
+  el nombre de la interfaz (`"eth1"`; 0 = la principal: todo lo compilado antes sigue igual).
+- **ABI**: `info_rede_t` gana `metrica`, `rota_padrao`, `usb` y `wifi` sacados de los últimos 8 bytes de
+  `diagnostico` (el tamaño no cambia); `info_arp_t.interface` (antes `reservado`) dice de qué interfaz es
+  cada entrada; `INFO_INTERFACES` da hasta 6 (las físicas en orden, `wg0` y `lo`); `REDE_METRICA` (11).
+- **IRQ**: una sola función (`ao_irq`) para todas las líneas de las tarjetas; dos tarjetas pueden
+  compartir línea. Una tormenta en una línea sin dueño pasa todas a sondeo.
+- **Límites**: cada driver lleva una sola tarjeta (dos e1000: solo la primera); sin enrutamiento entre
+  interfaces (SaguiOS no reenvía paquetes de una red a otra); la dirección fija y el DNS a mano se
+  ponen con `ifconfig` (Configuración solo renueva, activa/desactiva y cambia la prioridad); la métrica
+  no se guarda entre arranques.
+- **Con una sola tarjeta nada cambia**: mismos nombres, mismos mensajes del registro y de `ifconfig`
+  (la métrica y la ruta por defecto solo se enseñan con más de una interfaz).
 
 ## Recepción (D437)
 

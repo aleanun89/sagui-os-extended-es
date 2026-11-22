@@ -180,7 +180,8 @@ def instalar_4k(origem):
         esperar_escritorio(m, "[boot 4K]")
         s = m.serial()
         verificar("es el disco de arranque (GPT: cabecera en nvme0p" in s, "arranca del NVMe de 4096 por UEFI y el kernel lo reconoce")
-        verificar("[CONF] SAGUI-CONF en" in s, "SAGUI-CONF del NVMe de 4096 montada")
+        verificar("[CONF] SAGUI-CONF en" in s or "[CONF] /root en la raiz del disco" in s,
+                  "SAGUI-CONF del NVMe de 4096 montada (D379: o fundida en la raíz instalada)")
 
 
 def main():

@@ -181,7 +181,7 @@ def gpt_desde_uefi(origem):
 def arrancar_gpt(dest):
     setor = cabecera_gpt(dest)
     # 1) en modo terminal (la cabecera viene de la imagen de origen, --console): disco, SAGUI-CONF y pantalla --guardar
-    terceiro = disco_vazio("h270-mbr-desde-gpt", 400)
+    terceiro = disco_vazio("h270-mbr-desde-gpt", 700)
     with Maquina("h270-gpt-term", "ide", imagem=dest, firmware="x64", snapshot=False,
                  extras=["-drive", f"file={terceiro},if=ide,index=2,format=raw"]) as m:
         esperar_prompt(m, "[GPT x64]")

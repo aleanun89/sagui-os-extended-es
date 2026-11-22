@@ -197,13 +197,61 @@ msgstr "Choose a folder:"
 msgid "Carpeta:"
 msgstr "Folder:"
 
-#: userland/libsagui/gui_arquivos.c:1024
+#: userland/libsagui/gui_arquivos.c:1024 userland/libsagui/gui_selcor.c:278
 msgid "Aceptar"
 msgstr "OK"
 
 #: userland/libsagui/gui_cinta.c:434 userland/libsagui/gui_cinta.c:434
 msgid "Más"
 msgstr "More"
+
+#: userland/libsagui/gui_codigo.c:354
+msgid "Edición de texto"
+msgstr "Text edit"
+
+#: userland/libsagui/gui_codigo.c:487
+msgid "Buscar"
+msgstr "Find"
+
+#: userland/libsagui/gui_codigo.c:493
+msgid "sin resultados"
+msgstr "no results"
+
+#: userland/libsagui/gui_codigo.c:493
+msgid "Intro: siguiente · Esc: cerrar"
+msgstr "Enter: next · Esc: close"
+
+#: userland/libsagui/gui_codigo.c:599 userland/libsagui/gui_codigo.c:884
+msgid "Escribir"
+msgstr "Type"
+
+#: userland/libsagui/gui_consola.c:105
+msgid "Mensajes"
+msgstr "Messages"
+
+#: userland/libsagui/gui_consola.c:105
+msgid "Avisos"
+msgstr "Warnings"
+
+#: userland/libsagui/gui_consola.c:105
+msgid "Errores"
+msgstr "Errors"
+
+#: userland/libsagui/gui_consola.c:110
+msgid "Copiar"
+msgstr "Copy"
+
+#: userland/libsagui/gui_consola.c:110 userland/libsagui/gui_consola.c:112
+msgid "Limpiar"
+msgstr "Clear"
+
+#: userland/libsagui/gui_inspetor.c:453
+msgid "Elegir color"
+msgstr "Choose color"
+
+#: userland/libsagui/gui_inspetor.c:461
+msgid "Elegir archivo"
+msgstr "Choose file"
 
 #: userland/libsagui/opcoes_kernel.c:11
 msgid "Paginación PAE (más de 4 GB)"

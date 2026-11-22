@@ -150,7 +150,17 @@ typedef struct {
     uint8_t *dados;
     int      tam, uso;
     int      mapeado;
+    uint32_t ger;          /* D457: cambia con el contenido (la copia de la GPU caduca) */
+    short    vaga3[2];     /* D457: hueco + 1 del búfer en la GPU como vértices [0] y como índices [1]; 0 = ninguno */
 } vbo_t;
+
+#ifdef SGL_TEM_GPU
+static void es_vb_mudou(vbo_t *b, int desl, int tam);   /* D457: el contenido cambió (tam < 0: todo) */
+static void es_vb_soltar(vbo_t *b);
+#else
+#define es_vb_mudou(b, desl, tam) ((void)0)
+#define es_vb_soltar(b) ((void)0)
+#endif
 
 static vbo_t *vbo_por_id(GLuint id)
 {
@@ -173,6 +183,7 @@ static vbo_t *vbo_novo(GLuint id)
         C->bufs = nb; C->n_bufs = n; b = nb;
     }
     b[i].id = id; b[i].usado = 1; b[i].dados = 0; b[i].tam = 0; b[i].uso = GL_STATIC_DRAW; b[i].mapeado = 0;
+    b[i].ger = 1; b[i].vaga3[0] = b[i].vaga3[1] = 0;
     return &b[i];
 }
 
@@ -234,6 +245,7 @@ void glBufferData(GLenum alvo, GLsizeiptr tam, const GLvoid *dados, GLenum uso)
     }
     if (b->dados) SGL_LIBERAR(b->dados);
     b->dados = d; b->tam = (int)tam; b->uso = (int)uso; b->mapeado = 0;
+    es_vb_mudou(b, 0, -1);
 }
 
 void glBufferSubData(GLenum alvo, GLintptr desl, GLsizeiptr tam, const GLvoid *dados)
@@ -245,6 +257,7 @@ void glBufferSubData(GLenum alvo, GLintptr desl, GLsizeiptr tam, const GLvoid *d
     GPU_DESPEJAR();
     const uint8_t *s = (const uint8_t *)dados;
     for (GLsizeiptr i = 0; i < tam; i++) b->dados[desl + i] = s[i];
+    es_vb_mudou(b, (int)desl, (int)tam);
 }
 
 static void vbo_soltar_ligacoes(GLuint id)
@@ -269,6 +282,7 @@ void glDeleteBuffers(GLsizei n, const GLuint *ids)
         if (!ids[i]) continue;
         vbo_t *b = vbo_por_id(ids[i]);
         if (!b) continue;
+        es_vb_soltar(b);
         if (b->dados) SGL_LIBERAR(b->dados);
         b->dados = 0; b->usado = 0;
         vbo_soltar_ligacoes(ids[i]);
@@ -298,6 +312,7 @@ void *glMapBufferOES(GLenum alvo, GLenum acesso)
     if (b->mapeado) { erro(GL_INVALID_OPERATION); return 0; }
     GPU_DESPEJAR();
     b->mapeado = 1;
+    es_vb_mudou(b, 0, -1);
     return b->dados;
 }
 
@@ -308,6 +323,7 @@ GLboolean glUnmapBufferOES(GLenum alvo)
     if (!b) return GL_FALSE;
     if (!b->mapeado) { erro(GL_INVALID_OPERATION); return GL_FALSE; }
     b->mapeado = 0;
+    es_vb_mudou(b, 0, -1);
     return GL_TRUE;
 }
 
@@ -1761,12 +1777,18 @@ static const char es_extensoes[] =
     "GL_OES_texture_cube_map GL_OES_texture_mirrored_repeat GL_OES_texture_npot "
     "GL_EXT_texture_compression_dxt1 GL_EXT_texture_compression_s3tc GL_EXT_texture_filter_anisotropic";
 
+#ifdef SGL_TEM_GPU
+static void es_gpu_capas(void);   /* de mas abajo: glGetString(GL_RENDERER) dice si el driver tiene v3 */
+#endif
+
 const GLubyte *glGetString(GLenum nome)
 {
     switch (nome) {
     case GL_VENDOR: return (const GLubyte *)"SaguiOS";
 #ifdef SGL_TEM_GPU
-    case GL_RENDERER: return (const GLubyte *)(C && C->gpu ? "SaguiGL (GPU)" : "SaguiGL (software)");
+    /* los programas (Brumacanto, D444) eligen su carga segun esto: sin GPU, con GPU (v1/v2) o con GPU y gpu3d v3 (D457) */
+    case GL_RENDERER: if (C && C->gpu) es_gpu_capas();
+        return (const GLubyte *)(C && C->gpu ? (C->gpu_bits3 ? "SaguiGL (GPU v3)" : "SaguiGL (GPU)") : "SaguiGL (software)");
 #else
     case GL_RENDERER: return (const GLubyte *)"SaguiGL (software)";
 #endif
@@ -3397,7 +3419,8 @@ static void es_gpu_capas(void)
     for (unsigned i = 0; i < sizeof k; i++) p[i] = 0;
     if (gpu_chamar(GPU3D_OP_CAPACIDADES, 0, 0, 0, &k) == 0 && k.versao >= 2) {
         C->gpu_bits = k.bits; C->gpu_unid = k.unidades; C->gpu_formatos = k.formatos;
-    } else { C->gpu_bits = 0; C->gpu_unid = 1; C->gpu_formatos = 1; }
+        C->gpu_bits3 = gpu_v3 && (k.bits & G3D_CAP_V2) ? k.bits3 : 0;   /* D457 */
+    } else { C->gpu_bits = 0; C->gpu_unid = 1; C->gpu_formatos = 1; C->gpu_bits3 = 0; }
     C->gpu_capas_ok = 1;
 }
 
@@ -3484,6 +3507,7 @@ static uint32_t es_argb(const float *c) { return ((uint32_t)es_byte(c[3]) << 24)
 
 static int es_pot2(int n) { return n > 0 && (n & (n - 1)) == 0; }
 
+static int es_e2_v3;     /* D457: el estado se calcula para un dibujo v3 */
 static int es_neb_cpu;   /* D451: la niebla de este dibujo v2 va mezclada en el vértice (el driver no la tiene) */
 
 /* El estado de este dibujo en gpu3d v2 (sin los huecos de textura). 0: no cabe en lo anunciado. */
@@ -3563,7 +3587,12 @@ static int es_estado2(gpu3d_estado2_t *e)
         if (!classico) falta |= G3D_CAP_COMBINAR;
         if (x->rgb_f == GL_DOT3_RGB || x->rgb_f == GL_DOT3_RGBA) falta |= G3D_CAP_DOT3;
         if (x->tex_cor_zero) falta |= G3D_CAP_COMBINAR;   /* textura GL_ALPHA en COMBINE: el driver no lo sabe */
-        if (!mat_e_identidade(C->un[i].mat[C->un[i].mat_n - 1])) falta |= G3D_CAP_TEX_PROJ;
+        {
+            /* D457: en v3 la matriz de textura la aplica la GPU; sin fila de proyección la q sigue siendo 1 */
+            const float *tm = C->un[i].mat[C->un[i].mat_n - 1];
+            int afin = tm[3] == 0.0f && tm[7] == 0.0f && tm[11] == 0.0f && tm[15] == 1.0f;
+            if (!mat_e_identidade(tm) && !(es_e2_v3 && afin)) falta |= G3D_CAP_TEX_PROJ;
+        }
     }
     return (b & G3D_CAP_V2) && !(falta & ~b);
 }
@@ -3710,7 +3739,11 @@ static gpu3d_vert2_t *es_v2;     /* el lote (uno por proceso, como el motor) */
 static int es_n2;
 static gpu3d_estado2_t es_e2;
 
-static void es_gpu_soltar2(void) { es_n2 = 0; if (es_v2) { SGL_LIBERAR(es_v2); es_v2 = 0; } }
+/* D457: el último ESTADO2 que aceptó el kernel (los dibujos v3 solo lo mandan si cambia) y lo de v3 */
+static gpu3d_estado2_t es_k2;
+static int es_k2_ok;
+static void es_v3_reiniciar(void);
+static void es_gpu_soltar2(void) { es_n2 = 0; if (es_v2) { SGL_LIBERAR(es_v2); es_v2 = 0; } es_k2_ok = 0; es_v3_reiniciar(); }
 
 /* Manda el lote v2. Si el kernel dice que no, el resto del cuadro va por software y este
  * contexto deja v2 (lo que ya estaba en el lote se pierde en este cuadro, como en v1). */
@@ -3720,6 +3753,8 @@ static void es_gpu_despejar2(void)
     int n = es_n2;
     es_n2 = 0;
     int r = gpu_chamar(GPU3D_OP_ESTADO2, 0, 0, 0, &es_e2);
+    es_k2_ok = r == 0;
+    if (r == 0) es_k2 = es_e2;
     unsigned tk = C->perfil > 0 ? SGL_MS() : 0;
     if (r == 0) r = gpu_chamar(GPU3D_OP_TRIANGULOS2, (unsigned)n, 0, 0, es_v2);
     if (C->perfil > 0) C->pf_ms_kernel += SGL_MS() - tk;
@@ -4010,11 +4045,305 @@ static int es_gpu_limpar2(GLbitfield m)
 }
 
 /* Fin de cuadro (glClear de color y Z): vuelta a la GPU si el cuadro por software habría cabido. */
+/* ------------------------------------------------------------ gpu3d v3 (D457): la GPU guarda y transforma los vértices
+ *
+ * Si el driver anuncia G3D_C3_V3, un glDrawArrays/glDrawElements cuyos arrays están todos en búferes (VBO) y
+ * cuyo estado cabe en lo anunciado no pasa por la tubería de la CPU: los búferes se suben una vez a la memoria de
+ * la GPU (y solo otra vez cuando cambian: glBufferData entero, glBufferSubData el trozo) y cada dibujo son tres
+ * llamadas cortas como mucho (estado de píxeles si cambió, transformación si cambió, dibujar). Lo que no cabe
+ * (arrays del cliente, luces, planos de recorte, desplazamiento del polígono, sombreado plano, generación de
+ * coordenadas, puntos y líneas, tipos que no sean float o el color de 4 bytes...) va como siempre, por la CPU
+ * (v2/v1/software), dibujo a dibujo: las dos formas pintan en el mismo destino de la GPU. */
+
+static struct { GLuint id; uint32_t ger, rel; int uso; } es_vb[GPU3D_VBUFS];
+static uint32_t es_vb_rel;
+_Static_assert(__builtin_offsetof(gpu3d_transf_t, cor) == 113 * 4 && __builtin_offsetof(gpu3d_transf_t, neb_cor) == 135 * 4,
+               "es_v3_desenhar mira que las palabras 2..134 (salvo cor) sean finitas");
+static gpu3d_transf_t es_t3;       /* la última transformación que aceptó el kernel */
+static int es_t3_ok, es_v3_recusas;
+/* Revisión de D457 (Amilo): si lo que se dibuja en un cuadro no cabe en la memoria de la GPU para búferes, cada dibujo
+ * expulsa a otro y se vuelve a subir (Brumacanto con 4 MB: 165 000 expulsiones, mucho más lento que sin v3). Las subidas
+ * por expulsión de cada cuadro se cuentan; tras ES_V3_MAUS cuadros seguidos con más de ES_V3_EXP_MAX, v3 se deja (la
+ * CPU transforma, como sin v3) y se sueltan los búferes. */
+#define ES_V3_EXP_MAX 24
+#define ES_V3_MAUS    3
+static int es_v3_exp_q, es_v3_maus;
+
+static void es_v3_reiniciar(void)
+{
+    for (int i = 0; i < GPU3D_VBUFS; i++) es_vb[i].id = 0;
+    es_t3_ok = 0; es_v3_recusas = 0; es_v3_exp_q = es_v3_maus = 0;
+}
+
+/* ¿Sigue siendo de b ese hueco? */
+static int es_vb_tem(const vbo_t *b, int uso)
+{
+    int s = b->vaga3[uso] - 1;
+    return s >= 0 && es_vb[s].id == b->id && es_vb[s].uso == uso ? s : -1;
+}
+
+static void es_vb_soltar(vbo_t *b)
+{
+    for (int uso = 0; uso < 2; uso++) {
+        int s = es_vb_tem(b, uso);
+        b->vaga3[uso] = 0;
+        if (s < 0) continue;
+        es_vb[s].id = 0;
+        if (C && C->gpu) {
+            gpu3d_vbuf_t q = { (unsigned)s, (unsigned)uso, 0, 0, 0, 0, 0, 0 };
+            gpu_chamar(GPU3D_OP_VBUF, 0, 0, 0, &q);
+        }
+    }
+}
+
+/* El contenido de b cambió. Un trozo de un búfer que está al día en la GPU se sube ya (glBufferSubData); si no
+ * se puede, o cambió entero, la copia caduca y se vuelve a subir con el próximo dibujo que lo use. */
+static void es_vb_mudou(vbo_t *b, int desl, int tam)
+{
+    uint32_t antes = b->ger++;
+    if (!b->ger) b->ger = 1;
+    if (tam <= 0 || !C || !C->gpu || !b->dados) return;
+    for (int uso = 0; uso < 2; uso++) {
+        int s = es_vb_tem(b, uso);
+        if (s < 0 || es_vb[s].ger != antes) continue;
+        int d0 = desl, n = tam;
+        if (uso == 1) { n += d0 & 1; d0 &= ~1; n = (n + 1) & ~1; if (d0 + n > (b->tam & ~1)) n = (b->tam & ~1) - d0; }
+        if (n <= 0) { es_vb[s].ger = b->ger; continue; }
+        gpu3d_vbuf_t q = { (unsigned)s, (unsigned)uso, (unsigned)b->tam, (unsigned)d0, (unsigned)n, (unsigned)(unsigned long)(b->dados + d0), 0, 0 };
+#ifdef SGL_GPU_FALSA
+        sgl_falsa_dados = b->dados + d0;
+#endif
+        if (gpu_chamar(GPU3D_OP_VBUF, 0, 0, 0, &q) == 0) es_vb[s].ger = b->ger;
+    }
+}
+
+/* El hueco de la GPU con el contenido actual de b (lo sube si hace falta). -1: no se puede (ese dibujo, por la CPU). */
+static int es_vb_vaga(vbo_t *b, int uso)
+{
+    if (!b || !b->dados || b->tam < 4 || b->tam > (16 << 20) || b->mapeado) return -1;
+    int s = es_vb_tem(b, uso);
+    if (s >= 0 && es_vb[s].ger == b->ger) { es_vb[s].rel = ++es_vb_rel; return s; }
+    if (s < 0) {
+        /* uno libre o, si no, el que lleva más tiempo sin usarse */
+        s = 0;
+        for (int i = 0; i < GPU3D_VBUFS; i++) {
+            if (!es_vb[i].id) { s = i; break; }
+            if (es_vb[i].rel < es_vb[s].rel) s = i;
+        }
+    }
+    es_vb[s].id = 0;
+    unsigned n = uso == 1 ? (unsigned)b->tam & ~1u : (unsigned)b->tam;
+    gpu3d_vbuf_t q = { (unsigned)s, (unsigned)uso, (unsigned)b->tam, 0, n, (unsigned)(unsigned long)b->dados, G3D_VB_NOVO, 0 };
+#ifdef SGL_GPU_FALSA
+    sgl_falsa_dados = b->dados;
+#endif
+    unsigned tk = C->perfil > 0 ? SGL_MS() : 0;
+    int r = gpu_chamar(GPU3D_OP_VBUF, 0, 0, 0, &q);
+    if (C->perfil > 0) C->pf_ms_kernel += SGL_MS() - tk;
+    if (r < 0) { gpu_cair(C); return -1; }
+    if (r > 0) return -1;
+    es_vb[s].id = b->id; es_vb[s].ger = b->ger; es_vb[s].rel = ++es_vb_rel; es_vb[s].uso = uso;
+    b->vaga3[uso] = (short)(s + 1);
+    return s;
+}
+
+/* Un array de floats en un búfer como atributo v3. 0: no vale. */
+static int es_v3_atrib(gpu3d_atrib_t *a, vbo_t **dono, GLuint vbo, const void *ptr, int tipo, int tam, int passo, int formato)
+{
+    vbo_t *b = vbo_por_id(vbo);
+    size_t desl = (size_t)ptr;
+    if (!b || tipo != GL_FLOAT || passo < 4 || passo > 252 || (passo & 3) || (desl & 3) || desl >= (size_t)(16 << 20)) return 0;
+    (void)tam;
+    a->formato = (unsigned char)formato; a->passo = (unsigned char)passo; a->desloc = (unsigned)desl; a->vaga = 0;
+    *dono = b;
+    return 1;
+}
+
+static int es_v3_desenhar(GLenum modo, int primeiro, int n, const void *idx, GLenum tipo)
+{
+    if (!C->gpu || C->fbo || C->gpu_sw) return 0;
+    es_gpu_capas();
+    uint32_t b3 = C->gpu_bits3;
+    if (!(b3 & G3D_C3_V3) || n < 3 || primeiro < 0) return 0;
+    unsigned prim;
+    if (modo == GL_TRIANGLES) { prim = G3D_PRIM_TRIANGULOS; n -= n % 3; }
+    else if ((modo == GL_TRIANGLE_STRIP || modo == GL_TRIANGLE_FAN) && (b3 & G3D_C3_TIRAS) && n <= GPU3D_MAX_VERT3)
+        prim = modo == GL_TRIANGLE_STRIP ? G3D_PRIM_TIRA : G3D_PRIM_ABANICO;
+    else return 0;
+    /* lo que v3 no lleva */
+    if (C->luz_on || C->plano || C->off_on || C->planos || C->paleta_on) return 0;
+    if (C->cull && C->cull_face == GL_FRONT_AND_BACK) return 0;
+    if (C->fog) {
+        if (!(b3 & G3D_C3_NEBLINA) || !C->fog_modo) return 0;
+        if (C->fog_modo != GL_LINEAR && !(b3 & G3D_C3_NEB_EXP)) return 0;
+        if (C->fog_modo == GL_LINEAR && C->fog_fim == C->fog_ini) return 0;
+    }
+    if (C->vx < 0 || C->vy < 0 || C->vw < 1 || C->vh < 1 || C->vx + C->vw > C->larg || C->vy + C->vh > C->alt) return 0;
+    if (!(C->z_perto >= 0.0f && C->z_perto <= 1.0f && C->z_longe >= 0.0f && C->z_longe <= 1.0f)) return 0;
+    /* los arrays: todos en búferes */
+    static gpu3d_transf_t t;
+    uint8_t *tz = (uint8_t *)&t;
+    for (unsigned i = 0; i < sizeof t; i++) tz[i] = 0;
+    gpu3d_desenho3_t d;
+    tz = (uint8_t *)&d;
+    for (unsigned i = 0; i < sizeof d; i++) tz[i] = 0;
+    vbo_t *dono[7] = { 0, 0, 0, 0, 0, 0, 0 };          /* pos, color, tc[0..3], índices */
+    gpu3d_atrib_t *at[6] = { &d.pos, &d.cor_a, &d.tc[0], &d.tc[1], &d.tc[2], &d.tc[3] };
+    if (!C->v_ativo || !C->v_vbo || !es_v3_atrib(&d.pos, &dono[0], C->v_vbo, C->v_ptr, C->v_tipo, C->v_tam, C->v_passo, C->v_tam)) return 0;
+    if (C->c_ativo && (C->c_vbo || C->c_ptr)) {
+        if (!C->c_vbo || C->c_tam != 4) return 0;
+        if (C->c_tipo == GL_UNSIGNED_BYTE) { int tp = GL_FLOAT; if (!es_v3_atrib(&d.cor_a, &dono[1], C->c_vbo, C->c_ptr, tp, 4, C->c_passo, G3D_AT_UBYTE4N)) return 0; }
+        else if (C->c_tipo == GL_FLOAT && (b3 & G3D_C3_COR_FLOAT)) { if (!es_v3_atrib(&d.cor_a, &dono[1], C->c_vbo, C->c_ptr, GL_FLOAT, 4, C->c_passo, G3D_AT_FLOAT4)) return 0; }
+        else return 0;
+    } else t.cor = (gpu_byte(C->cor[3]) << 24) | (gpu_byte(C->cor[0]) << 16) | (gpu_byte(C->cor[1]) << 8) | gpu_byte(C->cor[2]);
+    es_preparar_unidades();
+    for (int u = 0; u < EN; u++) {
+        const unid_t *un = &C->un[u];
+        for (int k = 0; k < 4; k++) t.tc_const[u][k] = es_fbits(un->tc[k]);
+        if (!EU[u].t) continue;
+        if (un->gen_on) return 0;
+        /* una q que puede no ser 1 pide coordenadas proyectivas en el driver (como en v2) */
+        if (!(C->gpu_bits & G3D_CAP_TEX_PROJ) && ((un->t_ativo && (un->t_vbo || un->t_ptr)) ? un->t_tam == 4 : un->tc[3] != 1.0f)) return 0;
+        if (un->t_ativo && (un->t_vbo || un->t_ptr)) {
+            if (!un->t_vbo || !es_v3_atrib(&d.tc[u], &dono[2 + u], un->t_vbo, un->t_ptr, un->t_tipo, un->t_tam, un->t_passo, un->t_tam)) return 0;
+        }
+        const float *tm = un->mat[un->mat_n - 1];
+        if (!mat_e_identidade(tm)) {
+            if (!(b3 & G3D_C3_TEX_MAT)) return 0;
+            t.flags |= G3D3_TEX_MAT(u);
+            for (int k = 0; k < 16; k++) t.tex[u][k] = es_fbits(tm[k]);
+        }
+    }
+    for (int u = EN; u < 4; u++) t.tc_const[u][3] = 0x3F800000u;
+    /* los índices */
+    unsigned primeiro3 = (unsigned)primeiro;
+    if (idx) {
+        vbo_t *bi = C->vbo_elem ? vbo_por_id(C->vbo_elem) : 0;
+        if (!bi || !bi->dados || tipo != GL_UNSIGNED_SHORT || !(b3 & G3D_C3_INDICES)) return 0;
+        size_t desl = (size_t)((const uint8_t *)idx - bi->dados);
+        if ((desl & 1) || desl + (size_t)n * 2 > (size_t)bi->tam) return 0;
+        dono[6] = bi; primeiro3 = (unsigned)(desl / 2);
+    }
+    /* la parte de los píxeles: el estado v2 de siempre (texturas subidas, lo pendiente de v1/v2 entregado) */
+    gpu3d_estado2_t e;
+    es_e2_v3 = 1;
+    int cabe = es_estado2(&e);
+    es_e2_v3 = 0;
+    if (!cabe) return 0;
+    gpu_despejar();
+    if (!C->gpu || C->gpu_sw || !es_gpu_preparar2(&e) || !C->gpu) return 0;
+    /* los búferes, en la GPU */
+    int vg[7];
+    for (int tentativa = 0; ; tentativa++) {
+        for (int k = 0; k < 7; k++) {
+            vg[k] = -1;
+            if (!dono[k]) continue;
+            vg[k] = es_vb_vaga(dono[k], k == 6);
+            if (vg[k] < 0 || !C->gpu) return 0;
+        }
+        /* subir uno puede haber quitado el hueco a otro de este mismo dibujo (todos ocupados): se mira otra vez */
+        int todos = 1;
+        for (int k = 0; k < 7; k++) if (dono[k] && es_vb_tem(dono[k], k == 6) != vg[k]) todos = 0;
+        if (todos) break;
+        if (tentativa >= 2) return 0;
+    }
+    for (int k = 0; k < 6; k++) if (dono[k]) at[k]->vaga = (unsigned short)vg[k];
+    /* la transformación */
+    t.versao = 3;
+    const float *M = C->mv[C->mv_n - 1], *P = C->proj[C->proj_n - 1];
+    for (int col = 0; col < 4; col++)
+        for (int l = 0; l < 4; l++) {
+            float v = P[l] * M[col * 4] + P[4 + l] * M[col * 4 + 1] + P[8 + l] * M[col * 4 + 2] + P[12 + l] * M[col * 4 + 3];
+            t.mvp[col * 4 + l] = es_fbits(v);
+            t.mv[col * 4 + l] = es_fbits(M[col * 4 + l]);
+        }
+    for (int k = 0; k < 9; k++) t.normal[k] = es_fbits(k % 4 == 0 ? 1.0f : 0.0f);
+    t.normal_const[2] = 0x3F800000u;
+    t.vp_escala[0] = es_fbits((float)C->vw * 0.5f); t.vp_desloc[0] = es_fbits((float)C->vx + (float)C->vw * 0.5f);
+    t.vp_escala[1] = es_fbits(-(float)C->vh * 0.5f); t.vp_desloc[1] = es_fbits((float)(C->alt - C->vy) - (float)C->vh * 0.5f);
+    t.vp_escala[2] = es_fbits((C->z_longe - C->z_perto) * 0.5f); t.vp_desloc[2] = es_fbits((C->z_longe + C->z_perto) * 0.5f);
+    if (C->cull) {
+        int frente_neg = C->frente == GL_CCW;            /* la cara de frente tiene el área negativa en la pantalla */
+        int tira_frente = C->cull_face == GL_FRONT;
+        t.descarte = (unsigned char)(frente_neg != tira_frente ? G3D_DESC_POS : G3D_DESC_NEG);
+    }
+    if (C->fog) {
+        t.flags |= G3D3_NEBLINA | (es_neb_cpu ? G3D3_NEB_MEZCLADA : 0);
+        if (C->fog_modo == GL_LINEAR) {
+            float d = C->fog_fim - C->fog_ini;
+            t.neb_modo = G3D_NEB_LINEAR; t.neb_a = es_fbits(C->fog_fim / d); t.neb_b = es_fbits(1.0f / d);
+        } else { t.neb_modo = (unsigned char)(C->fog_modo == GL_EXP ? G3D_NEB_EXP : G3D_NEB_EXP2); t.neb_b = es_fbits(C->fog_dens); }
+        t.neb_cor = (gpu_byte(C->fog_cor[0]) << 16) | (gpu_byte(C->fog_cor[1]) << 8) | gpu_byte(C->fog_cor[2]);
+    }
+    /* matrices no finitas: el kernel las rechazaría */
+    for (unsigned i = 2; i < 135; i++) if (i != 113 && ((((const uint32_t *)&t)[i] >> 23) & 0xFF) == 0xFF) return 0;
+    unsigned tk = C->perfil > 0 ? SGL_MS() : 0;
+    int r = 0;
+    {
+        const uint8_t *a = (const uint8_t *)&e, *b = (const uint8_t *)&es_k2;
+        int igual = es_k2_ok;
+        for (unsigned i = 0; i < sizeof e && igual; i++) if (a[i] != b[i]) igual = 0;
+        if (!igual) { r = gpu_chamar(GPU3D_OP_ESTADO2, 0, 0, 0, &e); es_k2_ok = r == 0; es_k2 = e; }
+    }
+    if (r == 0) {
+        const uint8_t *a = (const uint8_t *)&t, *b = (const uint8_t *)&es_t3;
+        int igual = es_t3_ok;
+        for (unsigned i = 0; i < sizeof t && igual; i++) if (a[i] != b[i]) igual = 0;
+        if (!igual) { r = gpu_chamar(GPU3D_OP_TRANSF, 0, 0, 0, &t); es_t3_ok = r == 0; es_t3 = t; }
+    }
+    int feitos = 0;
+    while (r == 0 && feitos < n) {
+        int m = n - feitos > GPU3D_MAX_VERT3 ? GPU3D_MAX_VERT3 : n - feitos;
+        d.modo = prim; d.primeiro = primeiro3 + (unsigned)feitos; d.n = (unsigned)m; d.indices = dono[6] ? (unsigned)vg[6] : GPU3D_SEM_INDICES;
+        r = gpu_chamar(GPU3D_OP_DESENHAR3, 0, 0, 0, &d);
+        if (r == GPU3D_EXPULSO && !feitos) {
+            /* el kernel expulsó alguno de estos búferes para hacer sitio: se suben otra vez y se repite, una vez */
+            es_v3_exp_q++;
+            for (int k = 0; k < 7; k++) if (dono[k] && vg[k] >= 0) es_vb[vg[k]].id = 0;
+            int ok = 1;
+            /* pueden caer en otros huecos (el primero libre): el dibujo va con los nuevos (revisión de D457) */
+            for (int k = 0; k < 7 && ok; k++) if (dono[k] && ((vg[k] = es_vb_vaga(dono[k], k == 6)) < 0 || !C->gpu)) ok = 0;
+            for (int k = 0; k < 7 && ok; k++) if (dono[k] && es_vb_tem(dono[k], k == 6) != vg[k]) ok = 0;
+            if (ok) {
+                for (int k = 0; k < 6; k++) if (dono[k]) at[k]->vaga = (unsigned short)vg[k];
+                d.indices = dono[6] ? (unsigned)vg[6] : GPU3D_SEM_INDICES;
+            }
+            r = ok ? gpu_chamar(GPU3D_OP_DESENHAR3, 0, 0, 0, &d) : GPU3D_SEM_SUPORTE;
+        }
+        if (r == 0) feitos += m;
+    }
+    if (C->perfil > 0) C->pf_ms_kernel += SGL_MS() - tk;
+    if (r < 0) { gpu_cair(C); return 0; }
+    if (r > 0 && !feitos) {
+        /* «eso no»: este dibujo, por la CPU; si pasa una y otra vez, v3 se deja */
+        if (!C->gpu) return 0;
+        if (++es_v3_recusas >= 32) C->gpu_bits3 = 0;
+        return 0;
+    }
+    es_v3_recusas = 0;
+    C->gpu_sujo = 1;
+    C->pf_lotes++; C->pf_vert += (unsigned)n;
+    C->est.triangulos += (uint32_t)(prim == G3D_PRIM_TRIANGULOS ? n / 3 : n - 2);
+    return 1;
+}
+
 static void es_gpu_quadro_novo(GLbitfield m)
 {
     if (!C->gpu || C->fbo || (m & (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)) != (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)) return;
     if (C->gpu_sw && C->gpu_coube) C->gpu_sw = 0;
     C->gpu_coube = 1;
+    /* D457: el freno de las expulsiones (ver ES_V3_EXP_MAX) */
+    es_v3_maus = es_v3_exp_q > ES_V3_EXP_MAX ? es_v3_maus + 1 : 0;
+    es_v3_exp_q = 0;
+    if (es_v3_maus >= ES_V3_MAUS && C->gpu_bits3) {
+        C->gpu_bits3 = 0;
+        for (int i = 0; i < GPU3D_VBUFS; i++) {
+            if (!es_vb[i].id) continue;
+            es_vb[i].id = 0;
+            gpu3d_vbuf_t q = { (unsigned)i, (unsigned)es_vb[i].uso, 0, 0, 0, 0, 0, 0 };
+            gpu_chamar(GPU3D_OP_VBUF, 0, 0, 0, &q);
+        }
+    }
 }
 #endif
 

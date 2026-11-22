@@ -32,7 +32,7 @@ FC_ZLIB   := $(addprefix $(ZL_S)/,adler32.c compress.c crc32.c deflate.c gzclose
 
 # Las banderas de los ports en C (como NS_BASE) y las de Freeciv: las cabeceras de plataforma
 # y de zlib antes que las de la libc (la libc trae un zlib.h de NetSurf).
-FC_BASE := -m32 -march=i686 -std=gnu99 -Os \
+FC_BASE := -m32 -march=i686 -std=gnu99 -Os -include $(LIBC_DIR)/libgen.h -Wno-error=incompatible-pointer-types -Wno-error=implicit-function-declaration -Wno-error=int-conversion \
   -ffreestanding -fno-builtin -nostdlib -fno-pic -fno-pie \
   -fno-stack-protector -fno-asynchronous-unwind-tables \
   -ffunction-sections -fdata-sections -DNDEBUG -fcommon \

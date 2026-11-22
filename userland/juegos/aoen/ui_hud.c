@@ -9,6 +9,8 @@
  *   botones de inactivos y de filtros en las esquinas que deja libres el rombo.
  * Nada se superpone: cada bloque se mide a partir del ancho lógico y lo comprueba AOEN_SOLAPES=1. */
 #include "interfaz.h"
+#include "ordenes.h"
+#include "red.h"
 #include "efectos.h"
 
 int top_h = 32, bottom_h = 150;
@@ -214,6 +216,7 @@ void hud_reiniciar(void) {
 
 static const char *nombre_jugador(int p, char *b, size_t n) {
 	if (p == W.human) snprintf(b, n, "Tú");
+	else if (ord_red && red_jugador_humano(p)) snprintf(b, n, "%s", red_nombre(p));   /* D461 */
 	else snprintf(b, n, "Jugador %d (%s)", p + 1, civ_def[W.pl[p].civ].name);
 	return b;
 }
@@ -748,7 +751,7 @@ static void ejecutar(const Orden *o) {
 	case OR_TRIBUTO: panel_abierto = panel_abierto == PANEL_DIPLOMACIA ? PANEL_NINGUNO : PANEL_DIPLOMACIA; break;
 	case OR_PAGINA: ++pagina; break;
 	case OR_ELIMINAR:
-		for (int i = 0; i < W.nents; ++i) if (W.ents[i].alive && W.ents[i].sel && W.ents[i].owner == W.human && is_unit(W.ents[i].type)) W.ents[i].hp = 0;
+		for (int i = 0; i < W.nents; ++i) if (W.ents[i].alive && W.ents[i].sel && W.ents[i].owner == W.human && is_unit(W.ents[i].type)) cmd_eliminar(ent_ref(i));
 		break;
 	}
 }
@@ -1428,8 +1431,15 @@ void game_input(float dt) {
 	if (tecla(SDL_SCANCODE_PERIOD)) siguiente_inactivo(0);
 	if (tecla(SDL_SCANCODE_COMMA)) siguiente_inactivo(1);
 	if (tecla(SDL_SCANCODE_SPACE)) saltar_aviso();
+	if (ord_red) {   /* D461: la velocidad y la pausa son de todos: van como órdenes */
+		if (tecla(SDL_SCANCODE_EQUALS) || tecla(SDL_SCANCODE_KP_PLUS)) red_pedir_velocidad(MIN(4, red_velocidad() + 1));
+		if (tecla(SDL_SCANCODE_MINUS) || tecla(SDL_SCANCODE_KP_MINUS)) red_pedir_velocidad(MAX(1, red_velocidad() - 1));
+		if (tecla(SDL_SCANCODE_PAUSE) || tecla(SDL_SCANCODE_F6)) red_pedir_pausa();
+		if (tecla(SDL_SCANCODE_RETURN) || tecla(SDL_SCANCODE_KP_ENTER)) ui_red_abrir_chat();
+	} else {
 	if (tecla(SDL_SCANCODE_EQUALS) || tecla(SDL_SCANCODE_KP_PLUS)) app.game_speed = MIN(4, app.game_speed + 1);
 	if (tecla(SDL_SCANCODE_MINUS) || tecla(SDL_SCANCODE_KP_MINUS)) app.game_speed = MAX(1, app.game_speed - 1);
+	}
 
 	/* grupos: Ctrl+número guarda la selección, Mayús+número la recupera */
 	{
@@ -1458,8 +1468,8 @@ void game_input(float dt) {
 	if (tecla(SDL_SCANCODE_TAB)) marcador_modo = (marcador_modo + 1) % 3;
 	if (tecla(SDL_SCANCODE_F1)) panel_abierto = panel_abierto == PANEL_AYUDA ? PANEL_NINGUNO : PANEL_AYUDA;
 	if (tecla(SDL_SCANCODE_F3)) panel_abierto = panel_abierto == PANEL_DIPLOMACIA ? PANEL_NINGUNO : PANEL_DIPLOMACIA;
-	if (tecla(SDL_SCANCODE_F5)) do_save(1);
-	if (tecla(SDL_SCANCODE_F9)) { if (any_save()) do_load(1); return; }
+	if (tecla(SDL_SCANCODE_F5) && !ord_red) do_save(1);   /* D461: sin guardar en red */
+	if (tecla(SDL_SCANCODE_F9) && !ord_red) { if (any_save()) do_load(1); return; }
 	if (tecla(SDL_SCANCODE_F10)) app.paused = 1;
 	if (tecla(SDL_SCANCODE_ESCAPE)) {
 		if (modo != MODO_NADA) modo = MODO_NADA;
@@ -1478,17 +1488,14 @@ void game_input(float dt) {
 			int s = bld_def[placing].size;
 			int tx = (int)floorf(wx - s / 2.0f + 0.5f), ty = (int)floorf(wy - s / 2.0f + 0.5f);
 			int built = 0;
-			for (int i = 0; i < W.nents && !built; ++i) {
-				Entity *u = &W.ents[i];
-				if (u->alive && u->sel && u->type == E_VILLAGER && u->owner == W.human) {
-					built = cmd_build(W.human, ent_ref(i), placing, tx, ty);
-					if (built) {
-						Ref b = { -1, 0 };
-						for (int j = W.nents - 1; j >= 0; --j) if (W.ents[j].alive && W.ents[j].type == placing && W.ents[j].owner == W.human && W.ents[j].bx == tx && W.ents[j].by == ty) { b = ent_ref(j); break; }
-						for (int j = 0; j < W.nents; ++j)
-							if (j != i && W.ents[j].alive && W.ents[j].sel && W.ents[j].type == E_VILLAGER && b.idx >= 0) cmd_target(ent_ref(j), b);
-					}
+			{
+				/* D461: todos los aldeanos elegidos; el primero que puede levanta el edificio y los demás lo ayudan (en red, por una orden) */
+				Ref trab[ORD_REFS]; int nt = 0;
+				for (int i = 0; i < W.nents && nt < ORD_REFS; ++i) {
+					Entity *u = &W.ents[i];
+					if (u->alive && u->sel && u->type == E_VILLAGER && u->owner == W.human) trab[nt++] = ent_ref(i);
 				}
+				if (nt) built = cmd_build_grupo(W.human, trab, nt, placing, tx, ty);
 			}
 			if (built) snd_ui(SND_PLACE);
 			if (built && !mayus()) placing = E_TYPE_COUNT;

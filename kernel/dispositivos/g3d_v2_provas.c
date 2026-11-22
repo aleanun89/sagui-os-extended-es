@@ -393,8 +393,14 @@ static bool p_mip(ctx_t *c)
     if (ret(c, &e, 0, 0, 8, 8, 0xFFFFFFFFu, 0, 32768, 0, 65536, 0, 65536) != G3D_OK ||
         ret(c, &e, 10, 0, 12, 2, 0xFFFFFFFFu, 0, 32768, 0, 65536, 0, 65536) != G3D_OK ||
         ret(c, &e, 14, 0, 15, 1, 0xFFFFFFFFu, 0, 32768, 0, 65536, 0, 65536) != G3D_OK || !ler(c)) return false;
-    return pixel(c, 15, "mipmap 0", 4, 4, 0xFF0000) && pixel(c, 15, "mipmap 1", 10, 0, 0x00FF00) && pixel(c, 15, "mipmap 1", 11, 1, 0x00FF00) &&
-           pixel(c, 15, "mipmap 2", 14, 0, 0x0000FF);
+    bool ok = pixel(c, 15, "mipmap 0", 4, 4, 0xFF0000) && pixel(c, 15, "mipmap 1", 10, 0, 0x00FF00) &&
+              pixel(c, 15, "mipmap 1", 11, 1, 0x00FF00) && pixel(c, 15, "mipmap 2", 14, 0, 0x0000FF);
+    if (!ok)   /* para el diagnóstico: las dos primeras filas (el nivel 0 en 0-7, el 1 en 10-11 y el 2 en 14) */
+        for (int y = 0; y < 2; y++)
+            klog("[GPU3D] %s v2: prueba 15, fila %d: %06x %06x %06x %06x | %06x %06x | %06x\n", c->nome, y, c->px[y * PL] & 0xFFFFFFu,
+                 c->px[y * PL + 1] & 0xFFFFFFu, c->px[y * PL + 4] & 0xFFFFFFu, c->px[y * PL + 7] & 0xFFFFFFu, c->px[y * PL + 10] & 0xFFFFFFu,
+                 c->px[y * PL + 11] & 0xFFFFFFu, c->px[y * PL + 14] & 0xFFFFFFu);
+    return ok;
 }
 
 uint32_t g3d_v2_provar(const g3d_v2_ops_t *o, const char *nome, uint32_t cand, uint32_t *unidades, uint32_t *formatos)

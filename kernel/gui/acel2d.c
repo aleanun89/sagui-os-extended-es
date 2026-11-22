@@ -156,6 +156,155 @@ static const acel_placa_t placas[] = {
     { 0x8086, 0x0C02, 0x0C2E, &acel_intel, 7, "Intel HD (Haswell SDV)" },
     { 0x8086, 0x0D02, 0x0D2E, &acel_intel, 7, "Intel Iris Pro (Haswell CRW)" },
     { 0x8086, 0x1602, 0x163E, &acel_intel, 8, "Intel HD (Broadwell)" },
+    /* D434 (v8.5.5.3): Gen9-Gen12 por execlists (acel_intel_exec.c). Una fila por identificador exacto de
+     * la lista de acel_intel_logica.h (intel_variante_exec); los demás de esas familias, la CPU. */
+    { 0x8086, 0x1902, 0x1902, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x1906, 0x1906, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x190A, 0x190A, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x190B, 0x190B, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x190E, 0x190E, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x1912, 0x1912, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x1913, 0x1913, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x1915, 0x1915, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x1916, 0x1916, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x1917, 0x1917, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x191A, 0x191A, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x191B, 0x191B, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x191D, 0x191D, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x191E, 0x191E, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x1921, 0x1921, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x1923, 0x1923, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x1926, 0x1926, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x1927, 0x1927, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x192A, 0x192A, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x192B, 0x192B, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x192D, 0x192D, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x1932, 0x1932, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x193A, 0x193A, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x193B, 0x193B, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x193D, 0x193D, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x5902, 0x5902, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x5906, 0x5906, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x5908, 0x5908, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x590A, 0x590A, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x590B, 0x590B, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x590E, 0x590E, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x5912, 0x5912, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x5913, 0x5913, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x5915, 0x5915, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x5916, 0x5916, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x5917, 0x5917, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x591A, 0x591A, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x591B, 0x591B, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x591C, 0x591C, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x591D, 0x591D, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x591E, 0x591E, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x5921, 0x5921, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x5923, 0x5923, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x5926, 0x5926, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x5927, 0x5927, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x593B, 0x593B, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x87C0, 0x87C0, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3E90, 0x3E90, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3E91, 0x3E91, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3E92, 0x3E92, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3E93, 0x3E93, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3E94, 0x3E94, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3E96, 0x3E96, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3E98, 0x3E98, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3E99, 0x3E99, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3E9A, 0x3E9A, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3E9B, 0x3E9B, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3E9C, 0x3E9C, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3EA0, 0x3EA0, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3EA1, 0x3EA1, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3EA2, 0x3EA2, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3EA3, 0x3EA3, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3EA4, 0x3EA4, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3EA5, 0x3EA5, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3EA6, 0x3EA6, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3EA7, 0x3EA7, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3EA8, 0x3EA8, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x3EA9, 0x3EA9, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x87CA, 0x87CA, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x9B21, 0x9B21, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x9B41, 0x9B41, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x9BA2, 0x9BA2, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x9BA4, 0x9BA4, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x9BA5, 0x9BA5, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x9BA8, 0x9BA8, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x9BAA, 0x9BAA, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x9BAC, 0x9BAC, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x9BC2, 0x9BC2, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x9BC4, 0x9BC4, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x9BC5, 0x9BC5, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x9BC6, 0x9BC6, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x9BC8, 0x9BC8, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x9BCA, 0x9BCA, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x9BCC, 0x9BCC, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x9BE6, 0x9BE6, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x9BF6, 0x9BF6, &acel_intel_exec, 9, "Intel Skylake/Kaby/Coffee/Comet Lake (Gen9, execlists)" },
+    { 0x8086, 0x8A50, 0x8A50, &acel_intel_exec, 11, "Intel Ice Lake (Gen11, execlists)" },
+    { 0x8086, 0x8A51, 0x8A51, &acel_intel_exec, 11, "Intel Ice Lake (Gen11, execlists)" },
+    { 0x8086, 0x8A52, 0x8A52, &acel_intel_exec, 11, "Intel Ice Lake (Gen11, execlists)" },
+    { 0x8086, 0x8A53, 0x8A53, &acel_intel_exec, 11, "Intel Ice Lake (Gen11, execlists)" },
+    { 0x8086, 0x8A54, 0x8A54, &acel_intel_exec, 11, "Intel Ice Lake (Gen11, execlists)" },
+    { 0x8086, 0x8A56, 0x8A56, &acel_intel_exec, 11, "Intel Ice Lake (Gen11, execlists)" },
+    { 0x8086, 0x8A57, 0x8A57, &acel_intel_exec, 11, "Intel Ice Lake (Gen11, execlists)" },
+    { 0x8086, 0x8A58, 0x8A58, &acel_intel_exec, 11, "Intel Ice Lake (Gen11, execlists)" },
+    { 0x8086, 0x8A59, 0x8A59, &acel_intel_exec, 11, "Intel Ice Lake (Gen11, execlists)" },
+    { 0x8086, 0x8A5A, 0x8A5A, &acel_intel_exec, 11, "Intel Ice Lake (Gen11, execlists)" },
+    { 0x8086, 0x8A5B, 0x8A5B, &acel_intel_exec, 11, "Intel Ice Lake (Gen11, execlists)" },
+    { 0x8086, 0x8A5C, 0x8A5C, &acel_intel_exec, 11, "Intel Ice Lake (Gen11, execlists)" },
+    { 0x8086, 0x8A5D, 0x8A5D, &acel_intel_exec, 11, "Intel Ice Lake (Gen11, execlists)" },
+    { 0x8086, 0x8A70, 0x8A70, &acel_intel_exec, 11, "Intel Ice Lake (Gen11, execlists)" },
+    { 0x8086, 0x8A71, 0x8A71, &acel_intel_exec, 11, "Intel Ice Lake (Gen11, execlists)" },
+    { 0x8086, 0x9A40, 0x9A40, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x9A49, 0x9A49, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x9A59, 0x9A59, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x9A60, 0x9A60, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x9A68, 0x9A68, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x9A70, 0x9A70, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x9A78, 0x9A78, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x9AC0, 0x9AC0, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x9AC9, 0x9AC9, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x9AD9, 0x9AD9, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x9AF8, 0x9AF8, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x4C80, 0x4C80, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x4C8A, 0x4C8A, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x4C8B, 0x4C8B, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x4C8C, 0x4C8C, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x4C90, 0x4C90, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x4C9A, 0x4C9A, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x4680, 0x4680, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x4682, 0x4682, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x4688, 0x4688, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x468A, 0x468A, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x468B, 0x468B, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x4690, 0x4690, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x4692, 0x4692, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x4693, 0x4693, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x4626, 0x4626, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x4628, 0x4628, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x462A, 0x462A, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46A0, 0x46A0, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46A1, 0x46A1, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46A2, 0x46A2, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46A3, 0x46A3, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46A6, 0x46A6, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46A8, 0x46A8, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46AA, 0x46AA, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46B0, 0x46B0, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46B1, 0x46B1, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46B2, 0x46B2, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46B3, 0x46B3, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46C0, 0x46C0, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46C1, 0x46C1, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46C2, 0x46C2, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46C3, 0x46C3, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46D0, 0x46D0, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46D1, 0x46D1, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
+    { 0x8086, 0x46D2, 0x46D2, &acel_intel_exec, 12, "Intel Tiger/Rocket/Alder Lake (Gen12, execlists)" },
     /* Radeon con el motor 2D clásico por registros (sin microcódigo). La
      * generación: 2 = R5xx (AVIVO; la X1400 es RV515/M54, 0x7145), 1 = R300/R420,
      * 0 = R100/R200. Los intervalos son los de la D158 (userland/libamd/amd.c). */
@@ -257,6 +406,10 @@ static bool volcado_confirmada(bool vuelta)
 }
 static bool apagado_a_mano;   /* «acel2d apagar» */
 static bool ativo, iniciado;
+/* D434 (2D asíncrono, 2026-11-22): la GPU es más lenta que la CPU en las copias (la medida del arranque), pero el driver
+ * sabe volcar el búfer de atrás (D387): el motor queda encendido solo para eso. Las copias y los rellenos los hace la CPU
+ * y, para el resto del sistema (video.c, janelas.c, la orden «acel2d»), el 2D está en la CPU (acel2d_ativo() = false). */
+static bool copias_cpu;
 static uint8_t modo;                 /* CAB_ACEL2D */
 static char motivo[160] = "sin iniciar";
 static uint32_t vram_real_kb;          /* D387: la memoria de vídeo real (0 = no se sabe) */
@@ -891,6 +1044,7 @@ void acel2d_iniciar(void)
         return;
     }
     iniciado = true;
+    copias_cpu = false;
     uint32_t khz = hw_tsc_khz();
     klog("[ACEL2D] %s iniciado en %u ms\n", drv->nome, (uint32_t)sconv_div64(tsc() - t0, khz));
     bool sim = int_salva_desliga();   /* la autoprueba, sin que nada más toque la pantalla */
@@ -926,7 +1080,8 @@ void acel2d_iniciar(void)
         }
     }
     zona_restaurar(completa ? ZONA_A : ZONA_BOOT_A);
-    if (!ok || lenta) {
+    bool so_volcado = ok && lenta && drv->volcado && !(kconf_cab(CAB_ACEL_OPC) & CAB_ACEL_SIN_VOLCADO);
+    if (!ok || (lenta && !so_volcado)) {
         soltar();
         int_restaura(sim);
         video_mostrar_tudo();
@@ -940,8 +1095,12 @@ void acel2d_iniciar(void)
         return;
     }
     ativo = true;
+    copias_cpu = so_volcado;
     int_restaura(sim);
-    if (us_gpu_boot)
+    if (so_volcado)
+        snformatar(motivo, sizeof motivo, "%s: copias por la CPU (GPU %u us, CPU %u us); el motor queda para el volcado (D434)",
+                   placa->nome, us_gpu_boot, us_cpu_boot);
+    else if (us_gpu_boot)
         snformatar(motivo, sizeof motivo, "%s (%04x:%04x, %s): autoprueba superada en %u ms; GPU %u us, CPU %u us",
                    placa->nome, disp.fabricante, disp.modelo, confirmada ? "confirmada" : "por autoprueba",
                    (us_autoprova + 999) / 1000, us_gpu_boot, us_cpu_boot);
@@ -953,7 +1112,7 @@ void acel2d_iniciar(void)
     video_mostrar_tudo();
 }
 
-bool acel2d_ativo(void) { return ativo; }
+bool acel2d_ativo(void) { return ativo && !copias_cpu; }
 
 /* D285: la tarjeta que tiene la pantalla y su familia, para la capa 3D (aunque el
  * 2D haya quedado en la CPU). «suspeito»: el 2D falló o lo apagó el vigilante. */
@@ -1030,7 +1189,7 @@ static bool recortar(int *ox, int *oy, int *dx, int *dy, int *l, int *a)
  * escribir en la FIFO de la VMware a la vez la estropearían. */
 bool acel_copiar(int ox, int oy, int dx, int dy, int l, int a)
 {
-    if (!ativo) return false;
+    if (!ativo || copias_cpu) return false;
     if (!recortar(&ox, &oy, &dx, &dy, &l, &a)) return true;
     /* D246: una copia pequeña sale más cara por el motor (paquete, valla, espera) que por la CPU:
      * se devuelve false sin apagar nada y quien llama la hace con el búfer de atrás. */
@@ -1048,7 +1207,7 @@ bool acel_copiar(int ox, int oy, int dx, int dy, int l, int a)
 
 bool acel_rellenar(int x, int y, int l, int a, uint32_t cor)
 {
-    if (!ativo) return false;
+    if (!ativo || copias_cpu) return false;
     int dx = x, dy = y;
     if (!recortar(&x, &y, &dx, &dy, &l, &a)) return true;
     bool sim = int_salva_desliga();

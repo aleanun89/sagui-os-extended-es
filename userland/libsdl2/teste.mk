@@ -59,3 +59,18 @@ $(B)/userland/bin/sdl2presentar: $(S2P_OBJ) $(SDL2_OBJ) $(LIBC_OBJ) $(QJS_LIBM) 
 	@$(PY) $(CHECK_ELF32) $@.elf
 
 APPS_BINS += $(B)/userland/bin/sdl2presentar
+
+# D393: prueba del audio de la SDL 2 con hilo propio (h393): un seno por la llamada de vuelta o por la cola mientras el
+# principal se queda ocupado cuatrocientos milisegundos.
+S2A_OBJ := $(B)/userland/libsdl2/sdl2audioprova.o
+$(S2A_OBJ): userland/libsdl2/sdl2audioprova.c userland/libsdl2/SDL.h $(LIBC_HDR) $(USER_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(SDL2_FLAGS) -c -o $@ $<
+
+$(B)/userland/bin/sdl2audio: $(S2A_OBJ) $(SDL2_OBJ) $(LIBC_OBJ) $(QJS_LIBM) $(LIBSAGUI_OBJ) userland/programa.ld
+	@mkdir -p $(dir $@)
+	$(LD) $(ULDFLAGS) -o $@.elf $(filter %.o,$^)
+	objcopy --strip-all $@.elf $@
+	@$(PY) $(CHECK_ELF32) $@.elf
+
+APPS_BINS += $(B)/userland/bin/sdl2audio

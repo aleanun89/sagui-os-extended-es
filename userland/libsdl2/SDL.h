@@ -16,16 +16,24 @@
  *     a 32 por la paleta), color clave y recorte;
  *   - eventos de teclado (con códigos de rastreo de SDL 2 y texto), ratón
  *     (en coordenadas de la ventana del programa), rueda, ventana y salida;
- *   - audio por llamada de vuelta o por cola (SDL_QueueAudio), bombeado en
- *     SDL_PollEvent, SDL_Delay y SDL_RenderPresent (no hay hilos);
+ *   - audio por llamada de vuelta o por cola (SDL_QueueAudio): SDL_PauseAudio(0)
+ *     arranca un hilo de audio propio que llama a la llamada de vuelta con el
+ *     cerrojo del dispositivo tomado (SDL_LockAudio es de verdad; D393).
+ *     SDL_SAGUI_AUDIO_HILO=0 vuelve a moverlo desde el hilo principal
+ *     (SDL_PollEvent, SDL_Delay y SDL_RenderPresent);
+ *   - hilos de verdad (SDL_CreateThread sobre los hilos del sistema), cerrojos
+ *     recursivos, condiciones, semáforos y atómicas (D393). Un hilo de trabajo
+ *     no debe llamar a vídeo, eventos ni audio;
+ *   - OpenGL ES 1.1 (SDL_GL_*, sobre EGL y SaguiGL: sdl2_gl.c, D425) y renderizador
+ *     opcional por GPU (D288), con presentación a pantalla completa sin pasar por
+ *     la RAM (D432);
  *   - reloj, pistas (hints), rutas (SDL_GetBasePath, SDL_GetPrefPath).
  *
- * No hay: OpenGL, hilos, temporizadores con llamada de vuelta (SDL_AddTimer
- * devuelve 0), mandos (ninguno conectado), ratón relativo (SDL_SetRelativeMouseMode
- * devuelve -1 al pedirlo), cursores propios (los de los programas se aceptan
- * y no se usan; SDL_ShowCursor(SDL_DISABLE) sí oculta el del sistema sobre la
- * ventana, D230). De la SDL original solo se
- * conserva la interfaz.
+ * No hay: temporizadores con llamada de vuelta (SDL_AddTimer devuelve 0), mandos
+ * (ninguno conectado), ratón relativo (SDL_SetRelativeMouseMode devuelve -1 al
+ * pedirlo), cursores propios (los de los programas se aceptan y no se usan;
+ * SDL_ShowCursor(SDL_DISABLE) sí oculta el del sistema sobre la ventana, D230).
+ * De la SDL original solo se conserva la interfaz.
  */
 #ifndef SAGUI_SDL2_H
 #define SAGUI_SDL2_H
@@ -914,12 +922,15 @@ int SDL_GetSystemRAM(void);
 
 /* ---- hilos, cerrojos, condiciones, semáforos y atómicas (D383, D393) ----
  * Hilos de verdad sobre los del SaguiOS (D167): con --smp corren a la vez en las otras CPU.
- * La SDL sigue atendiendo el audio en el hilo principal (SDL_PollEvent, SDL_Delay, SDL_RenderPresent
- * y las esperas de SDL_CondWait en el principal); los demás hilos no deben llamar a vídeo, eventos ni
- * audio. Los cerrojos son recursivos, como en la SDL de verdad: el hilo que ya lo tiene lo vuelve a
+ * El audio tiene su HILO PROPIO desde SDL_PauseAudio(0) (D393, 2026-11-22): llama a la llamada de vuelta
+ * del programa con SDL_LockAudio tomado, como la SDL de verdad, y mueve la cola de SDL_QueueAudio.
+ * SDL_SAGUI_AUDIO_HILO=0 (variable de entorno o pista) vuelve al modo de antes, en el que el hilo principal
+ * lo mueve (SDL_PollEvent, SDL_Delay, SDL_RenderPresent). Los demás hilos no deben llamar a vídeo ni
+ * eventos. Los cerrojos son recursivos, como en la SDL de verdad: el hilo que ya lo tiene lo vuelve a
  * tomar (así siguen igual los programas que se llamaban a sí mismos con el cerrojo tomado).
- * SDL_CondWait en el hilo principal se despierta además cada pocos milisegundos para mover el audio
- * (las esperas pueden despertarse sin aviso: quien espera vuelve a mirar su condición, como manda la SDL).
+ * SDL_CondWait en el hilo principal se despierta además cada pocos milisegundos (para mover la OpenAL y,
+ * en el modo de antes, el audio; las esperas pueden despertarse sin aviso: quien espera vuelve a mirar
+ * su condición, como manda la SDL).
  * SDL_GetCPUCount cuenta las CPU arrancadas (1 sin --smp). */
 #define SDL_HINT_WINDOWS_DISABLE_THREAD_NAMING "SDL_WINDOWS_DISABLE_THREAD_NAMING"
 #define SDL_HINT_NO_SIGNAL_HANDLERS "SDL_NO_SIGNAL_HANDLERS"

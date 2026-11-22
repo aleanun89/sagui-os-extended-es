@@ -5,6 +5,7 @@
 #include "efectos.h"
 #include "ia.h"
 #include "hilos.h"
+#include "ordenes.h"
 
 World W;
 
@@ -135,6 +136,38 @@ int is_resource(EntType t) { return t >= E_BERRIES && t <= E_RELIC; }
 /* diplomacia: el equipo de la partida fija las relaciones iniciales; después se pueden cambiar (cmd_diplomacy) */
 int same_team(int a, int b) { return a >= 0 && b >= 0 && a < MAX_PLAYERS && b < MAX_PLAYERS && (a == b || W.pl[a].dipl[b] == DIPL_ALLY); }
 const char *dipl_name(int level) { return level == DIPL_ALLY ? "Aliado" : level == DIPL_NEUTRAL ? "Neutral" : "Enemigo"; }
+
+/* ---------- trigonometría determinista (D461) ----------
+ * La libm del sistema y la del PC dan resultados distintos en el último bit (y la x87 calcula con más precisión dentro de
+ * una expresión que SSE): en el multijugador todas las máquinas tienen que simular lo mismo, así que el seno, el coseno y
+ * el arco tangente de la simulación se calculan aquí, con sumas y productos de float (cada paso en su propia sentencia). */
+float dsinf(float x) {
+	float k = floorf(x * 0.15915494f + 0.5f);
+	float r = x - k * 6.2831853f;           /* [-pi, pi] */
+	if (r > 1.5707964f) r = 3.1415927f - r;
+	else if (r < -1.5707964f) r = -3.1415927f - r;
+	float r2 = r * r, t = 2.7557319e-6f;
+	t = r2 * t - 1.9841270e-4f;
+	t = r2 * t + 8.3333333e-3f;
+	t = r2 * t - 1.6666667e-1f;
+	t = r2 * t + 1.0f;
+	return r * t;
+}
+float dcosf(float x) { return dsinf(x + 1.5707964f); }
+float datan2f(float y, float x) {
+	float ax = x < 0 ? -x : x, ay = y < 0 ? -y : y;
+	if (ax == 0 && ay == 0) return 0;
+	int inv = ay > ax;
+	float t = inv ? ax / ay : ay / ax, t2 = t * t, a = 0.0208351f;
+	a = t2 * a - 0.0851330f;
+	a = t2 * a + 0.1801410f;
+	a = t2 * a - 0.3302995f;
+	a = t2 * a + 0.9998660f;
+	a = a * t;
+	if (inv) a = 1.5707964f - a;
+	if (x < 0) a = 3.1415927f - a;
+	return y < 0 ? -a : a;
+}
 
 /* ---------- aleatorio ---------- */
 
@@ -550,6 +583,7 @@ static void stop_unit(Entity *e) {
 
 /* añade un punto de ruta a la unidad (órdenes en cola con Mayús); si está parada, va directa */
 void cmd_move_queue(Ref r, float x, float y) {
+	if (ord_cap(OP_MOVEQ, 0, 0, 0, x, y, r, (Ref){ -1, 0 })) return;
 	Entity *e = ent_get(r);
 	x = CLAMP(x, 0.0f, (float)W.w); y = CLAMP(y, 0.0f, (float)W.h);   /* dentro del mapa (lo exige también la carga) */
 	if (!e || !is_unit(e->type) || e->state == ST_DYING || e->state == ST_ABOARD) return;
@@ -559,6 +593,7 @@ void cmd_move_queue(Ref r, float x, float y) {
 
 /* patrulla entre la posición actual y el punto dado; se interrumpe para combatir y luego sigue */
 void cmd_patrol(Ref r, float x, float y) {
+	if (ord_cap(OP_PATRULLA, 0, 0, 0, x, y, r, (Ref){ -1, 0 })) return;
 	Entity *e = ent_get(r);
 	x = CLAMP(x, 0.0f, (float)W.w); y = CLAMP(y, 0.0f, (float)W.h);
 	if (!e || !is_unit(e->type) || e->type == E_VILLAGER || e->state == ST_DYING || e->state == ST_ABOARD) return;
@@ -568,6 +603,7 @@ void cmd_patrol(Ref r, float x, float y) {
 }
 
 void cmd_move(Ref r, float x, float y) {
+	if (ord_cap(OP_MOVE, 0, 0, 0, x, y, r, (Ref){ -1, 0 })) return;
 	Entity *e = ent_get(r);
 	x = CLAMP(x, 0.0f, (float)W.w); y = CLAMP(y, 0.0f, (float)W.h);
 	/* un pasajero no obedece: su target es el barco, y sin él moriría en el tic siguiente */
@@ -702,6 +738,7 @@ static void comercio_ruta(Entity *e, Entity *t) {
 }
 
 int cmd_comercio(Ref r, int modo, int dar, int recibir) {
+	if (ord_cap(OP_COMERCIO, modo, dar, recibir, 0, 0, r, (Ref){ -1, 0 })) return 1;
 	Entity *e = ent_get(r);
 	if (!e || !is_trader(e->type) || e->state == ST_DYING) return 0;
 	if (modo == 1 && !W.setup.comercio_mejorado) return 0;
@@ -795,6 +832,7 @@ static void actualizar_comercio(Entity *e, float dt) {
 }
 
 void cmd_target(Ref r, Ref tr) {
+	if (ord_cap(OP_TARGET, 0, 0, 0, 0, 0, r, tr)) return;
 	Entity *e = ent_get(r), *t = ent_get(tr);
 	if (!e || !t || !is_unit(e->type) || e->state == ST_DYING || t->state == ST_DYING || e->state == ST_ABOARD) return;
 
@@ -889,6 +927,7 @@ static int afford(int p, const int cost[RES_COUNT]) {
 }
 
 void cmd_set_stance(Ref r, int stance) {
+	if (ord_cap(OP_STANCE, stance, 0, 0, 0, 0, r, (Ref){ -1, 0 })) return;
 	Entity *e = ent_get(r);
 	if (!e || !is_unit(e->type) || e->type == E_VILLAGER) return;
 	e->stance = stance;
@@ -898,6 +937,7 @@ void cmd_set_stance(Ref r, int stance) {
 
 /* la unidad sigue y defiende a otra unidad o edificio de su propio equipo */
 void cmd_guard(Ref r, Ref prot) {
+	if (ord_cap(OP_GUARD, 0, 0, 0, 0, 0, r, prot)) return;
 	Entity *e = ent_get(r), *t = ent_get(prot);
 	if (!e || !t || e == t || !is_unit(e->type) || e->type == E_VILLAGER || !same_team(e->owner, t->owner) || e->state == ST_ABOARD || e->state == ST_DYING) return;
 	e->stance = STANCE_GUARD;
@@ -906,6 +946,7 @@ void cmd_guard(Ref r, Ref prot) {
 }
 
 void cmd_set_rally(Ref r, float x, float y, Ref target) {
+	if (ord_cap(OP_RALLY, 0, 0, 0, x, y, r, target)) return;
 	Entity *b = ent_get(r);
 	if (!b || !is_building(b->type)) return;
 	b->has_rally = 1; b->rx = CLAMP(x, 0.0f, (float)W.w); b->ry = CLAMP(y, 0.0f, (float)W.h); b->rtarget = target;
@@ -946,6 +987,7 @@ float eff_range(int p, EntType t) {
 }
 
 int cmd_research(int p, Ref bref, int tech) {
+	if (ord_cap(OP_RESEARCH, tech, 0, 0, 0, 0, bref, (Ref){ -1, 0 })) return 1;
 	Entity *b = ent_get(bref);
 	if (p < 0 || p >= MAX_PLAYERS || !b || b->owner != p || b->progress < 1 || tech < 0 || tech >= T_COUNT) return 0;
 	const TechDef *td = &tech_def[tech];
@@ -970,6 +1012,7 @@ int cmd_research(int p, Ref bref, int tech) {
 static int count_bld_p(int p, EntType t);
 
 int cmd_trade(int p, int sell, int buy) {
+	if (ord_cap(OP_TRADE, sell, buy, 0, 0, 0, (Ref){ -1, 0 }, (Ref){ -1, 0 })) return 1;
 	Player *pl = &W.pl[p];
 	if (sell == buy || sell < 0 || buy < 0 || sell >= RES_COUNT || buy >= RES_COUNT) return 0;
 	if (!count_bld_p(p, E_MARKET)) { if (p == W.human) world_msg("Necesitas un mercado"); return 0; }
@@ -1012,7 +1055,27 @@ int cmd_build(int p, Ref worker, EntType t, int tx, int ty) {
 	return 1;
 }
 
+/* D461: lo que hacía la interfaz al colocar un edificio: el primer aldeano que puede lo levanta y los demás lo ayudan */
+int cmd_build_grupo(int p, const Ref *workers, int n, EntType t, int tx, int ty) {
+	if (ord_cap_grupo(OP_BUILD, workers, n, (int)t, tx, ty)) return 1;
+	for (int k = 0; k < n; ++k) {
+		if (!cmd_build(p, workers[k], t, tx, ty)) continue;
+		Ref b = { -1, 0 };
+		for (int j = W.nents - 1; j >= 0; --j) if (W.ents[j].alive && W.ents[j].type == t && W.ents[j].owner == p && W.ents[j].bx == tx && W.ents[j].by == ty) { b = ent_ref(j); break; }
+		for (int j = 0; j < n; ++j) if (j != k && b.idx >= 0) cmd_target(workers[j], b);
+		return 1;
+	}
+	return 0;
+}
+
+void cmd_eliminar(Ref r) {
+	if (ord_cap(OP_ELIMINAR, 0, 0, 0, 0, 0, r, (Ref){ -1, 0 })) return;
+	Entity *e = ent_get(r);
+	if (e && is_unit(e->type)) e->hp = 0;
+}
+
 int cmd_train(int p, Ref bref, EntType t) {
+	if (ord_cap(OP_TRAIN, (int)t, 0, 0, 0, 0, bref, (Ref){ -1, 0 })) return 1;
 	Entity *b = ent_get(bref);
 	if (!b || b->owner != p || b->progress < 1 || !is_unit(t)) return 0;
 	if (unit_def[t - E_VILLAGER].trainer != b->type) return 0;
@@ -1032,6 +1095,7 @@ int cmd_train(int p, Ref bref, EntType t) {
 }
 
 int cmd_cancel_train(int p, Ref bref, int idx) {
+	if (ord_cap(OP_CANCELA, idx, 0, 0, 0, 0, bref, (Ref){ -1, 0 })) return 1;
 	Entity *b = ent_get(bref);
 	if (!b || b->owner != p || idx < 0 || idx >= b->ntrain) return 0;
 	const UnitDef *u = &unit_def[b->train[idx] - E_VILLAGER];
@@ -1072,6 +1136,7 @@ int age_requirements_met(int p, int target) {
 }
 
 int cmd_advance_age(int p) {
+	if (ord_cap(OP_AGE, 0, 0, 0, 0, 0, (Ref){ -1, 0 }, (Ref){ -1, 0 })) return 1;
 	Player *pl = &W.pl[p];
 	int target = pl->age + 1;
 	if (target >= AGE_COUNT) return 0;
@@ -1123,7 +1188,7 @@ static int walk_step(Entity *e, float dt) {
 		return 1;
 	}
 
-	e->angle = atan2f(dy, dx);
+	e->angle = datan2f(dy, dx);
 	if (!mover_a(e, e->x + dx / d * step, e->y + dy / d * step)) {
 		/* bloqueado por la orilla: deja la ruta (quien llama vuelve a buscar camino o se para) */
 		free(e->path); e->path = NULL; e->plen = e->pidx = 0;
@@ -1145,7 +1210,7 @@ static void find_next_resource(Entity *e, EntType kind) {
 		int farm = r->type == E_FARM && r->owner == e->owner && r->progress >= 1;
 		if (!r->alive || !(is_resource(r->type) || farm) || res_kind_of(r->type) != res_kind_of(kind) || r->amount <= 0) continue;
 		if (res_kind_of(kind) == RES_FOOD && (e->type == E_FISHBOAT) != (r->type == E_FISH)) continue;   /* los barcos solo pescan; los aldeanos no */
-		if (W.fog[tidx(r->bx, r->by)] == 0 && e->owner == W.human) continue;
+		if (!ord_red && W.fog[tidx(r->bx, r->by)] == 0 && e->owner == W.human) continue;   /* D461: en red la niebla es de cada máquina: no decide nada */
 		float d = (r->x - e->x) * (r->x - e->x) + (r->y - e->y) * (r->y - e->y);
 		if (d < bd && d < 18 * 18) { bd = d; best = i; }
 	}
@@ -1345,7 +1410,7 @@ static void unstick(Entity *e) {
 	++e->stuck;
 	for (int attempt = 0; attempt < 2; ++attempt) {
 		float a = e->angle + side * 1.5708f;
-		float sx = e->x + cosf(a) * 1.1f, sy = e->y + sinf(a) * 1.1f;
+		float sx = e->x + dcosf(a) * 1.1f, sy = e->y + dsinf(a) * 1.1f;
 		int tx = (int)floorf(sx), ty = (int)floorf(sy);
 		if (casilla_paso(e, tx, ty)) {   /* los barcos se apartan por el agua; el resto, por tierra */
 			int remaining = e->plen - e->pidx;
@@ -1372,7 +1437,7 @@ static int unload_boat(Entity *b) {
 		int hecho = 0;
 		for (int r = 1; r <= 6 && !hecho; ++r)
 			for (int a = 0; a < 16 && !hecho; ++a) {
-				float ang = (a + k * 3) * 6.2831853f / 16.0f, x = b->x + cosf(ang) * r, y = b->y + sinf(ang) * r;
+				float ang = (a + k * 3) * 6.2831853f / 16.0f, x = b->x + dcosf(ang) * r, y = b->y + dsinf(ang) * r;
 				if (tile_walk((int)floorf(x), (int)floorf(y))) { u->x = x; u->y = y; hecho = 1; }
 			}
 		if (!hecho) { ++k; continue; }
@@ -1537,7 +1602,7 @@ static void update_unit(Entity *e, float dt) {
 			}
 			break;
 		}
-		e->angle = atan2f(t->y - e->y, t->x - e->x);
+		e->angle = datan2f(t->y - e->y, t->x - e->x);
 		e->acting = 1;
 		e->timer += dt;
 		if (e->timer >= 1.2f) {
@@ -1609,7 +1674,7 @@ static void update_unit(Entity *e, float dt) {
 			if (walk_step(e, dt) && dist_to_ent(e, t) > 1.5f) goto_target(e, t, ST_BUILD);
 			break;
 		}
-		e->angle = atan2f(t->y - e->y, t->x - e->x);
+		e->angle = datan2f(t->y - e->y, t->x - e->x);
 		e->acting = 1;
 		e->timer += dt;
 		if (e->timer >= 1.0f) e->timer -= 1.0f;
@@ -1664,7 +1729,7 @@ static void update_unit(Entity *e, float dt) {
 			if (!avisado) { avisado = 1; AOEN_LOG("[AOEN] asedio: %s se aparta, alcance mínimo %.1f", unit_def[e->type - E_VILLAGER].name, unit_min_range(e->type)); }
 			if (casilla_paso(e, (int)floorf(nx), (int)floorf(ny)) && mover_a(e, nx, ny)) { e->walking = 1; e->anim += dt * 9.0f; e->timer = 0; break; }
 		}
-		e->angle = atan2f(t->y - e->y, t->x - e->x);
+		e->angle = datan2f(t->y - e->y, t->x - e->x);
 		e->timer += dt;
 		e->acting = 1;
 		e->phase = MIN(1.0f, e->timer / unit_cooldown(e->type));
@@ -1780,11 +1845,11 @@ static void separate_units(void) {
 
 					/* de frente: ambas se apartan a su derecha, como personas que pasan por un pasillo */
 					if (a->walking && b->walking) {
-						float ha = cosf(a->angle) * cosf(b->angle) + sinf(a->angle) * sinf(b->angle);
+						float ha = dcosf(a->angle) * dcosf(b->angle) + dsinf(a->angle) * dsinf(b->angle);
 						if (ha < -0.3f) {
 							const float side = 0.04f;
-							ax += sinf(a->angle) * side; ay += -cosf(a->angle) * side;
-							bx += sinf(b->angle) * side; by += -cosf(b->angle) * side;
+							ax += dsinf(a->angle) * side; ay += -dcosf(a->angle) * side;
+							bx += dsinf(b->angle) * side; by += -dcosf(b->angle) * side;
 						}
 					}
 
@@ -1801,7 +1866,7 @@ static void spawn_near(const Entity *b, EntType t) {
 	for (int r = 2; r < (sea ? 12 : 8); ++r) {
 		for (int k = 0; k < 24; ++k) {
 			float a = (float)k / 24.0f * 6.2831853f;
-			float x = b->x + cosf(a) * (b->size * 0.5f + r * 0.5f), y = b->y + sinf(a) * (b->size * 0.5f + r * 0.5f);
+			float x = b->x + dcosf(a) * (b->size * 0.5f + r * 0.5f), y = b->y + dsinf(a) * (b->size * 0.5f + r * 0.5f);
 			if (sea ? tile_sail((int)floorf(x), (int)floorf(y)) : tile_walk((int)floorf(x), (int)floorf(y))) {
 				int i = ent_new(t, b->owner, x, y);
 				if (i < 0) return;
@@ -1917,10 +1982,15 @@ int world_team_score(int p) {
 /* cambia la relación entre dos jugadores (simétrica). Un jugador de la máquina acepta la paz si el otro es más fuerte que él,
  * y la alianza solo si ya son neutrales y su dificultad no es la difícil. Declarar la guerra siempre se acepta. */
 int cmd_diplomacy(int from, int to, int level) {
+	if (ord_cap(OP_DIPL, to, level, 0, 0, 0, (Ref){ -1, 0 }, (Ref){ -1, 0 })) return 1;
 	if (from < 0 || to < 0 || from >= MAX_PLAYERS || to >= MAX_PLAYERS || from == to || !W.pl[from].active || !W.pl[to].active) return 0;
 	if (level < DIPL_ENEMY || level > DIPL_ALLY) return 0;
 	int cur = W.pl[from].dipl[to];
 	if (level == cur) return 1;
+	if (ord_red && level > cur && !W.pl[from].ai && !W.pl[to].ai) {   /* D461: entre personas, las paces y alianzas se fijan en la sala */
+		if (from == W.human) world_msg("Entre jugadores, los equipos se eligen en la sala");
+		return 0;
+	}
 	/* D415: la máquina responde según su personalidad y dificultad, la fuerza relativa, las amenazas comunes, los tributos
 	 * recibidos y las traiciones que recuerda (ia_responde); su respuesta sale en el chat */
 	if (level > cur && W.pl[to].ai && !W.pl[from].ai) {
@@ -1949,6 +2019,7 @@ int cmd_diplomacy(int from, int to, int level) {
 
 /* regala recursos a otro jugador (el mercado se queda un 20%) */
 int cmd_tribute(int from, int to, int kind, int amount) {
+	if (ord_cap(OP_TRIBUTO, to, kind, amount, 0, 0, (Ref){ -1, 0 }, (Ref){ -1, 0 })) return 1;
 	if (from < 0 || to < 0 || from >= MAX_PLAYERS || to >= MAX_PLAYERS || from == to || !W.pl[from].active || !W.pl[to].active) return 0;
 	if (kind < 0 || kind >= RES_COUNT || amount <= 0 || W.pl[from].dipl[to] == DIPL_ENEMY) return 0;
 	if (!count_bld_p(from, E_MARKET)) { if (from == W.human) world_msg("Necesitas un mercado para enviar tributo"); return 0; }
@@ -1961,6 +2032,7 @@ int cmd_tribute(int from, int to, int kind, int amount) {
 
 /* D415: pide un tributo. A un jugador de la máquina le toca decidir (ia_pide); si acepta, lo envía con el mismo 20 % del mercado */
 int cmd_pedir(int from, int to, int kind, int amount) {
+	if (ord_cap(OP_PEDIR, to, kind, amount, 0, 0, (Ref){ -1, 0 }, (Ref){ -1, 0 })) return 1;
 	if (from < 0 || to < 0 || from >= MAX_PLAYERS || to >= MAX_PLAYERS || from == to || !W.pl[from].active || !W.pl[to].active) return 0;
 	if (kind < 0 || kind >= RES_COUNT || amount <= 0) return 0;
 	if (!W.pl[to].ai) { if (from == W.human) world_msg("Ese jugador es una persona: pídeselo por otro medio"); return 0; }
@@ -1987,6 +2059,7 @@ void world_proponer(int de, int nivel) {
 
 /* el humano acepta o rechaza la propuesta del jugador `de`; devuelve 1 si la relación cambió */
 int cmd_responder_propuesta(int de, int acepta) {
+	if (ord_red) return 0;   /* D461: en red la máquina no hace propuestas */
 	if (de < 0 || de >= MAX_PLAYERS || !W.prop_nivel[de]) return 0;
 	int nivel = W.prop_nivel[de] - 1;
 	W.prop_nivel[de] = 0;
@@ -2021,6 +2094,7 @@ static void terminar(int g) {
  *    levantar otro edificio; al caer, el resto de sus unidades se rinde y desaparece.
  * Así la partida no se bloquea por unidades inalcanzables. Con un edificio en pie, el contador vuelve a cero. */
 #define CAIDA_SIN_EDIFICIOS 180.0f
+static float fog_t, win_t;   /* D461: de la partida (se reinician con world_new), no de la función */
 static float caida_t[MAX_PLAYERS];     /* segundos sin edificios */
 static unsigned char tuvo_edif[MAX_PLAYERS], rendido[MAX_PLAYERS];
 
@@ -2070,7 +2144,12 @@ static void check_victory(void) {
 		else for (int q = 0; q < p; ++q) if (W.pl[q].active && has[q] && !mismo_bando(p, q)) decidido = 0;
 	}
 	/* el humano derrotado pierde enseguida; si su civilización la lleva la máquina (espectador), se sigue hasta el final */
-	if (!has[W.human] && !W.pl[W.human].ai) { W.ganadores = 0; W.over = 2; snd_ui(SND_DEFEAT); return; }
+	if (!has[W.human] && !W.pl[W.human].ai) {
+		if (!ord_red) { W.ganadores = 0; W.over = 2; snd_ui(SND_DEFEAT); return; }
+		/* D461: en red la partida sigue para los demás: quien cae se queda mirando */
+		static int avisado_caida;
+		if (!avisado_caida) { avisado_caida = 1; world_msg("Has caído: sigues como espectador"); snd_ui(SND_DEFEAT); }
+	}
 	if (caidos > 0 && decidido && primero >= 0) { terminar(primero); return; }
 
 	if (W.setup.victory == VIC_RELICS && W.setup.relics_total > 0) {
@@ -2222,14 +2301,14 @@ static void place_start(int p, int sx, int sy) {
 	int n = W.setup.villagers;
 	for (int k = 0; k < n; ++k) {
 		float a = (float)k / n * 6.2831853f;
-		float x = sx + 0.5f + cosf(a) * 3.2f, y = sy + 0.5f + sinf(a) * 3.2f;
+		float x = sx + 0.5f + dcosf(a) * 3.2f, y = sy + 0.5f + dsinf(a) * 3.2f;
 		nearest_walk(&x, &y);
 		ent_new(E_VILLAGER, p, x, y);
 	}
 
 	/* bayas, árboles, oro y piedra cercanos */
 	float a0 = frand() * 6.2831853f;
-	float bx = sx + cosf(a0) * 7.0f, by = sy + sinf(a0) * 7.0f;
+	float bx = sx + dcosf(a0) * 7.0f, by = sy + dsinf(a0) * 7.0f;
 	for (int k = 0; k < 6; ++k) {
 		int x = (int)bx + k % 3 - 1, y = (int)by + k / 3 - 1;
 		if (tile_walk(x, y)) ent_new(E_BERRIES, -1, (float)x, (float)y);
@@ -2237,13 +2316,13 @@ static void place_start(int p, int sx, int sy) {
 
 	float a1 = a0 + 2.1f;
 	for (int k = 0; k < 14; ++k) {
-		int x = (int)(sx + cosf(a1) * 9.0f + irand(5) - 2), y = (int)(sy + sinf(a1) * 9.0f + irand(5) - 2);
+		int x = (int)(sx + dcosf(a1) * 9.0f + irand(5) - 2), y = (int)(sy + dsinf(a1) * 9.0f + irand(5) - 2);
 		if (tile_walk(x, y)) ent_new(E_TREE, -1, (float)x, (float)y);
 	}
 
 	float a2 = a0 + 4.2f;
 	for (int k = 0; k < 4; ++k) {
-		int x = (int)(sx + cosf(a2) * 11.0f) + k % 2, y = (int)(sy + sinf(a2) * 11.0f) + k / 2;
+		int x = (int)(sx + dcosf(a2) * 11.0f) + k % 2, y = (int)(sy + dsinf(a2) * 11.0f) + k / 2;
 		if (tile_walk(x, y)) ent_new(k < 2 ? E_GOLD : E_STONE, -1, (float)x, (float)y);
 	}
 }
@@ -2326,7 +2405,7 @@ static void scatter_resources(const Setup *s, const int *sx, const int *sy, int 
 	for (int p = 0; p < n; ++p) {
 		int isla = lab ? lab[tidx(sx[p], sy[p])] : 0;
 		/* su lado del mapa: alrededor de la dirección que va del centro al inicio */
-		float a0 = atan2f(sy[p] - W.h * 0.5f, sx[p] - W.w * 0.5f);
+		float a0 = datan2f(sy[p] - W.h * 0.5f, sx[p] - W.w * 0.5f);
 		for (int k = 0; k < 2 * parches[nivel]; ++k) {
 			EntType t = (k & 1) ? E_STONE : E_GOLD;
 			int puesto = 0;
@@ -2336,7 +2415,7 @@ static void scatter_resources(const Setup *s, const int *sx, const int *sy, int 
 				int vuelta = intento / 48, paso = intento % 48;
 				float r = base_r + (vuelta % 2 ? 1.0f : -1.0f) * (float)((vuelta + 1) / 2);
 				float an = a0 + (k * 1.3f - 0.65f) + (paso % 2 ? 1.0f : -1.0f) * (float)((paso + 1) / 2) * 0.13f;
-				int x = (int)(sx[p] + cosf(an) * r), y = (int)(sy[p] + sinf(an) * r);
+				int x = (int)(sx[p] + dcosf(an) * r), y = (int)(sy[p] + dsinf(an) * r);
 				if (cabe_parche(x, y, casillas[nivel], sx, sy, n, 14.0f, lab, isla)) {
 					poner_parche(t, x, y, casillas[nivel]); puesto = 1;
 					AOEN_LOG("[AOEN] recursos: parche de %s del jugador %d a %.1f casillas (%d)", t == E_GOLD ? "oro" : "piedra", p + 1,
@@ -2395,10 +2474,10 @@ static void place_wildlife(const Setup *s, const int *sx, const int *sy, int np)
 	/* manadas cerca de cada inicio para que haya algo que cazar, y algunas por todo el mapa */
 	for (int p = 0; p < np; ++p) {
 		float a = frand() * 6.2831853f, r = 15.0f + frand() * 6.0f;
-		float cx = sx[p] + cosf(a) * r, cy = sy[p] + sinf(a) * r;
+		float cx = sx[p] + dcosf(a) * r, cy = sy[p] + dsinf(a) * r;
 		for (int k = 0; k < 3; ++k) spawn_animal(E_HORSE, cx + k * 0.8f, cy + (k % 2) * 0.8f);
 		a += 2.4f; r = 22.0f + frand() * 6.0f;
-		spawn_animal(E_ELEPHANT, sx[p] + cosf(a) * r, sy[p] + sinf(a) * r);
+		spawn_animal(E_ELEPHANT, sx[p] + dcosf(a) * r, sy[p] + dsinf(a) * r);
 	}
 
 	int herds = W.w * W.h / 4000 + 2;
@@ -2686,6 +2765,7 @@ void world_new(const Setup *s) {
 	world_free();
 	memset(&W, 0, sizeof W);
 	memset(caida_t, 0, sizeof caida_t); memset(tuvo_edif, 0, sizeof tuvo_edif); memset(rendido, 0, sizeof rendido);   /* D415 */
+	fog_t = win_t = 0;   /* D461 */
 	W.setup = *s;
 	fuego_amigo = W.setup.fuego_amigo;   /* D447: la opción de la partida; AOEN_FUEGO_AMIGO sigue mandando en las pruebas */
 	if (getenv("AOEN_FUEGO_AMIGO")) fuego_amigo = W.setup.fuego_amigo = atoi(getenv("AOEN_FUEGO_AMIGO")) != 0;
@@ -2707,7 +2787,7 @@ void world_new(const Setup *s) {
 	for (int p = 0; p < np; ++p) {
 		float a = a0 + (float)p / np * 6.2831853f;
 		float rx = W.w * 0.35f, ry = W.h * 0.35f;
-		int x = (int)(W.w * 0.5f + cosf(a) * rx), y = (int)(W.h * 0.5f + sinf(a) * ry);
+		int x = (int)(W.w * 0.5f + dcosf(a) * rx), y = (int)(W.h * 0.5f + dsinf(a) * ry);
 		sx[p] = CLAMP(x, 14, W.w - 15); sy[p] = CLAMP(y, 14, W.h - 15);
 		W.pl[p].active = 1;
 		W.pl[p].ai = p != 0;
@@ -2754,9 +2834,10 @@ void world_free(void) {
 	free(W.ents); free(W.tile); free(W.variant); free(W.block); free(W.fog);
 	free(W.pf_g); free(W.pf_from); free(W.pf_stamp);
 	memset(&W, 0, sizeof W); memset(caida_t, 0, sizeof caida_t); memset(tuvo_edif, 0, sizeof tuvo_edif); memset(rendido, 0, sizeof rendido);
+	fog_t = win_t = 0;   /* D461 */
 }
 
-void world_update(float dt) {
+static void world_update_int(float dt) {
 	if (W.over) return;
 	W.time += dt;
 	if (W.msg_t > 0) W.msg_t -= dt;
@@ -2831,10 +2912,17 @@ void world_update(float dt) {
 	}
 
 	dev_escena_tick();
-	static float fog_t, win_t;
 	if ((fog_t -= dt) <= 0) { fog_t = 0.15f; update_fog(); }
 	if ((win_t -= dt) <= 0) { win_t = 1.0f; check_victory(); }
 }
+
+void world_update(float dt) {
+	++ord_ctx;   /* D461: durante la simulación los cmd_* (de la IA y del propio mundo) se ejecutan en el acto */
+	world_update_int(dt);
+	--ord_ctx;
+}
+
+void world_invalidar_cachas(void) { popcache.gen = 0; }
 
 /* ---------- suma del estado del mundo (D393) ----------
  * Para comprobar que la partida es determinista: con la misma semilla y los mismos pasos, la suma tiene que salir igual
@@ -2846,28 +2934,64 @@ static unsigned suma_u(unsigned h, unsigned v) {
 }
 static unsigned suma_f(unsigned h, float f) { unsigned v; memcpy(&v, &f, 4); return suma_u(h, v); }
 
-unsigned world_suma(void) {
-	unsigned h = 2166136261u;
-	h = suma_f(h, W.time); h = suma_u(h, W.rng); h = suma_u(h, (unsigned)W.nents); h = suma_u(h, (unsigned)W.over);
-	for (int i = 0; i < W.nents; ++i) {
-		const Entity *e = &W.ents[i];
-		h = suma_u(h, (unsigned)e->alive); h = suma_u(h, (unsigned)e->gen);
-		if (!e->alive) continue;
-		h = suma_u(h, (unsigned)e->type); h = suma_u(h, (unsigned)e->owner);
-		h = suma_f(h, e->x); h = suma_f(h, e->y); h = suma_f(h, e->hp); h = suma_u(h, (unsigned)e->state);
-		h = suma_u(h, (unsigned)e->target.idx); h = suma_u(h, (unsigned)e->target.gen); h = suma_f(h, e->tx); h = suma_f(h, e->ty);
-		h = suma_u(h, (unsigned)e->plen); h = suma_u(h, (unsigned)e->pidx);
-		for (int k = 0; k < e->plen && e->path; ++k) h = suma_u(h, (unsigned)e->path[k]);
-		h = suma_u(h, (unsigned)e->carry_kind); h = suma_u(h, (unsigned)e->carry); h = suma_f(h, e->amount); h = suma_f(h, e->progress);
-		h = suma_u(h, (unsigned)e->ntrain); for (int k = 0; k < e->ntrain; ++k) h = suma_u(h, (unsigned)e->train[k]);
-		h = suma_u(h, (unsigned)e->tech_cur); h = suma_u(h, (unsigned)e->stance); h = suma_u(h, (unsigned)e->nwp); h = suma_u(h, (unsigned)e->patrol);
-	}
+/* D461: la suma se parte en 10 grupos (0 reloj, azar y totales; 1 jugadores; 2..9 entidades por tramos de 64 índices) para
+ * poder decir, cuando dos máquinas no coinciden, en qué parte del mundo empezó la diferencia. */
+static unsigned suma_ent(unsigned h, const Entity *e) {
+	h = suma_u(h, (unsigned)e->alive); h = suma_u(h, (unsigned)e->gen);
+	if (!e->alive) return h;
+	h = suma_u(h, (unsigned)e->type); h = suma_u(h, (unsigned)e->owner);
+	h = suma_f(h, e->x); h = suma_f(h, e->y); h = suma_f(h, e->hp); h = suma_u(h, (unsigned)e->state);
+	h = suma_u(h, (unsigned)e->target.idx); h = suma_u(h, (unsigned)e->target.gen); h = suma_f(h, e->tx); h = suma_f(h, e->ty);
+	h = suma_u(h, (unsigned)e->plen); h = suma_u(h, (unsigned)e->pidx);
+	for (int k = 0; k < e->plen && e->path; ++k) h = suma_u(h, (unsigned)e->path[k]);
+	h = suma_u(h, (unsigned)e->carry_kind); h = suma_u(h, (unsigned)e->carry); h = suma_f(h, e->amount); h = suma_f(h, e->progress);
+	h = suma_u(h, (unsigned)e->ntrain); for (int k = 0; k < e->ntrain; ++k) h = suma_u(h, (unsigned)e->train[k]);
+	h = suma_u(h, (unsigned)e->tech_cur); h = suma_u(h, (unsigned)e->stance); h = suma_u(h, (unsigned)e->nwp); h = suma_u(h, (unsigned)e->patrol);
+	return h;
+}
+
+unsigned world_suma_grupos(unsigned g[16]) {
+	unsigned h0 = 2166136261u;
+	h0 = suma_f(h0, W.time); h0 = suma_u(h0, W.rng); h0 = suma_u(h0, (unsigned)W.nents); h0 = suma_u(h0, (unsigned)(W.over != 0));   /* 1 o 2 según quién mire */
+	unsigned hp = 2166136261u;
 	for (int p = 0; p < MAX_PLAYERS; ++p) {
 		const Player *pl = &W.pl[p];
-		for (int k = 0; k < RES_COUNT; ++k) h = suma_u(h, (unsigned)pl->res[k]);
-		h = suma_u(h, (unsigned)pl->age); h = suma_u(h, pl->techs); h = suma_f(h, pl->age_t); h = suma_u(h, (unsigned)pl->pop);
-		h = suma_u(h, (unsigned)pl->alive); h = suma_u(h, (unsigned)pl->units_killed);
-		for (int q = 0; q < MAX_PLAYERS; ++q) h = suma_u(h, (unsigned)pl->dipl[q]);
+		for (int k = 0; k < RES_COUNT; ++k) hp = suma_u(hp, (unsigned)pl->res[k]);
+		hp = suma_u(hp, (unsigned)pl->age); hp = suma_u(hp, pl->techs); hp = suma_f(hp, pl->age_t); hp = suma_u(hp, (unsigned)pl->pop);
+		hp = suma_u(hp, (unsigned)pl->alive); hp = suma_u(hp, (unsigned)pl->units_killed); hp = suma_u(hp, (unsigned)pl->ai);
+		for (int q = 0; q < MAX_PLAYERS; ++q) hp = suma_u(hp, (unsigned)pl->dipl[q]);
 	}
-	return h;
+	unsigned he[8];
+	for (int k = 0; k < 8; ++k) he[k] = 2166136261u;
+	for (int i = 0; i < W.nents; ++i) he[(i >> 6) & 7] = suma_ent(he[(i >> 6) & 7], &W.ents[i]);
+	g[0] = h0; g[1] = hp;
+	for (int k = 0; k < 8; ++k) g[2 + k] = he[k];
+	for (int k = 10; k < 16; ++k) g[k] = 0;
+	unsigned t = 2166136261u;
+	for (int k = 0; k < 10; ++k) t = suma_u(t, g[k]);
+	return t;
+}
+
+unsigned world_suma(void) { unsigned g[16]; return world_suma_grupos(g); }
+
+/* D461: volcado de texto del mundo (una línea por entidad viva y por jugador) para comparar con otra máquina con diff */
+int world_volcar(const char *ruta) {
+	FILE *f = fopen(ruta, "w");
+	if (!f) return 0;
+	unsigned g[16], t = world_suma_grupos(g);
+	fprintf(f, "t=%.4f rng=%08x nents=%d over=%d suma=%08x\n", W.time, W.rng, W.nents, W.over != 0, t);
+	for (int k = 0; k < 10; ++k) fprintf(f, "grupo %d: %08x\n", k, g[k]);
+	for (int p = 0; p < MAX_PLAYERS; ++p) {
+		const Player *pl = &W.pl[p];
+		if (!pl->active) continue;
+		fprintf(f, "J%d ia=%d edad=%d pop=%d res=%d,%d,%d,%d techs=%08x vivo=%d kills=%d\n", p, pl->ai, pl->age, pl->pop, pl->res[0], pl->res[1], pl->res[2], pl->res[3], pl->techs, pl->alive, pl->units_killed);
+	}
+	for (int i = 0; i < W.nents; ++i) {
+		const Entity *e = &W.ents[i];
+		if (!e->alive) continue;
+		fprintf(f, "E%d g%d t%d o%d x=%.5f y=%.5f hp=%.3f st%d tg%d/%d p%d/%d c%d,%d a=%.3f pr=%.3f nt=%d h=%08x\n", i, e->gen, (int)e->type, e->owner, e->x, e->y, e->hp, (int)e->state,
+		        e->target.idx, e->target.gen, e->pidx, e->plen, e->carry_kind, e->carry, e->amount, e->progress, e->ntrain, suma_ent(2166136261u, e));
+	}
+	fclose(f);
+	return 1;
 }

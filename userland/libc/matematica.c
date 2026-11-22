@@ -66,3 +66,52 @@ float fmaxf(float a, float b) { return a > b ? a : b; }
 float expf(float x) { return (float)exp(x); }
 float logf(float x) { return (float)log(x); }
 long lroundf(float x) { return lround(x); }
+
+/* D458 (FFmpeg): lo que faltaba de C99 para que un port con libm completa no use sus sustitutos. Son débiles: algunos ports
+ * (mGBA...) traen la suya y esa gana en el enlace. */
+#define FRACA __attribute__((weak))
+FRACA double exp2(double x) { return pow(2.0, x); }
+FRACA float exp2f(float x) { return (float)exp2(x); }
+FRACA float log2f(float x) { return (float)log2(x); }
+FRACA float log10f(float x) { return (float)log10(x); }
+FRACA float cbrtf(float x) { return (float)cbrt(x); }
+FRACA float asinf(float x) { return (float)asin(x); }
+FRACA float acosf(float x) { return (float)acos(x); }
+FRACA long lrintf(float x) { return (long)rint(x); }
+FRACA long long llrint(double x) { return (long long)rint(x); }
+FRACA long long llrintf(float x) { return (long long)rint(x); }
+FRACA long long llround(double x) { return (long long)round(x); }
+FRACA long long llroundf(float x) { return (long long)round(x); }
+
+/* j1: función de Bessel de primera especie y orden 1 (la usa libswscale para su filtro Kaiser). Serie de potencias
+ * hasta |x| = 12 (error ~1e-13) y desarrollo asintótico de Hankel más allá (error ~1e-9): suficiente para
+ * calcular ventanas de filtros; no es la j1 de precisión completa de la libm de musl. */
+FRACA double j1(double x)
+{
+    double a = fabs(x), r;
+    if (a < 12.0) {
+        double t = a / 2.0, q = t * t, s = t;   /* término k: (-1)^k (x/2)^(2k+1) / (k! (k+1)!) */
+        for (int k = 1; k < 60; k++) {
+            t *= -q / ((double)k * (k + 1));
+            s += t;
+            if (fabs(t) < 1e-18 * fabs(s)) break;
+        }
+        r = s;
+    } else {
+        /* J1(x) ~ sqrt(2/(pi x)) (P cos(x - 3pi/4) - Q sin(x - 3pi/4)) */
+        double mu = 4.0, p = 1.0, qq = 0.0, t = 1.0;
+        for (int k = 1; k < 12; k++) {
+            t *= (mu - (2.0 * k - 1) * (2.0 * k - 1)) / (k * 8.0 * a);
+            if (fabs(t) < 1e-17) break;
+            if (k & 1) qq += (((k - 1) / 2) & 1) ? -t : t;
+            else       p  += ((k / 2) & 1) ? -t : t;
+        }
+        double w = a - 2.356194490192345;   /* x - 3 pi / 4 */
+        r = sqrt(0.6366197723675814 / a) * (p * cos(w) - qq * sin(w));
+    }
+    return x < 0 ? -r : r;
+}
+
+/* sincos: seno y coseno juntos (gcc convierte un sin y un cos del mismo argumento en esta llamada). */
+FRACA void sincos(double x, double *s, double *c) { *s = sin(x); *c = cos(x); }
+FRACA void sincosf(float x, float *s, float *c) { *s = (float)sin(x); *c = (float)cos(x); }

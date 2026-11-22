@@ -1456,6 +1456,20 @@ static void g3_texto(texto_t *t)
            g.dono ? " (ahora lo usa un programa)" : "");
     else
         ad(t, "  SaguiGL:         SaguiGL por software (CPU)\n");
+    if (g.estado == GPU3D_ATIVO) {
+        /* D457: gpu3d v3 (la GPU guarda y transforma los vértices) */
+        gpu3d_capas_t k;
+        gpu3d_pedido_t q;
+        memset(&k, 0, sizeof k); memset(&q, 0, sizeof q);
+        q.op = GPU3D_OP_CAPACIDADES; q.ptr = (unsigned)&k;
+        if (info_sistema(INFO_GPU3D_OP, &q, sizeof q) == 0) {
+            unsigned prova = k.reservado[0] & 0xFF, anunciado = k.reservado[0] >> 16;
+            if (!anunciado) ad(t, "  Vértices:        los transforma la CPU (el driver no tiene gpu3d v3)\n");
+            else if (prova == 1) ad(t, "  Vértices:        por la GPU (gpu3d v3, bits 0x%x): %u búferes (%u KB), %u expulsiones, %u dibujos\n",
+                                    k.bits3, k.reservado[1], k.reservado[2], k.reservado[3], k.reservado[4]);
+            else ad(t, "  Vértices:        por la CPU: la autoprueba de gpu3d v3 falló en la escena %u (ver dmesg, [GPU3D] v3)\n", (k.reservado[0] >> 8) & 0xFF);
+        }
+    }
     if (g.triangulos || g.falhas)
         ad(t, "  Uso:             %u triángulos en %u entregas, %u cuadros, %u fallos\n", g.triangulos, g.lotes, g.quadros, g.falhas);
     if (g3_tem && g3_res.resultado == 1) {

@@ -408,8 +408,9 @@ los 60 minutos). Sin unidades en terreno ajeno en ningún caso, y la misma semil
 
 ## v8.5.5.2: el audio no depende de los FPS (D431)
 
-**Antes.** En el PC la SDL ya llamaba a la mezcla desde su hilo de audio (búfer de 1024 cuadros, 23 ms), pero en SaguiOS la
-SDL no tiene hilo de audio: `sdl2_sagui.c` ejecuta la llamada de vuelta desde el hilo principal, en `SDL_PollEvent`,
+**Antes.** (Desde el 2026-11-22 la SDL 2 del sistema ya tiene hilo de audio, D393; AoEN sigue con el suyo, que abre la tarjeta
+directamente y no pasa por la SDL.) En el PC la SDL ya llamaba a la mezcla desde su hilo de audio (búfer de 1024 cuadros, 23 ms), pero en SaguiOS la
+SDL no tenía hilo de audio: `sdl2_sagui.c` ejecuta la llamada de vuelta desde el hilo principal, en `SDL_PollEvent`,
 `SDL_RenderPresent` y `SDL_Delay`, y solo mientras queden menos de 120 ms por tocar en el flujo del sistema. Con los cuadros
 rápidos da igual; con un cuadro de más de ~100 ms la tarjeta se queda sin datos (cortes y silencios) y los efectos
 disparados en un cuadro lento sonaban juntos o tarde. La música ya avanzaba por muestras mezcladas (reloj de audio), no por
@@ -530,3 +531,41 @@ Mapeo de gráficos: `python3 tests/aoen_sprites.py`; área y fe: `python3 tests/
 
 - **Fuego amigo y carro mercante (D447, v8.5.5.2r2):** casilla «Fuego amigo» en la configuración (apagada de serie; se guarda con la
   partida, formato 6; las de formato 5 cargan con ella apagada) y carro mercante con carga y banda dorada sobre el gráfico del carro arquero.
+
+## v8.5.5.3: multijugador en red local (D461)
+
+**Qué es.** «Multijugador (red local)» en el menú principal: un anfitrión crea la sala, los demás la encuentran por difusión UDP (o
+escriben su IP), cada uno elige civilización, color y equipo, el anfitrión añade plazas de la máquina, elige mapa y reglas (también el
+fuego amigo) y empieza. Hasta 8 jugadores entre personas y máquina. Todos simulan el mismo mundo (**lockstep**): solo viajan las
+órdenes. Detalle del protocolo, de lo que rompía el determinismo y de las decisiones: D461 en `docs/decisoes.md`.
+
+**Archivos:** `ordenes.c/.h` (cola de órdenes, formato de red, aplicación), `red.c/.h` (canal fiable sobre UDP, sala, lockstep,
+suma de sincronía, volcado), `ui_red.c` (pantallas), `tests/aoen_red.c` (arnés del PC sin ventana), `tests/h461_aoen_multijugador.py`.
+
+**Cómo se juega en dos máquinas** (la misma versión de AoEN y los mismos datos DRS en las dos; si son distintos el juego va igual,
+porque la partida no usa los gráficos, pero conviene que sean los mismos):
+1. En una: Multijugador > *Crear sala*. En la otra: Multijugador > la sala aparece sola (si no, IP del anfitrión > *Unirse por IP*; el
+   puerto es el UDP 47811).
+2. En la sala, cada uno elige lo suyo y pulsa *Estoy listo*; el anfitrión puede añadir plazas de la máquina (tipo «Máquina» y su
+   dificultad), cerrar las que sobren, echar a alguien y cambiar el mapa. *Empezar partida* cuando todos estén listos.
+3. En la partida: **Pausa** o F6 pausa a todos, **+** y **-** cambian la velocidad de todos, **Intro** abre el chat, **Menú** no detiene
+   la partida. Si alguien se va o deja de contestar 10 s, su civilización pasa a la máquina y el resto sigue. Si se pierde al anfitrión,
+   los demás siguen solos contra la máquina. Guardar y cargar no están disponibles en red.
+
+**Variables de prueba:** `AOEN_RED_PERDIDA=%`, `AOEN_RED_RETARDO=ms`, `AOEN_RED_JITTER=ms` (en cada envío), `AOEN_RED_PUERTO` (el de la sala),
+`AOEN_RED_MIPUERTO`, `AOEN_RED_BUSCAR=IP[:puerto],...` (búsqueda sin difusión), `AOEN_RED_RAPIDO=1` (sin esperar el reloj entre turnos),
+`AOEN_RED_TIMEOUT=ms`, `AOEN_RED_FIJO=1` (el turno no se adapta a la latencia), `AOEN_RED_FALLA=turno` y `AOEN_RED_FALLA_JUG=n` (provoca una
+desincronización en ese jugador), `AOEN_RED_VOLCADO=carpeta` (dónde se escriben los `desinc-j*-t*.txt`), `AOEN_RED_AUTO=anf,turnos[,ias]` y
+`AOEN_RED_AUTO=cli,turnos` (guion que pasa por las pantallas de verdad).
+
+**Pruebas** (`python3 tests/h461_aoen_multijugador.py [pc] [fuentes] [qemu]`):
+- *PC* (`aoen_red.c`: varias copias del motor sin ventana por UDP en 127.0.0.1, con órdenes al azar por los `cmd_*` normales): 2 personas
+  + 1 máquina y 3 personas + 2 máquinas (150 turnos, **misma suma en cada turno**; un cliente con `AOEN_HILOS=1`), con pérdida del 10 %
+  y retardo de 25 ms (+-15) en cada sentido, un jugador que se va (su civilización acaba en la máquina y los que quedan siguen con la misma suma),
+  una desincronización provocada (detectada en el turno exacto, grupo de jugadores señalado y volcados escritos), pausa común, velocidad
+  común, búsqueda por difusión, chat, el anfitrión que desaparece y fuego amigo.
+- *QEMU*: dos SaguiOS unidos por sockets UDP de QEMU; uno crea la sala por las pantallas, el otro la encuentra por difusión, entran, juegan
+  con órdenes guionadas y acaban con la misma suma.
+
+**Pendiente:** retomar tras un corte breve, espectadores, guardar y cargar en red, SaguiOS contra el PC (medido: misma evolución pero sumas
+distintas por los bits de los float de la x87 frente a SSE; ver D461), probarlo en dos portátiles reales.

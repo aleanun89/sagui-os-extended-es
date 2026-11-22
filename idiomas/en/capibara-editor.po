@@ -1,0 +1,566 @@
+# Traducción de SaguiOS: catálogo «capibara-editor», idioma en (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/capibara/editor/editor.c:492
+msgid "Escenas"
+msgstr "Scenes"
+
+#: userland/capibara/editor/editor.c:492
+msgid "Guiones"
+msgstr "Scripts"
+
+#: userland/capibara/editor/editor.c:492
+msgid "Texturas"
+msgstr "Textures"
+
+#: userland/capibara/editor/editor.c:492
+msgid "Sonidos"
+msgstr "Sounds"
+
+#: userland/capibara/editor/editor.c:627 userland/capibara/editor/editor.c:633
+msgid "Nodo"
+msgstr "Node"
+
+#: userland/capibara/editor/editor.c:629
+msgid "Nombre"
+msgstr "Name"
+
+#: userland/capibara/editor/editor.c:631
+msgid "Tipo"
+msgstr "Type"
+
+#: userland/capibara/editor/editor.c:633
+msgid "Transformación"
+msgstr "Transform"
+
+#: userland/capibara/editor/editor.c:633
+msgid "Apariencia"
+msgstr "Appearance"
+
+#: userland/capibara/editor/editor.c:633
+msgid "Propiedades del tipo"
+msgstr "Type properties"
+
+#: userland/capibara/editor/editor.c:648
+msgid "Variables"
+msgstr "Variables"
+
+#: userland/capibara/editor/editor.c:661
+msgid "Señales"
+msgstr "Signals"
+
+#: userland/capibara/editor/editor.c:668
+msgid "Selección"
+msgstr "Selection"
+
+#: userland/capibara/editor/editor.c:670
+msgid "Elegidos"
+msgstr "Selected"
+
+#: userland/capibara/editor/editor.c:717
+msgid "El nombre no puede estar vacío ni llevar espacios, corchetes, comillas o barras."
+msgstr "The name cannot be empty or contain spaces, brackets, quotes or slashes."
+
+#: userland/capibara/editor/editor.c:719 userland/capibara/editor/editor.c:1013
+msgid "Ya hay un nodo con ese nombre."
+msgstr "There is already a node with that name."
+
+#: userland/capibara/editor/editor.c:722 userland/capibara/editor/editor.c:1015
+msgid "Renombrar nodo"
+msgstr "Rename node"
+
+#: userland/capibara/editor/editor.c:731
+msgid "Cambiar variable"
+msgstr "Change variable"
+
+#: userland/capibara/editor/editor.c:740
+msgid "Quitar conexión"
+msgstr "Remove connection"
+
+#: userland/capibara/editor/editor.c:747
+msgid "Cambiar conexión"
+msgstr "Change connection"
+
+#: userland/capibara/editor/editor.c:756
+msgid "Cambiar propiedad"
+msgstr "Change property"
+
+#: userland/capibara/editor/editor.c:795
+msgid "No existe el guion"
+msgstr "The script does not exist"
+
+#: userland/capibara/editor/editor.c:828
+msgid "Guion guardado"
+msgstr "Script saved"
+
+#: userland/capibara/editor/editor.c:832 userland/capibara/editor/editor.c:840
+msgid "No se pudo guardar"
+msgstr "Could not save"
+
+#: userland/capibara/editor/editor.c:839
+msgid "Escena guardada"
+msgstr "Scene saved"
+
+#: userland/capibara/editor/editor.c:859 userland/capibara/editor/editor.c:1051
+msgid "No existe la escena"
+msgstr "The scene does not exist"
+
+#: userland/capibara/editor/editor.c:868
+msgid "Escena abierta"
+msgstr "Scene opened"
+
+#: userland/capibara/editor/editor.c:868
+msgid "nodos"
+msgstr "nodes"
+
+#: userland/capibara/editor/editor.c:875 userland/capibara/editor/editor.c:876 userland/capibara/editor/editor.c:914 userland/capibara/editor/editor.c:939
+msgid "Capibara"
+msgstr "Capibara"
+
+#: userland/capibara/editor/editor.c:875
+msgid "Los paquetes .capi no se editan: abre la carpeta del proyecto."
+msgstr ".capi packages are not edited: open the project folder."
+
+#: userland/capibara/editor/editor.c:876
+msgid "Esa carpeta no es un proyecto de Capibara (falta capibara.cfg)."
+msgstr "That folder is not a Capibara project (capibara.cfg is missing)."
+
+#: userland/capibara/editor/editor.c:893 userland/capibara/editor/editor.c:1495
+msgid "Proyecto"
+msgstr "Project"
+
+#: userland/capibara/editor/editor.c:902
+msgid "No hay ejemplo"
+msgstr "There is no example"
+
+#: userland/capibara/editor/editor.c:903
+msgid "Ejemplo copiado a"
+msgstr "Example copied to"
+
+#: userland/capibara/editor/editor.c:903 userland/capibara/editor/editor.c:1125
+msgid "ficheros"
+msgstr "files"
+
+#: userland/capibara/editor/editor.c:911
+msgid "Proyecto nuevo"
+msgstr "New project"
+
+#: userland/capibara/editor/editor.c:911
+msgid "Carpeta del proyecto:"
+msgstr "Project folder:"
+
+#: userland/capibara/editor/editor.c:914
+msgid "Ya hay un proyecto en esa carpeta."
+msgstr "There is already a project in that folder."
+
+#: userland/capibara/editor/editor.c:936
+msgid "Escena nueva"
+msgstr "New scene"
+
+#: userland/capibara/editor/editor.c:936
+msgid "Fichero de la escena:"
+msgstr "Scene file:"
+
+#: userland/capibara/editor/editor.c:939
+msgid "Esa escena ya existe."
+msgstr "That scene already exists."
+
+#: userland/capibara/editor/editor.c:972
+msgid "Añadir nodo"
+msgstr "Add node"
+
+#: userland/capibara/editor/editor.c:976
+msgid "Nodo añadido"
+msgstr "Node added"
+
+#: userland/capibara/editor/editor.c:984
+msgid "La raíz de la escena no se puede borrar."
+msgstr "The scene root cannot be deleted."
+
+#: userland/capibara/editor/editor.c:985
+msgid "Borrar nodos"
+msgstr "Delete nodes"
+
+#: userland/capibara/editor/editor.c:998
+msgid "Duplicar nodo"
+msgstr "Duplicate node"
+
+#: userland/capibara/editor/editor.c:1008 userland/capibara/editor/editor.c:1497
+msgid "Renombrar"
+msgstr "Rename"
+
+#: userland/capibara/editor/editor.c:1008
+msgid "Nombre nuevo:"
+msgstr "New name:"
+
+#: userland/capibara/editor/editor.c:1010
+msgid "El nombre no puede llevar espacios, corchetes, comillas o barras."
+msgstr "The name cannot contain spaces, brackets, quotes or slashes."
+
+#: userland/capibara/editor/editor.c:1022 userland/capibara/editor/editor.c:1023
+msgid "Variable nueva"
+msgstr "New variable"
+
+#: userland/capibara/editor/editor.c:1022
+msgid "Nombre (se usará como self.nombre en Lua):"
+msgstr "Name (it will be self.name in Lua):"
+
+#: userland/capibara/editor/editor.c:1023
+msgid "Valor (número, \"texto\", si o no):"
+msgstr "Value (number, \"text\", si or no):"
+
+#: userland/capibara/editor/editor.c:1027
+msgid "Añadir variable"
+msgstr "Add variable"
+
+#: userland/capibara/editor/editor.c:1035 userland/capibara/editor/editor.c:1036 userland/capibara/editor/editor.c:1037 userland/capibara/editor/editor.c:1040
+msgid "Conectar señal"
+msgstr "Connect signal"
+
+#: userland/capibara/editor/editor.c:1035
+msgid "Señal de este nodo:"
+msgstr "Signal of this node:"
+
+#: userland/capibara/editor/editor.c:1036
+msgid "Nodo destino (ruta desde la raíz, «.» = la raíz):"
+msgstr "Target node (path from the root, \".\" = the root):"
+
+#: userland/capibara/editor/editor.c:1037
+msgid "Método del guion del destino:"
+msgstr "Method of the target script:"
+
+#: userland/capibara/editor/editor.c:1049 userland/capibara/editor/editor.c:1060 userland/capibara/editor/editor.c:1475
+msgid "Instanciar escena"
+msgstr "Instantiate scene"
+
+#: userland/capibara/editor/editor.c:1049
+msgid "Escena (ruta dentro del proyecto):"
+msgstr "Scene (path inside the project):"
+
+#: userland/capibara/editor/editor.c:1052
+msgid "Una escena no se puede instanciar a sí misma."
+msgstr "A scene cannot instantiate itself."
+
+#: userland/capibara/editor/editor.c:1086
+msgid "No se pudo crear"
+msgstr "Could not create"
+
+#: userland/capibara/editor/editor.c:1090
+msgid "Crear guion"
+msgstr "Create script"
+
+#: userland/capibara/editor/editor.c:1094
+msgid "Guion creado"
+msgstr "Script created"
+
+#: userland/capibara/editor/editor.c:1112
+msgid "Guion correcto"
+msgstr "Script is correct"
+
+#: userland/capibara/editor/editor.c:1120
+msgid "Exportar a .capi"
+msgstr "Export to .capi"
+
+#: userland/capibara/editor/editor.c:1120
+msgid "Fichero de salida:"
+msgstr "Output file:"
+
+#: userland/capibara/editor/editor.c:1125
+msgid "Exportado"
+msgstr "Exported"
+
+#: userland/capibara/editor/editor.c:1172
+msgid "Juego detenido"
+msgstr "Game stopped"
+
+#: userland/capibara/editor/editor.c:1180
+msgid "No se pudo crear la tubería."
+msgstr "Could not create the pipe."
+
+#: userland/capibara/editor/editor.c:1191
+msgid "No se pudo lanzar /apps/bin/capibara."
+msgstr "Could not launch /apps/bin/capibara."
+
+#: userland/capibara/editor/editor.c:1193
+msgid "Jugando"
+msgstr "Playing"
+
+#: userland/capibara/editor/editor.c:1209
+msgid "El juego terminó"
+msgstr "The game ended"
+
+#: userland/capibara/editor/editor.c:1209
+msgid "código"
+msgstr "code"
+
+#: userland/capibara/editor/editor.c:1284
+msgid "Mover nodos"
+msgstr "Move nodes"
+
+#: userland/capibara/editor/editor.c:1284
+msgid "Escalar nodo"
+msgstr "Scale node"
+
+#: userland/capibara/editor/editor.c:1284
+msgid "Girar nodo"
+msgstr "Rotate node"
+
+#: userland/capibara/editor/editor.c:1380
+msgid "Elige un MapaCasillas en el árbol para pintar."
+msgstr "Choose a MapaCasillas in the tree to paint."
+
+#: userland/capibara/editor/editor.c:1382
+msgid "El mapa no tiene textura: pon una en el inspector."
+msgstr "The map has no texture: set one in the inspector."
+
+#: userland/capibara/editor/editor.c:1397
+msgid "Borrar casillas"
+msgstr "Erase tiles"
+
+#: userland/capibara/editor/editor.c:1397
+msgid "Pintar casillas"
+msgstr "Paint tiles"
+
+#: userland/capibara/editor/editor.c:1400
+msgid "Casillas borradas"
+msgstr "Tiles erased"
+
+#: userland/capibara/editor/editor.c:1400
+msgid "Casillas pintadas"
+msgstr "Tiles painted"
+
+#: userland/capibara/editor/editor.c:1442
+msgid "No se puede mover el nodo ahí."
+msgstr "The node cannot be moved there."
+
+#: userland/capibara/editor/editor.c:1444
+msgid "Mover en el árbol"
+msgstr "Move in the tree"
+
+#: userland/capibara/editor/editor.c:1475
+msgid "Añadir sprite"
+msgstr "Add sprite"
+
+#: userland/capibara/editor/editor.c:1495
+msgid "Archivo"
+msgstr "File"
+
+#: userland/capibara/editor/editor.c:1495
+msgid "Editar"
+msgstr "Edit"
+
+#: userland/capibara/editor/editor.c:1495
+msgid "Añadir"
+msgstr "Add"
+
+#: userland/capibara/editor/editor.c:1495
+msgid "Ver"
+msgstr "View"
+
+#: userland/capibara/editor/editor.c:1496
+msgid "Nuevo proyecto..."
+msgstr "New project..."
+
+#: userland/capibara/editor/editor.c:1496
+msgid "Abrir proyecto..."
+msgstr "Open project..."
+
+#: userland/capibara/editor/editor.c:1496
+msgid "Abrir ejemplo: plataformas"
+msgstr "Open example: platformer"
+
+#: userland/capibara/editor/editor.c:1496
+msgid "Abrir ejemplo: escuadrón"
+msgstr "Open example: squad"
+
+#: userland/capibara/editor/editor.c:1496
+msgid "Nueva escena..."
+msgstr "New scene..."
+
+#: userland/capibara/editor/editor.c:1496 userland/capibara/editor/editor.c:1736
+msgid "Guardar"
+msgstr "Save"
+
+#: userland/capibara/editor/editor.c:1496
+msgid "Exportar a .capi..."
+msgstr "Export to .capi..."
+
+#: userland/capibara/editor/editor.c:1496
+msgid "Salir"
+msgstr "Quit"
+
+#: userland/capibara/editor/editor.c:1497 userland/capibara/editor/editor.c:1736
+msgid "Deshacer"
+msgstr "Undo"
+
+#: userland/capibara/editor/editor.c:1497 userland/capibara/editor/editor.c:1736
+msgid "Rehacer"
+msgstr "Redo"
+
+#: userland/capibara/editor/editor.c:1497
+msgid "Duplicar"
+msgstr "Duplicate"
+
+#: userland/capibara/editor/editor.c:1497
+msgid "Borrar"
+msgstr "Delete"
+
+#: userland/capibara/editor/editor.c:1497
+msgid "Añadir variable..."
+msgstr "Add variable..."
+
+#: userland/capibara/editor/editor.c:1497
+msgid "Conectar señal..."
+msgstr "Connect signal..."
+
+#: userland/capibara/editor/editor.c:1498 userland/capibara/editor/editor.c:1737
+msgid "Jugar"
+msgstr "Play"
+
+#: userland/capibara/editor/editor.c:1498
+msgid "Jugar la escena abierta"
+msgstr "Play the open scene"
+
+#: userland/capibara/editor/editor.c:1498 userland/capibara/editor/editor.c:1737
+msgid "Parar"
+msgstr "Stop"
+
+#: userland/capibara/editor/editor.c:1498
+msgid "Crear guion del nodo"
+msgstr "Create the node's script"
+
+#: userland/capibara/editor/editor.c:1498
+msgid "Editar guion del nodo"
+msgstr "Edit the node's script"
+
+#: userland/capibara/editor/editor.c:1498
+msgid "Comprobar guion"
+msgstr "Check script"
+
+#: userland/capibara/editor/editor.c:1499 userland/capibara/editor/editor.c:1737
+msgid "Rejilla"
+msgstr "Grid"
+
+#: userland/capibara/editor/editor.c:1499 userland/capibara/editor/editor.c:1737
+msgid "Imán"
+msgstr "Snap"
+
+#: userland/capibara/editor/editor.c:1499
+msgid "Colisiones"
+msgstr "Collisions"
+
+#: userland/capibara/editor/editor.c:1499
+msgid "Encuadrar la escena"
+msgstr "Frame the scene"
+
+#: userland/capibara/editor/editor.c:1499
+msgid "Capa de casillas siguiente"
+msgstr "Next tile layer"
+
+#: userland/capibara/editor/editor.c:1499
+msgid "Capa de casillas nueva"
+msgstr "New tile layer"
+
+#: userland/capibara/editor/editor.c:1591 userland/capibara/editor/editor.c:1592
+msgid "Escena"
+msgstr "Scene"
+
+#: userland/capibara/editor/editor.c:1594
+msgid "Inspector"
+msgstr "Inspector"
+
+#: userland/capibara/editor/editor.c:1595
+msgid "Recursos"
+msgstr "Resources"
+
+#: userland/capibara/editor/editor.c:1596
+msgid "Paleta de casillas"
+msgstr "Tile palette"
+
+#: userland/capibara/editor/editor.c:1596 userland/capibara/editor/editor.c:1641
+msgid "Paleta"
+msgstr "Palette"
+
+#: userland/capibara/editor/editor.c:1597
+msgid "Guion"
+msgstr "Script"
+
+#: userland/capibara/editor/editor.c:1606
+msgid "Elige un MapaCasillas con textura."
+msgstr "Choose a MapaCasillas with a texture."
+
+#: userland/capibara/editor/editor.c:1638
+msgid "La escena tiene cambios sin guardar. ¿Descartarlos?"
+msgstr "The scene has unsaved changes. Discard them?"
+
+#: userland/capibara/editor/editor.c:1649
+msgid "Abrir proyecto de Capibara"
+msgstr "Open Capibara project"
+
+#: userland/capibara/editor/editor.c:1658
+msgid "Deshecho"
+msgstr "Undone"
+
+#: userland/capibara/editor/editor.c:1659
+msgid "Rehecho"
+msgstr "Redone"
+
+#: userland/capibara/editor/editor.c:1676
+msgid "Capa de casillas"
+msgstr "Tile layer"
+
+#: userland/capibara/editor/editor.c:1680
+msgid "Un mapa admite hasta 6 capas."
+msgstr "A map allows up to 6 layers."
+
+#: userland/capibara/editor/editor.c:1682
+msgid "Capa nueva"
+msgstr "New layer"
+
+#: userland/capibara/editor/editor.c:1703
+msgid "Capibara: editor"
+msgstr "Capibara: editor"
+
+#: userland/capibara/editor/editor.c:1736
+msgid "Nuevo"
+msgstr ""
+
+#: userland/capibara/editor/editor.c:1736
+msgid "Abrir"
+msgstr "Open"
+
+#: userland/capibara/editor/editor.c:1736
+msgid "Mover"
+msgstr "Move"
+
+#: userland/capibara/editor/editor.c:1736
+msgid "Girar"
+msgstr "Rotate"
+
+#: userland/capibara/editor/editor.c:1736
+msgid "Escalar"
+msgstr "Scale"
+
+#: userland/capibara/editor/editor.c:1736
+msgid "Pintar"
+msgstr "Paint"
+
+#: userland/capibara/editor/editor.c:1736
+msgid "Goma"
+msgstr "Eraser"
+
+#: userland/capibara/editor/editor.c:1737
+msgid "Exportar"
+msgstr "Export"
+
+#: userland/capibara/editor/editor.c:1775
+msgid "Hay cambios sin guardar. ¿Salir sin guardar?"
+msgstr "There are unsaved changes. Quit without saving?"
+

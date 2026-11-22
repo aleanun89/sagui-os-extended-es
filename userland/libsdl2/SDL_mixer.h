@@ -1,8 +1,9 @@
 /* SDL_mixer.h - SDL2_mixer del SaguiOS (D374): mezcla por software sobre la SDL 2 del sistema.
  * Canales de efectos (Mix_Chunk) y una música (Mix_Music). Formatos: WAV (PCM 8/16/24/32 bits),
  * Ogg Vorbis (stb_vorbis, dominio público/MIT) y, para la música, también MP3, FLAC y MIDI por los
- * decodificadores de la libsagui. Implementación: sdl2_mixer.c. Sin hilos: mezcla en la llamada de
- * vuelta de audio, que la SDL del sistema atiende desde SDL_PollEvent, SDL_Delay y SDL_RenderPresent. */
+ * decodificadores de la libsagui. Implementación: sdl2_mixer.c. Mezcla en la llamada de vuelta de
+ * audio, que corre en el hilo de audio de la SDL del sistema (D393); las funciones que cambian el estado
+ * toman SDL_LockAudio. Con SDL_SAGUI_AUDIO_HILO=0 la atiende el hilo principal, como antes. */
 #ifndef SDL_MIXER_H_SAGUI
 #define SDL_MIXER_H_SAGUI
 #include "SDL.h"

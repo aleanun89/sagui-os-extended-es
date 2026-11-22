@@ -19,6 +19,7 @@
  * (p. ej. asedio = mucho daño a edificios y alcance) y se comprueba antes de usarlo (ver NOTAS-IA.md). */
 #include "game.h"
 #include "ia.h"
+#include "ordenes.h"
 #include "hilos.h"
 
 /* ---------- copias locales de ayudas internas de game.c (allí son static) ---------- */
@@ -296,7 +297,7 @@ static int ia_find_site(int p, int t, float ax, float ay, int rmin, int rmax) {
 		int pasos = MAX(8, 8 * r);
 		for (int k = 0; k < pasos; ++k) {
 			float an = (float)k / (float)pasos * 6.2831853f + (float)p;
-			int tx = (int)(ax + cosf(an) * r) - s / 2, ty = (int)(ay + sinf(an) * r) - s / 2;
+			int tx = (int)(ax + dcosf(an) * r) - s / 2, ty = (int)(ay + dsinf(an) * r) - s / 2;
 			if (!can_place((EntType)t, tx, ty) || choca_obra(p, t, tx, ty)) continue;
 			/* mantén un anillo libre para que las unidades puedan rodear */
 			int ok = 1;
@@ -788,7 +789,7 @@ static void edificios(int p, Censo *c) {
 	if (nv->torres && age >= bld_def[E_TOWER].age && c->n[E_TOWER] < nv->torres && c->aldeanos >= 14) {
 		float dx = W.w * 0.5f - c->bx, dy = W.h * 0.5f - c->by, l = sqrtf(dx * dx + dy * dy) + 0.01f;
 		float an = c->n[E_TOWER] * 1.2f;
-		float ex = dx / l * cosf(an) - dy / l * sinf(an), ey = dx / l * sinf(an) + dy / l * cosf(an);
+		float ex = dx / l * dcosf(an) - dy / l * dsinf(an), ey = dx / l * dsinf(an) + dy / l * dcosf(an);
 		INTENTA(1, E_TOWER, c->bx + ex * 6, c->by + ey * 6, 0, 5);
 	}
 	/* muelle en los mapas de agua (y si hay peces cerca, también en los demás para la difícil) */
@@ -998,7 +999,7 @@ static void explorar(int p, Censo *c) {
 	if (e && a->ruta < 6) {
 		if (e->state == ST_IDLE || a->ruta == 0) {
 			float an = a->ruta * 1.047f + p, r = 15.0f;
-			float x = CLAMP(c->bx + cosf(an) * r, 2, W.w - 3), y = CLAMP(c->by + sinf(an) * r, 2, W.h - 3);
+			float x = CLAMP(c->bx + dcosf(an) * r, 2, W.w - 3), y = CLAMP(c->by + dsinf(an) * r, 2, W.h - 3);
 			cmd_move(a->explorador_ini, x, y);
 			++a->ruta;
 		}
@@ -1748,6 +1749,7 @@ int ia_pide(int p, int de, int kind, int cantidad, char *msg, int n) {
  * enemigo común o si es pacífica; la alianza si hay un enemigo común o ya ha recibido tributos; y pide tributo si le falta un
  * recurso. Si el humano la traicionó hace poco, no propone nada y se lo recuerda. La propuesta se responde en F3. */
 static void proponer_al_humano(int p) {
+	if (ord_red) return;   /* D461: en red la máquina no hace propuestas a los humanos */
 	Player *pl = &W.pl[p];
 	Dip *d = dipm(p);
 	if (pl->diff == 0 || W.time < 300) return;

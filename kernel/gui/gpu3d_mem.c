@@ -152,3 +152,36 @@ void g3d_quad_cor(int x, int y, int l, int a, uint32_t cor, gpu3d_vert_t q[6])
     uint32_t z[2] = { 0, 0 };
     quad6(q, xs, ys, z, z, cor);
 }
+
+/* ------------------------------------------------------------ el montón de los búferes de vértices (D457) */
+
+void g3d_vbmonte_iniciar(g3d_vbmonte_t *m, uint32_t total)
+{
+    memset(m, 0, sizeof *m);
+    m->total = total;
+}
+
+bool g3d_vbmonte_criar(g3d_vbmonte_t *m, int vaga, uint32_t bytes)
+{
+    if (vaga < 0 || vaga >= GPU3D_VBUFS || !bytes || m->tam[vaga] || bytes > m->total) return false;
+    bytes = (bytes + 63u) & ~63u;
+    if (bytes > m->total - m->usado) return false;
+    /* el primer sitio: se empieza en 0 y, mientras pise un búfer, se salta detrás de él */
+    uint32_t off = 0;
+    for (;;) {
+        if (off > m->total - bytes) return false;
+        bool pisa = false;
+        for (int i = 0; i < GPU3D_VBUFS; i++)
+            if (m->tam[i] && off < m->off[i] + m->tam[i] && m->off[i] < off + bytes) { off = m->off[i] + m->tam[i]; pisa = true; break; }
+        if (!pisa) break;
+    }
+    m->off[vaga] = off; m->tam[vaga] = bytes; m->usado += bytes; m->n++;
+    return true;
+}
+
+void g3d_vbmonte_soltar(g3d_vbmonte_t *m, int vaga)
+{
+    if (vaga < 0 || vaga >= GPU3D_VBUFS || !m->tam[vaga]) return;
+    m->usado -= m->tam[vaga]; m->n--;
+    m->tam[vaga] = 0; m->off[vaga] = 0;
+}

@@ -8,7 +8,7 @@ lector (ATAPI), leer el ISO 9660, encontrar dentro la imagen de arranque y copia
 
 Parte "ide" (el caso del Amilo: el lector en el IDE/PATA, ATAPI por PIO):
   - la ISO (con terminal a pantalla completa, como la de h159) arranca con -cdrom y un disco
-    vacío de 400 MB (hda);
+    vacío de 700 MB (hda);
   - el kernel registra cd0 (ISO 9660 "SAGUIOS") y cd0img (la imagen El Torito), reconoce
     cd0img como el disco de arranque (su cabecera es la del arranque) y monta /cd;
   - "mount" y "ls /cd" ven saguios.img; "sha256sum /cd/saguios.img" coincide con el
@@ -171,7 +171,7 @@ def arrancar_instalado(dest, rotulo, versao):
 
 
 def parte_ide(img_cd, iso):
-    dest = vazio("h207-ide-dest", 400)
+    dest = vazio("h207-ide-dest", 700)
     extras = ["-drive", f"file={dest},if=ide,index=0,format=raw"]
     with Maquina("h207-ide", "cd", imagem=iso, extras=extras) as m:
         versao = desde_cd(m, "ide", img_cd, "IDE")
@@ -182,7 +182,7 @@ def parte_ide(img_cd, iso):
 
 
 def parte_ahci(img_cd, iso):
-    dest = vazio("h207-ahci-dest", 400)
+    dest = vazio("h207-ahci-dest", 700)
     # El disco vacío en el IDE (hda) y el CD en el AHCI, que es de donde arranca la BIOS.
     extras = ["-device", "ich9-ahci,id=ahci",
               "-drive", f"if=none,id=cdahci,file={iso},media=cdrom,format=raw,readonly=on",

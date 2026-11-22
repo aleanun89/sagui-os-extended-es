@@ -740,7 +740,13 @@ static void tarefa_gerenciador(void *arg)
             }
             if (area_icone_tecla(t, mods)) continue;   /* D268: flechas e Intro con el foco en el escritorio */
             janela_t *j = focada();
-            if (!j) continue;
+            if (!j) {   /* D455: F1 en el escritorio (sin ventana con foco) abre la Ayuda */
+                if (t == TECLA_F1 && (mods & 7) == 0) {
+                    char *argv_ay[] = { "ayuda-gui", NULL };
+                    gui_abrir_unico("ayuda-gui", "/bin/ayuda-gui", 1, argv_ay);
+                }
+                continue;
+            }
             if (tecla_do_gerenciador(j, t)) continue;   /* F11 y Esc de la pantalla completa */
             /* & 7: Shift, Ctrl y Alt (el Mico usa Alt+flechas, D075); el AltGr queda fuera, ya convirtió el carácter. */
             evento_t e = { .tipo = EV_TECLA, .tecla = (unsigned)t, .modificadores = mods & 7 };

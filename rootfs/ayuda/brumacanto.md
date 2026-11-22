@@ -8,7 +8,7 @@ la acelera). Código MIT; gráficos CC0 de Kenney y algunas texturas CC BY-SA 3.
 
 WASD y ratón: moverse y mirar. Espacio: saltar. Mayús: correr. Clic izquierdo: minar o atacar. Clic derecho: colocar.
 1 a 9 o la rueda: objeto. E: mochila y fabricación. F: comerciar. F2: supervivencia o creativo. **F5: guardar.**
-**F3: distancia de dibujo** (32, 48, 64, 80 o 104 bloques). **F4: escala de dibujo** (100, 75 o 50 %).
+**F3: distancia de dibujo** (32, 48, 64, 80 o 104 bloques; se guarda y vale la vez siguiente). **F4: escala de dibujo** (100, 75 o 50 %; también se guarda).
 **F11: pantalla completa.** Esc: pausa.
 
 ## Minerales, horno y herramientas (D449)
@@ -21,6 +21,10 @@ y se rompen. El diamante y la obsidiana solo se sacan con pico de hierro o mejor
 
 ## Rendimiento
 
+**La primera vez** el juego elige la distancia de dibujo según el equipo: **48** si no hay 3D por la GPU o la GPU es antigua
+(sin gpu3d v3), **64** con v3 y **104** si unos cuadros medidos al arrancar van sobrados. Lo que elijas luego con F3 se
+guarda, junto con la escala de F4, en `/home/brumacanto/ajustes.txt` (un solo fichero; el `escala.txt` de antes se sigue leyendo).
+`brumacanto --view 48` manda solo para esa vez y `brumacanto --view auto` vuelve a elegirla según el equipo.
 Por software el juego va más suave con una distancia de dibujo menor: pulsa F3 o abre una terminal con
 `brumacanto --view 48`. El mundo no se guarda entero: se genera por sectores al explorar (como mucho 16x16 en memoria),
 así que cualquier tamaño de mundo cabe en una máquina de 1 o 2 GB. Con el 3D por la GPU (`gpu3d probar`), a pantalla

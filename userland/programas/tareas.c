@@ -788,7 +788,7 @@ static void ordem_servico(const char *ordem)
 
 static bool dentro(const evento_t *e, int x, int y, int l, int a);
 
-#define MAXIF 4
+#define MAXIF 6   /* D445: eth0, eth1, wlan0, wg0 y lo caben */
 #define MAXS  64
 
 static info_rede_t ifs[MAXIF], ifs_ant[MAXIF];
@@ -1159,9 +1159,18 @@ static void registrar_red(void)
     }
 }
 
+/* D445: SIS_CONFIG_REDE con el nombre de la interfaz elegida (la que se ve en el panel). */
+static int config_em(int op, const char *nome)
+{
+    int r;
+    __asm__ volatile("int $0x80" : "=a"(r) : "a"(SIS_CONFIG_REDE), "b"(op), "c"(0), "d"(nome), "S"(0), "D"(0) : "memory");
+    return r;
+}
+
 static void renovar_dhcp(void)
 {
-    int r = config_rede(REDE_RENOVAR, NULL);
+    const char *nome = qtd_ifs && !ifs[if_sel].loopback ? ifs[if_sel].nome : NULL;
+    int r = config_em(REDE_RENOVAR, nome);
     registrar("tareas: renovar dhcp -> %d", r);
     red_mudou = true;
     if (r < 0) {
@@ -1177,7 +1186,7 @@ static void alternar_interface(void)
     bool desligar = !ifs[if_sel].desativada;
     if (desligar && !confirmar(_("Desactivar interfaz"), _("¿Desactivar eth0?\n\nSe cortará el tráfico de red hasta\nque la vuelvas a activar.")))
         return;
-    int r = config_rede(desligar ? REDE_DESATIVAR : REDE_ATIVAR, NULL);
+    int r = config_em(desligar ? REDE_DESATIVAR : REDE_ATIVAR, ifs[if_sel].nome);
     registrar("tareas: %s %s -> %d", ifs[if_sel].nome, desligar ? "desactivar" : "activar", r);
     red_mudou = true;
 }

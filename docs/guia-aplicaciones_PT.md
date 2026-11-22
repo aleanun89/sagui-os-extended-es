@@ -115,6 +115,7 @@ As tabelas desta seção saem dessa tabela: cada linha é uma entrada do menu, n
 | Sagui Atrapa Bananas (Sagui Pega Bananas) | `/apps/bin/banana` | jogo Sagui Pega Banana | `userland/programas/banana.c` | — |
 | Solitario Spider (Paciência Spider) | `/apps/bin/spider` | paciência Spider | `userland/programas/spider.c` | D173 |
 | Buscaminas (Campo minado) | `/apps/bin/buscaminas` | jogo Campo minado (Buscaminas) | `userland/programas/buscaminas.c` | D248 |
+| Snake (Cobrinha) | `/apps/bin/snake` | o jogo da cobrinha, com recorde guardado no perfil do usuário (uma versão simples para estudar está em `/ejemplos/tcc/snake.c`) | `userland/programas/snake.c` | D463 |
 | AoEN | `/apps/bin/aoen` | AoEN, jogo de estratégia em tempo real | `userland/juegos/aoen/` | D382 |
 | OpenTyrian | `/apps/bin/opentyrian` | OpenTyrian (shoot-em-up, código de terceiros) | `userland/terceros/opentyrian/` | D180 † |
 | OpenTyrian (pantalla completa) (tela cheia) | `/apps/bin/opentyrian --pantalla-completa` | OpenTyrian (shoot-em-up, código de terceiros) (em tela cheia) | `userland/terceros/opentyrian/` | D204 † |
@@ -141,6 +142,7 @@ As tabelas desta seção saem dessa tabela: cada linha é uma entrada do menu, n
 | Nome no menu | Comando (caminho) | O que faz | Código | Decisão |
 | --- | --- | --- | --- | --- |
 | Terminal | `/bin/terminal` | terminal em janela | `userland/programas/terminal.c` | — |
+| Visor de registros (Visualizador de registros) | `/bin/visorlogs` | o registro do kernel e arquivos de registro: filtros, cores por nível, acompanhamento ao vivo, exportar e copiar (uma versão simples para estudar está em `/ejemplos/tcc/visorlogs.c`) | `userland/programas/visorlogs.c` | D463 |
 | Administrador de tareas (Gerenciador de tarefas) | `/bin/tareas` | gerenciador de tarefas | `userland/programas/tareas.c` | — |
 | Información del PC (Informações do PC) | `/bin/infopc` | informações do PC | `userland/programas/infopc.c` | — |
 | Pantalla (Tela) | `/bin/pantalla --ventana` | resolução e telas | `userland/programas/pantalla.c` | — |
@@ -346,6 +348,7 @@ próprio código diz. A coluna **Comando** indica onde fica o executável na ima
 | `/bin/simd` | mostra e testa a FPU x87, MMX, SSE e SSE2 (D032) | `userland/programas/simd.c` |
 | `/apps/bin/sintonia` | sintonia [arquivo / pasta / lista.m3u / lista.pls / http://emissora] | `userland/programas/sintonia.c` |
 | `/bin/sleep` | espera alguns segundos (D097) | `userland/programas/sleep.c` |
+| `/apps/bin/snake` | o jogo Snake do SaguiOS: cobrinha com recorde no perfil, `--prueba` e `--semilla` (D463) | `userland/programas/snake.c` |
 | `/bin/sobre` | versão e créditos do SaguiOS-Extended (D101) | `userland/programas/sobre.c` |
 | `/bin/sobre-o-sistema` | a janela "Sobre o SaguiOS-Extended" (H28, D101): versão, tamanho da imagem, processos ativos, memória e créditos | `userland/programas/sobre-o-sistema.c` |
 | `/bin/sonido` | diagnóstico e testes do codec de som HDA (D107) | `userland/programas/sonido.c` |
@@ -386,6 +389,7 @@ próprio código diz. A coluna **Comando** indica onde fica o executável na ima
 | `/bin/uptime` | hora atual, há quanto tempo o sistema está ligado e quantos processos existem (D097) | `userland/programas/uptime.c` |
 | `/bin/usb` | diagnóstico: controladores USB 2.0, portas com dispositivo e dispositivos reconhecidos (H29, H30) | `userland/programas/usb.c` |
 | `/bin/visor` | o Visualizador de imagens do SaguiOS (D055) | `userland/programas/visor.c` |
+| `/bin/visorlogs` | o Visualizador de registros: o registro do kernel ou um arquivo, com filtros, cores e acompanhamento ao vivo (D463) | `userland/programas/visorlogs.c` |
 | `/apps/bin/visorpdf` | o visualizador de PDF do SaguiOS (melhoria 059, D138; interface de área de trabalho completa na melhoria 105, D274) | `userland/programas/visorpdf.c` |
 | `/bin/vnc` | cliente de área de trabalho remota VNC (melhoria 097 fase 2, D254) | `userland/programas/vnc.c` |
 | `/bin/vncd` | servidor de área de trabalho remota VNC (melhoria 097, D252) | `userland/programas/vncd.c` |

@@ -115,6 +115,7 @@ Las tablas de esta sección salen de esa tabla: cada fila es una entrada del men
 | Sagui Atrapa Bananas | `/apps/bin/banana` | juego Sagui Pega Banana | `userland/programas/banana.c` | — |
 | Solitario Spider | `/apps/bin/spider` | solitario Spider | `userland/programas/spider.c` | D173 |
 | Buscaminas | `/apps/bin/buscaminas` | juego Buscaminas | `userland/programas/buscaminas.c` | D248 |
+| Snake | `/apps/bin/snake` | el juego de la serpiente, con récord en el perfil (versión sencilla para estudiar en `/ejemplos/tcc/snake.c`) | `userland/programas/snake.c` | D463 |
 | AoEN | `/apps/bin/aoen` | AoEN, juego de estrategia en tiempo real | `userland/juegos/aoen/` | D382 |
 | OpenTyrian | `/apps/bin/opentyrian` | OpenTyrian (shoot-em-up, código de terceros) | `userland/terceros/opentyrian/` | D180 † |
 | OpenTyrian (pantalla completa) | `/apps/bin/opentyrian --pantalla-completa` | OpenTyrian (shoot-em-up, código de terceros) (en pantalla completa) | `userland/terceros/opentyrian/` | D204 † |
@@ -141,6 +142,7 @@ Las tablas de esta sección salen de esa tabla: cada fila es una entrada del men
 | Nombre en el menú | Orden (ruta) | Qué hace | Código | Decisión |
 | --- | --- | --- | --- | --- |
 | Terminal | `/bin/terminal` | terminal en ventana | `userland/programas/terminal.c` | — |
+| Visor de registros | `/bin/visorlogs` | registro del kernel y archivos de registro: filtros, colores por nivel, seguimiento en vivo, exportar y copiar (versión sencilla para estudiar en `/ejemplos/tcc/visorlogs.c`) | `userland/programas/visorlogs.c` | D463 |
 | Administrador de tareas | `/bin/tareas` | administrador de tareas | `userland/programas/tareas.c` | — |
 | Información del PC | `/bin/infopc` | información del PC | `userland/programas/infopc.c` | — |
 | Pantalla | `/bin/pantalla --ventana` | resolución y pantallas | `userland/programas/pantalla.c` | — |
@@ -346,6 +348,7 @@ defecto (`/apps/bin` para las de la lista `APPS_MOVER_FIJO` del `Makefile`, `/bi
 | `/bin/simd` | muestra y prueba la FPU x87, MMX, SSE y SSE2 (D032) | `userland/programas/simd.c` |
 | `/apps/bin/sintonia` | sintonia [archivo / carpeta / lista.m3u / lista.pls / http://emisora] | `userland/programas/sintonia.c` |
 | `/bin/sleep` | espera unos segundos (D097) | `userland/programas/sleep.c` |
+| `/apps/bin/snake` | el juego Snake de SaguiOS: serpiente con récord en el perfil, `--prueba` y `--semilla` (D463) | `userland/programas/snake.c` |
 | `/bin/sobre` | versión y créditos de SaguiOS-Extended (D101) | `userland/programas/sobre.c` |
 | `/bin/sobre-o-sistema` | la ventana "Acerca de SaguiOS-Extended" (H28, D101): versión, tamaño de la imagen, procesos activos, memoria y créditos | `userland/programas/sobre-o-sistema.c` |
 | `/bin/sonido` | diagnóstico y pruebas del códec de sonido HDA (D107) | `userland/programas/sonido.c` |
@@ -386,6 +389,7 @@ defecto (`/apps/bin` para las de la lista `APPS_MOVER_FIJO` del `Makefile`, `/bi
 | `/bin/uptime` | hora actual, cuánto lleva encendido el sistema y cuántos procesos hay (D097) | `userland/programas/uptime.c` |
 | `/bin/usb` | diagnóstico: controladores USB 2.0, puertos con dispositivo y dispositivos reconocidos (H29, H30) | `userland/programas/usb.c` |
 | `/bin/visor` | el Visor de imágenes de SaguiOS (D055) | `userland/programas/visor.c` |
+| `/bin/visorlogs` | el Visor de registros: el registro del kernel o un archivo, con filtros, colores y seguimiento en vivo (D463) | `userland/programas/visorlogs.c` |
 | `/apps/bin/visorpdf` | el visor de PDF de SaguiOS (mejora 059, D138; interfaz de escritorio completa en la mejora 105, D274) | `userland/programas/visorpdf.c` |
 | `/bin/vnc` | cliente de escritorio remoto VNC (mejora 097 fase 2, D254) | `userland/programas/vnc.c` |
 | `/bin/vncd` | servidor de escritorio remoto VNC (mejora 097, D252) | `userland/programas/vncd.c` |

@@ -995,4 +995,7 @@ void gr_analizar(jan_t *j, bool completo);
 void gui_revisar_ignorar(const void *componente);   /* este componente se solapa a propósito */
 void gui_revisar_rect(jan_t *j, const char *tipo, int x, int y, int l, int a, const char *texto, int disp);
 
+/* Componentes para editores (D454): paneles divisibles, inspector, selector de color, lienzo, paleta de casillas, código, deshacer, arrastrar y consola. */
+#include "gui_editor.h"
+
 #endif

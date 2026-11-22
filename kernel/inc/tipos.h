@@ -14,10 +14,13 @@ typedef long long          int64_t;
 typedef unsigned int       size_t;
 typedef int                ssize_t;
 typedef unsigned int       uintptr_t;
+/* En C23 (GCC 15 en el anfitrión) bool, true y false ya son palabras clave. */
+#if !defined(__STDC_VERSION__) || __STDC_VERSION__ < 202311L
 typedef _Bool              bool;
 
 #define true  1
 #define false 0
+#endif
 #define NULL  ((void *)0)
 
 #define EMPACOTADO   __attribute__((packed))

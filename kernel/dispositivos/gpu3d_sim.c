@@ -69,9 +69,12 @@ static void soltar_niveis(int vaga)
     tex[vaga].niveis = 1;
 }
 
+static void s_vbuf_soltar_todos(void);
+
 static void s_desligar(void)
 {
     soltar_alvo();
+    s_vbuf_soltar_todos();
     for (int i = 0; i < GPU3D_TEXTURAS; i++) { if (tex[i].px) { kfree(tex[i].px); tex[i].px = NULL; } soltar_niveis(i); }
     pronto = false;
 }
@@ -353,7 +356,8 @@ static int s_ler(uint32_t *dest, int passo_px)
     return G3D_OK;
 }
 
-static void s_detalle(const char *fase) { klog("[GPU3D] simulado %s: destino %dx%d, vallas %u, dibujos v2 %u\n", fase, L, A, vala, n_v2); }
+static uint32_t n_v3_detalle(void);
+static void s_detalle(const char *fase) { klog("[GPU3D] simulado %s: destino %dx%d, vallas %u, dibujos v2 %u, v3 %u\n", fase, L, A, vala, n_v2, n_v3_detalle()); }
 static void s_memoria(uint32_t *total_kb, uint32_t *livre_kb) { *total_kb = 16384; *livre_kb = 16384 - usados_kb; }
 
 /* ============================================================ gpu3d v2 (D426)
@@ -821,6 +825,8 @@ static void s_capacidades(gpu3d_capas_t *c)
     c->bits = ok; c->unidades = ok ? un : 1; c->formatos = fmts; c->max_lado = GPU3D_MAX_LADO; c->max_aniso = 1; c->zbits = 3;
     /* D436: hasta GPU3D_MAX_LADO (antes 512): AoEN y la SDL suben el lienzo entero y atlas de 1024 */
     c->estencil_bits = (ok & G3D_CAP_ESTENCIL) ? 8 : 0;
+    /* D457: v3 por la CPU (gpu3d_v3.c): lo que esa función sabe hacer; la capa lo pone a prueba */
+    c->bits3 = regs[7] /* R_SEM_V3 */ ? 0 : G3D_V3_CPU_BITS3;
 }
 
 /* D432: presentar. La «GPU» escribe en el framebuffer de la tarjeta (no en el búfer de atrás del
@@ -855,6 +861,74 @@ static int s_apresentar(const g3d_apres_t *p)
     return G3D_OK;
 }
 
+/* ============================================================ gpu3d v3 (D457)
+ *
+ * Los búferes «residentes» son memoria del kernel y la transformación la hace g3d_v3_cpu (gpu3d_v3.c) con
+ * enteros; lo que sale se pinta con el v2 de arriba. Así se prueba en QEMU el camino entero de v3: SaguiGL ->
+ * VBUF/TRANSF/DESENHAR3 -> capa (contabilidad, expulsión, autoprueba) -> driver. «Registros» para las pruebas:
+ *   0x1014 = N: la «memoria de la GPU» para búferes es de N KB (por defecto 8192): para provocar expulsiones;
+ *   0x1018 distinto de 0: la «GPU» transforma mal (la x a la mitad): la autoprueba v3 debe notarlo y dejar v2;
+ *   0x101C distinto de 0: el driver no anuncia v3 (para comparar en QEMU el mismo programa con y sin v3). */
+#define R_VB_KB    regs[5]
+#define R_V3_MAL   regs[6]
+#define R_SEM_V3   regs[7]
+static struct { uint8_t *p; uint32_t bytes; } vbs[GPU3D_VBUFS];
+static uint32_t vbs_bytes, n_v3;
+static gpu3d_vert2_t *lote3;
+#define LOTE3 1536
+
+static void s_vbuf_soltar_todos(void)
+{
+    for (int i = 0; i < GPU3D_VBUFS; i++) if (vbs[i].p) { kfree(vbs[i].p); vbs[i].p = NULL; vbs[i].bytes = 0; }
+    vbs_bytes = 0;
+    if (lote3) { kfree(lote3); lote3 = NULL; }
+}
+
+static int s_vbuf(int vaga, uint32_t bytes, uint32_t desloc, const void *dados, uint32_t n)
+{
+    if (!pronto) return G3D_FALHA;
+    if (vaga < 0 || vaga >= GPU3D_VBUFS) return G3D_NAO;
+    if (dados) {
+        if (!vbs[vaga].p || desloc > vbs[vaga].bytes || n > vbs[vaga].bytes - desloc) return G3D_NAO;
+        memcpy(vbs[vaga].p + desloc, dados, n);
+        return G3D_OK;
+    }
+    if (vbs[vaga].p) { kfree(vbs[vaga].p); vbs_bytes -= vbs[vaga].bytes; vbs[vaga].p = NULL; vbs[vaga].bytes = 0; }
+    if (!bytes) return G3D_OK;
+    uint32_t max = (R_VB_KB ? R_VB_KB : 8192u) << 10;
+    if (bytes > max || vbs_bytes > max - bytes) return G3D_NAO;
+    vbs[vaga].p = kmalloc(bytes);
+    if (!vbs[vaga].p) return G3D_NAO;
+    memset(vbs[vaga].p, 0, bytes);
+    vbs[vaga].bytes = bytes; vbs_bytes += bytes;
+    return G3D_OK;
+}
+
+static uint32_t n_v3_detalle(void) { return n_v3; }
+
+static g3d_v3_mem_t s_v3_mem(void *ctx, int vaga)
+{
+    (void)ctx;
+    if (vaga < 0 || vaga >= GPU3D_VBUFS) return (g3d_v3_mem_t){ NULL, 0 };
+    return (g3d_v3_mem_t){ vbs[vaga].p, vbs[vaga].bytes };
+}
+static int s_v3_sair(void *ctx, const gpu3d_estado2_t *e, const gpu3d_vert2_t *v, int n) { (void)ctx; return s_desenhar2(e, v, n, NULL); }
+
+static int s_desenhar3(const g3d_desenho3_t *d, g3d_vala_t *va)
+{
+    if (!pronto || !cor) return G3D_FALHA;
+    if (!lote3 && !(lote3 = kmalloc(sizeof(gpu3d_vert2_t) * LOTE3))) return G3D_NAO;
+    if (!n_v3++) klog("[GPU3D] simulado: primer dibujo v3 (desde buferes; %u vertices, %s)\n", d->d.n,
+                      d->d.indices == GPU3D_SEM_INDICES ? "sin indices" : "con indices");
+    static gpu3d_transf_t mal;
+    g3d_desenho3_t g = *d;
+    if (R_V3_MAL) { mal = *d->t; mal.mvp[0] = g3d_fl_mul(mal.mvp[0], 0x3F000000u); g.t = &mal; }
+    g3d_v3_cpu_t c = { s_v3_mem, s_v3_sair, NULL, lote3, LOTE3 };
+    int r = g3d_v3_cpu(&g, &c);
+    if (va) *va = vala;
+    return r;
+}
+
 static const g3d_faixa_t s_faixas[] = { { 0x1000u, 0x10FCu } };
 
 static void s_vistas(g3d_vista_t *c, g3d_vista_t *z)
@@ -869,4 +943,5 @@ const gpu3d_driver_t gpu3d_sim = {
     "simulado", s_faixas, 1, s_vistas,
     s_capacidades, s_desenhar2, s_textura2, s_limpar2, s_destino,
     s_apresentar,
+    s_vbuf, s_desenhar3,
 };

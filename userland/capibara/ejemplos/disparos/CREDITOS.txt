@@ -1,0 +1,8 @@
+Capibara: escuadron - ejemplo del motor Capibara (licencia MIT del código y de los guiones).
+
+Gráficos: «Pixel Shmup» (1.1) de Kenney (www.kenney.nl), licencia Creative Commons Zero (CC0 1.0):
+  img/tiles.png = Tilemap/tiles_packed.png
+  img/naves.png = Tilemap/ships_packed.png
+El texto de la licencia de Kenney está en LICENCIA-Kenney.txt. Los gráficos se usan sin cambios.
+
+Sonidos y músicas (audio/*.wav): sintetizados por tools/generar_sonidos.py (obra propia, MIT/CC0).

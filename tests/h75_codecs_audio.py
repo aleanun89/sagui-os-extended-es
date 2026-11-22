@@ -412,7 +412,7 @@ def archivos():
         for i, nombre, tipo in ((0, "a.flac", "FLAC"), (1, "b.mp3", "MP3"), (2, "c.wav", "ADPCM")):
             ini = len(m.serial())
             m.clique(j["x"] + j["l"] // 2, j["y"] - 12)   # sube Archivos sobre las ventanas del reproductor
-            m.clique(j["x"] + 146 + 120, j["y"] + 70 + 2 + i * 20 + 8, duplo=True)
+            m.clique(j["x"] + 146 + 120, j["y"] + 110 + i * 20, duplo=True)   # filas bajo las dos barras y la ruta (como h43)
             h56.esperar(m, r"arquivos: abrindo no musica /usb/" + nombre.replace(".", r"\."), 20, ini)
             h56.esperar(m, r"musica: reproduciendo " + nombre.replace(".", r"\."), 60, ini)
             verificar(True, f"doble clic en {nombre} lo abre con el reproductor de música ({tipo}, D115)")

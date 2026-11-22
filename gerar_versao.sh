@@ -63,6 +63,8 @@
 #                   por defecto (1) arrancan con un initramfs mínimo y la raíz del sistema en la
 #                   partición SAGUI-RAIZ (ext2, con /apps dentro), live desde el medio; la ISO
 #                   la copia a la RAM (toram)
+#   DINAMICO=0      (D462) /bin entero estático, como hasta la v8.5.5.2 (vuelta atrás del enlace
+#                   dinámico de /bin; por defecto, 1, casi todo /bin usa /lib/libsagui.so.1)
 #   APPS_MB         con RAIZ_DISCO=0: la partición SAGUI-APPS en /apps (0 = lo justo
 #                   más un margen para instalar otras: el doble, al menos 4 MB más)
 #   APPS=0          sin /apps aparte: las apps van dentro del ramdisk de siempre (D194)

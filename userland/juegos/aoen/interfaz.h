@@ -11,7 +11,7 @@
 #include "ui.h"
 
 /* ---------- aplicación ---------- */
-typedef enum { SC_MENU, SC_SETUP, SC_OPTIONS, SC_GAME, SC_SAVES } Screen;
+typedef enum { SC_MENU, SC_SETUP, SC_OPTIONS, SC_GAME, SC_SAVES, SC_MP, SC_SALA } Screen;   /* SC_MP y SC_SALA: multijugador (D461) */
 
 typedef struct {
 	Screen screen, options_back, saves_back;
@@ -190,6 +190,18 @@ void draw_endscreen(void);
 void draw_pause(void);
 int panel_modal(void);                                  /* hay un panel que tapa el mapa */
 void grafica_puntos(int x, int y, int w, int h);
+
+/* multijugador en red local (ui_red.c, D461) */
+void mp_abrir(void);                                    /* desde el menú principal */
+void mp_salir(void);
+void draw_mp(void);                                     /* salas encontradas, crear sala, unirse por IP */
+void draw_sala(void);                                   /* plazas, chat y mapa */
+void ui_red_hud(void);                                  /* pausa común, esperas, desincronización y chat dentro de la partida */
+void ui_red_texto(const char *t);
+int ui_red_tecla(int sym);
+int ui_red_chat_activo(void);
+void ui_red_abrir_chat(void);
+void ui_red_auto(int frame);                            /* guion de pruebas AOEN_RED_AUTO */
 
 /* main.c */
 void start_game_setup(const Setup *s);

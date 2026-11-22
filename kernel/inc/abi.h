@@ -645,6 +645,7 @@ typedef struct {
 #define MONTAR_ISO9660   0x500   /* D207: CD/DVD, siempre solo lectura */
 #define MONTAR_UDF       0x600   /* D233: DVD y CD grabados (UDF 1.02-2.01), solo lectura */
 #define MONTAR_EXFAT     0x700   /* D325: pendrives y tarjetas exFAT, lectura y escritura */
+#define MONTAR_XFS       0x800   /* D446: discos XFS de Linux, siempre solo lectura */
 /* SIS_HORA (D080) */
 #define HORA_UTC          0   /* (&hora_t) -> segundos UTC desde 1/1/1970 (ler como unsigned) */
 #define HORA_AJUSTAR      1   /* (segundos UTC, HORA_*) -> 0: acerta o relógio do sistema */
@@ -848,7 +849,7 @@ typedef struct {
 #define INFO_CONEXOES  41   /* (info_conexao_t[], n) -> quantas copiou */
 #define INFO_ARP       42   /* (info_arp_t[], n) -> quantas copiou */
 /* Rede no Administrador de tareas (D079). Faixa 50-54. */
-#define INFO_INTERFACES 50  /* (info_rede_t[], n) -> quantas: eth0 (se houver placa) e lo */
+#define INFO_INTERFACES 50  /* (info_rede_t[], n) -> quantas: eth0, eth1..., wlan0, wg0 e lo (D445: hasta 6) */
 #define INFO_SOCKETS    51  /* (info_socket_t[], n) -> quantos: INFO_CONEXOES com o estado TCP detalhado */
 #define INFO_TRAFEGO    52  /* (&info_trafego_t) -> 0: bytes por segundo da eth0 nos últimos 60 s */
 /* Som (D088). */
@@ -1368,6 +1369,137 @@ typedef struct {
 #define G3D_APRES_LINEAR     0x1u   /* filtro bilineal al escalar (sin él, vecino más próximo) */
 #define G3D_APRES_VSYNC      0x2u   /* esperar al retrazado vertical antes de copiar (si el driver sabe; con plazo) */
 
+/* ---- gpu3d v3 (D457): la GPU transforma los vértices y los guarda en su memoria ----
+ * Se añade a v2 sin cambiarla. Un driver con G3D_C3_V3 (gpu3d_capas_t.bits3) tiene búferes de vértices y de índices residentes
+ * (GPU3D_OP_VBUF), y dibuja desde ellos (GPU3D_OP_DESENHAR3) con el último ESTADO2 aceptado (la parte de los
+ * píxeles no cambia) y la última transformación (GPU3D_OP_TRANSF): matrices, niebla, matriz de textura, formato de
+ * los vértices, vista y descarte de caras. El recorte al volumen de vista lo hace la GPU. Lo que el driver no
+ * anuncia (gpu3d_capas_t.bits3) lo sigue haciendo SaguiGL con la CPU, como en v2. docs/gpu3d.md, «gpu3d v3». */
+#define GPU3D_OP_VBUF        15 /* ptr = gpu3d_vbuf_t: crear, subir un trozo o soltar un búfer de vértices o de índices */
+#define GPU3D_OP_TRANSF      16 /* ptr = gpu3d_transf_t */
+#define GPU3D_OP_DESENHAR3   17 /* ptr = gpu3d_desenho3_t: dibuja desde los búferes con el último ESTADO2 y TRANSF */
+#define GPU3D_OP_LUZES       18 /* ptr = gpu3d_luzes_t: luces y material (para TRANSF con G3D3_LUZ) */
+#define GPU3D_EXPULSO         2 /* (> 0) el búfer no está en la GPU (se expulsó para hacer sitio, o nunca se creó):
+                                 * volver a subirlo entero (G3D_VB_NOVO) y repetir. No es un fallo */
+#define GPU3D_VBUFS         512 /* huecos de búfer por dueño */
+#define GPU3D_MAX_VERT3   65535 /* vértices (o índices) por GPU3D_OP_DESENHAR3 */
+#define GPU3D_SEM_INDICES 0xFFFFFFFFu
+
+#define G3D_VB_VERTICES   0     /* gpu3d_vbuf_t.uso */
+#define G3D_VB_INDICES16  1     /* índices de 16 bits (la capa lleva el mayor) */
+#define G3D_VB_NOVO       1u    /* gpu3d_vbuf_t.flags: (re)crea el hueco vacío con «bytes» de capacidad antes de subir */
+typedef struct {
+    unsigned int vaga;          /* 0 .. GPU3D_VBUFS - 1 */
+    unsigned int uso;           /* G3D_VB_* */
+    unsigned int bytes;         /* capacidad (con G3D_VB_NOVO); 0: soltar el hueco */
+    unsigned int desloc, n;     /* el trozo que se sube: n bytes en desloc (desloc <= lo ya subido: sin huecos) */
+    unsigned int dados;         /* puntero del programa (n = 0: no se mira) */
+    unsigned int flags;         /* G3D_VB_NOVO */
+    unsigned int reservado;
+} gpu3d_vbuf_t;
+
+/* Un atributo del vértice: dónde está en un búfer residente. formato G3D_AT_NADA: no hay array (vale la
+ * constante de gpu3d_transf_t). desloc y passo, múltiplos de 4. Los atributos van con cada dibujo
+ * (gpu3d_desenho3_t), no con la transformación: un mundo hecho de muchos búferes con el mismo formato es una
+ * sola TRANSF y un DESENHAR3 por búfer. */
+#define G3D_AT_NADA      0
+#define G3D_AT_FLOAT2    2      /* (x, y, 0, 1) */
+#define G3D_AT_FLOAT3    3      /* (x, y, z, 1) */
+#define G3D_AT_FLOAT4    4
+#define G3D_AT_UBYTE4N   5      /* cuatro bytes R, G, B, A (el orden de GL) / 255: solo el color */
+typedef struct {
+    unsigned short vaga;        /* el búfer (G3D_VB_VERTICES) */
+    unsigned char  formato;     /* G3D_AT_* */
+    unsigned char  passo;       /* bytes de un vértice al siguiente (4..252) */
+    unsigned int   desloc;      /* bytes desde el principio del búfer hasta el atributo del vértice 0 */
+} gpu3d_atrib_t;
+
+/* gpu3d_transf_t.flags */
+#define G3D3_NEBLINA      0x0001u  /* niebla por vértice: f = neb(distancia al ojo) saturado a 0..1 */
+#define G3D3_NEB_MEZCLADA 0x0002u  /* (con NEBLINA) mezclada en el vértice: color.rgb *= f, espec.rgb = neb_cor * (1 - f)
+                                    * (D451, para un ESTADO2 sin G3D2_NEBLINA). Sin este bit, f va en el byte alto de espec */
+#define G3D3_LUZ          0x0004u  /* luces de ES 1.1 por vértice con el último GPU3D_OP_LUZES (pide G3D_C3_LUZ) */
+#define G3D3_TEX_MAT(u)   (0x0010u << (u))   /* la unidad u multiplica su coordenada por tex[u] */
+#define G3D3_NORMALIZAR   0x0100u  /* GL_NORMALIZE (si no, la normal se usa tal cual sale de «normal») */
+#define G3D_NEB_LINEAR    0        /* f = neb_a - d * neb_b   (neb_a = fin / (fin - inicio), neb_b = 1 / (fin - inicio)) */
+#define G3D_NEB_EXP       1        /* f = exp(-(neb_b * d))   (pide G3D_C3_NEB_EXP) */
+#define G3D_NEB_EXP2      2        /* f = exp(-(neb_b * d)^2) */
+#define G3D_DESC_NADA     0        /* descarte de caras, por el signo del área en la pantalla (y hacia abajo): */
+#define G3D_DESC_POS      1        /* (x1-x0)(y2-y0) - (x2-x0)(y1-y0) > 0 no se dibuja */
+#define G3D_DESC_NEG      2        /* < 0 no se dibuja */
+/* La transformación de un dibujo v3. Todo lo que es coma flotante va como bits de float (el kernel no la usa).
+ * Las matrices, por columnas como en GL (m[col * 4 + fila]). Por orden:
+ *   recorte = mvp x posición; ojo = mv x posición (niebla: d = |ojo.xyz|; luces);
+ *   la GPU recorta a -w <= x, y, z <= w, divide por w y aplica la vista:
+ *   x = ndc.x * vp_escala[0] + vp_desloc[0] (píxeles del destino, origen arriba a la izquierda: vp_escala[1] < 0),
+ *   z = ndc.z * vp_escala[2] + vp_desloc[2] (0..1). La vista debe caer entera dentro del destino. */
+typedef struct {
+    unsigned int  versao;       /* 3 */
+    unsigned int  flags;        /* G3D3_* */
+    unsigned int  mvp[16];
+    unsigned int  mv[16];
+    unsigned int  tex[4][16];   /* con G3D3_TEX_MAT(u) */
+    unsigned int  normal[9];    /* 3x3 por columnas: normal del ojo = normal x normal del objeto (con G3D3_LUZ) */
+    unsigned int  vp_escala[3], vp_desloc[3];
+    unsigned int  cor;          /* 0xAARRGGBB: el color de todos los vértices si el dibujo no trae color (cor_a.formato = G3D_AT_NADA) */
+    unsigned int  normal_const[3];   /* la normal si el dibujo no la trae */
+    unsigned int  tc_const[4][4];    /* (s, t, r, q) de la unidad u si el dibujo no la trae */
+    unsigned int  neb_a, neb_b; /* bits de float */
+    unsigned int  neb_cor;      /* 0x00RRGGBB (G3D3_NEB_MEZCLADA) */
+    unsigned char neb_modo;     /* G3D_NEB_* */
+    unsigned char descarte;     /* G3D_DESC_* */
+    unsigned char reservado0[2];
+    unsigned int  reservado[8];
+} gpu3d_transf_t;
+
+/* Luces y material de ES 1.1 (para G3D3_LUZ). Colores y vectores, bits de float. Un driver anuncia cuántas
+ * luces admite (gpu3d_capas_t.max_luzes) y si sabe el especular (G3D_C3_LUZ_ESPEC) y los focos (G3D_C3_LUZ_FOCO). */
+#define G3D_LUZ_COR_MATERIAL 0x1u   /* GL_COLOR_MATERIAL: el ambiente y el difuso del material son el color del vértice */
+typedef struct {
+    unsigned int ambiente[4], difusa[4], especular[4];
+    unsigned int posicao[4];    /* en el ojo; w = 0: direccional */
+    unsigned int foco_dir[3];   /* en el ojo */
+    unsigned int foco_exp, foco_corte;   /* corte en grados; 180 = sin foco */
+    unsigned int atenuacao[3];  /* constante, lineal y cuadrática */
+} gpu3d_luz_t;
+typedef struct {
+    unsigned int versao;        /* 3 */
+    unsigned int flags;         /* G3D_LUZ_* */
+    unsigned int luzes;         /* bits: luz i encendida */
+    unsigned int ambiente_global[4];
+    unsigned int mat_ambiente[4], mat_difusa[4], mat_especular[4], mat_emissao[4];
+    unsigned int mat_brilho;
+    gpu3d_luz_t  luz[8];
+    unsigned int reservado[4];
+} gpu3d_luzes_t;
+
+#define G3D_PRIM_TRIANGULOS 0
+#define G3D_PRIM_TIRA       1
+#define G3D_PRIM_ABANICO    2
+typedef struct {
+    unsigned int modo;          /* G3D_PRIM_* */
+    unsigned int primeiro;      /* primer vértice (sin índices) o primer índice */
+    unsigned int n;             /* vértices o índices (hasta GPU3D_MAX_VERT3; en triángulos, múltiplo de 3) */
+    unsigned int indices;       /* hueco de un búfer G3D_VB_INDICES16 o GPU3D_SEM_INDICES */
+    gpu3d_atrib_t pos;          /* FLOAT2/3/4: obligatorio */
+    gpu3d_atrib_t cor_a;        /* UBYTE4N o FLOAT4 (r, g, b, a de 0 a 1) o NADA */
+    gpu3d_atrib_t normal_a;     /* FLOAT3 o NADA */
+    gpu3d_atrib_t tc[4];        /* FLOAT2/3/4 o NADA, una por unidad de textura */
+    unsigned int reservado[2];
+} gpu3d_desenho3_t;
+
+/* gpu3d_capas_t.bits3 */
+#define G3D_C3_V3            0x00000001u  /* VBUF, TRANSF y DESENHAR3: transformación, vista, recorte, descarte, color y coordenadas */
+#define G3D_C3_NEBLINA       0x00000002u  /* G3D3_NEBLINA lineal (las dos salidas) */
+#define G3D_C3_NEB_EXP       0x00000004u  /* G3D_NEB_EXP y G3D_NEB_EXP2 */
+#define G3D_C3_TEX_MAT       0x00000008u  /* G3D3_TEX_MAT */
+#define G3D_C3_INDICES       0x00000010u  /* dibujos con índices de 16 bits */
+#define G3D_C3_TIRAS         0x00000020u  /* G3D_PRIM_TIRA y G3D_PRIM_ABANICO */
+#define G3D_C3_LUZ           0x00000040u  /* G3D3_LUZ: ambiente, difusa y emisión, luces direccionales y puntuales con atenuación */
+#define G3D_C3_LUZ_ESPEC     0x00000080u  /* además el especular (mat_brilho) */
+#define G3D_C3_LUZ_FOCO      0x00000100u  /* además los focos */
+#define G3D_C3_COR_FLOAT     0x00000200u  /* cor_a en G3D_AT_FLOAT4 */
+
 /* Bits de capacidad (gpu3d_capas_t.bits). Un driver solo anuncia lo que pasa
  * su propia prueba; la capa quita los que dependen de una función que el
  * driver no tiene (G3D_CAP_V2 sin desenhar2, formatos sin textura2...). */
@@ -1410,7 +1542,10 @@ typedef struct {
     unsigned int formatos;      /* bits 1 << G3D_FMT_* */
     unsigned int zbits;         /* bits: 1 = Z de 16, 2 = Z de 24 */
     unsigned int estencil_bits; /* 0 u 8 */
-    unsigned int reservado[8];
+    unsigned int bits3;         /* D457: G3D_C3_* (0 en un driver sin v3) */
+    unsigned int vbufs;         /* D457: huecos de búfer (0 sin v3) */
+    unsigned int max_luzes;     /* D457: luces a la vez con G3D3_LUZ (0 sin G3D_C3_LUZ) */
+    unsigned int reservado[5];
 } gpu3d_capas_t;
 
 /* Un vértice v2: como gpu3d_vert_t (bits de float en x, y, z, rhw) pero con
@@ -1995,6 +2130,9 @@ typedef struct {
 #define REDE_FECHAR       8   /* (id de info_socket_t, no lugar do ponteiro) corta a conexão TCP com RST */
 #define REDE_AJUSTAR_DRIVER 9 /* (&ajuste_driver_t) D124: ajustes en caliente del driver experimental (r8169) */
 #define REDE_TUNEL_DESLIGAR 10 /* (0) D363: pide al demonio del túnel (wg0) que lo apague (wg-quick down); root o la sesión local */
+#define REDE_METRICA      11  /* (métrica en el lugar del puntero, 0-9999) D445: prioridad de la ruta por defecto de la interfaz */
+/* D445: el tercer argumento de SIS_CONFIG_REDE es el nombre de la interfaz ("eth1", "wlan0");
+ * 0 = la principal (la de la ruta por defecto), lo de siempre. */
 /* Como o endereço foi obtido */
 #define REDE_SEM_IP   0
 #define REDE_POR_DHCP 1
@@ -2073,7 +2211,14 @@ typedef struct {
     unsigned int   loopback;       /* 1 = "lo" (127.0.0.1): só conta o tráfego para a própria máquina */
     /* D091: por que os quadros recebidos foram descartados e o diagnóstico
      * do driver experimental (linhas separadas por \n; "" = nada). */
-    char           diagnostico[3072];
+    char           diagnostico[3064];
+    /* D445: varias interfaces. Salen de los últimos 8 bytes del antiguo diagnostico[3072]: el tamaño
+     * no cambia y quien se compiló antes los ve como el final (sin usar) de su texto. */
+    unsigned int   metrica;        /* de su ruta por defecto: la menor (con enlace) es la que se usa */
+    unsigned char  rota_padrao;    /* 1 = la ruta por defecto sale por esta */
+    unsigned char  usb;            /* 1 = USB (Ethernet USB o pincho Wi-Fi): sin dirección PCI */
+    unsigned char  wifi;           /* 1 = la wlan0 */
+    unsigned char  reservado_rede;
 } info_rede_t;
 
 typedef struct {
@@ -2103,7 +2248,8 @@ typedef struct {
 typedef struct {
     unsigned int  ip;
     unsigned char mac[6];
-    unsigned char completa, reservado;
+    unsigned char completa;
+    unsigned char interface;      /* D445: su posición en INFO_INTERFACES (0 = la primera) */
     unsigned int  idade_s;
 } info_arp_t;
 
@@ -2454,7 +2600,7 @@ typedef struct {
 #define EV_MENU      12  /* resposta de SIS_MENU_CONTEXTUAL (D051): x = índice da linha escolhida
                             (contando separadores e desativadas, a partir de 0) ou -1 se cancelado;
                             tecla = o "codigo" passado na chamada. */
-#define MENU_MAX_ITENS 96   /* linhas num menu de contexto, somando as dos submenus (eram 20 antes de D064;
+#define MENU_MAX_ITENS 120  /* linhas num menu de contexto, somando as dos submenus (eram 20 antes de D064; 96 hasta D460: Inicio > Programación;
                                64 hasta D229: el menú Inicio con todas las apps ya pasaba de 64; como mucho 127, menu.c guarda el panel en int8_t) */
 #define MENU_MAX_TEXTO 40   /* letras por linha (o resto é cortado) */
 #define RODA_LINHAS  3   /* linhas roladas por entalhe nos componentes da libsagui */

@@ -42,7 +42,9 @@ def janela(m, titulo, desde=0, tempo=40):
 def esperar(m, texto, desde=0, tempo=40):
     fim = time.time() + tempo
     while time.time() < fim:
-        if texto in m.serial()[desde:]:
+        # el kernel puede escribir su «[SAGUI] processo N terminou» en mitad de una línea del programa
+        s = m.serial()[desde:]
+        if texto in s or texto in re.sub(r"\[SAGUI\][^\n]*\n", "", s):
             return True
         time.sleep(0.3)
     print(m.serial()[desde:][-1800:])
@@ -237,10 +239,12 @@ def principal():
         m.tecla("ctrl-s", 1.0)
         janela(m, "Guardar proyecto", marca6)
         m.tecla("ret", 1.0)
-        esperar(m, "vps: guardado /tmp/MiProyecto", marca6)
+        # La carpeta propuesta es /home si existe (D388) y si no /tmp: se toma de lo que dice el log.
+        esperar(m, "vps: guardado /", marca6)
+        ruta = re.search(r"vps: guardado (/\S*/MiProyecto)", m.serial()[marca6:]).group(1)
         cerrar(m, d)
         time.sleep(1.5)
-        out = m.comando("cat /tmp/MiProyecto/codigo.py; cat /tmp/MiProyecto/formulario.vpf")
+        out = m.comando("cat " + ruta + "/codigo.py; cat " + ruta + "/formulario.vpf")
         codigo = out.split("# VisualPythonS")[0]
         verificar("def Aceptar_click():" in out and "Aceptar.texto" in out and "Boton1" not in codigo,
                   "codigo.py guardado con el manejador renombrado")

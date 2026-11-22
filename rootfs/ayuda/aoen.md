@@ -122,3 +122,21 @@ Texturas HD y música (opcionales, tuyas): carpetas `/apps/aoen/texturas` y `/ap
 partidas están en `~/.config/aoen/`.
 
 Más detalles: `docs/aoen.md` del repositorio.
+
+## Multijugador en red local (8.5.5.3)
+
+En el menú principal, **Multijugador (red local)**. Uno crea la sala (**Crear sala**) y los demás la ven en la lista (o escriben su IP y
+pulsan **Unirse por IP**). Las máquinas tienen que estar en la misma red y usar la misma versión de AoEN.
+
+En la sala cada jugador elige su civilización, su color y su equipo y marca **Estoy listo**. El anfitrión elige el mapa y las reglas (como
+en una partida aleatoria, con el fuego amigo incluido), puede abrir plazas para jugadores de la máquina (tipo **Máquina**, con su
+dificultad), cerrar plazas, echar a alguien y escribe en el **chat**; cuando todos están listos, **Empezar partida**.
+
+Dentro de la partida:
+- **Pausa** o **F6** pausa o reanuda a todos; **+** y **-** cambian la velocidad de todos; **Intro** abre el chat (Intro envía, Esc cancela).
+- El menú (**Menú** o Esc) no detiene la partida: sigue por detrás.
+- Arriba a la derecha se ve el ida y vuelta de la red. «Esperando a ...» significa que la partida se detiene hasta que llegue lo de ese jugador.
+- Si un jugador se va o deja de contestar 10 segundos, su civilización pasa a la máquina. Si se pierde al anfitrión, sigues solo contra la máquina.
+- Si sale el aviso rojo «Desincronizados», las máquinas ven partidas distintas: se guarda un volcado en `~/.config/aoen/` para el desarrollador.
+- Entre personas, las alianzas se fijan con los equipos de la sala; la máquina no propone paces en red (tú sí puedes pedírselas).
+- **No se puede guardar ni cargar** una partida en red.

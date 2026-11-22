@@ -1,6 +1,7 @@
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 
+#include "ajustes.h"
 #include "draw.h"
 #include "game.h"
 
@@ -67,31 +68,48 @@ static void set_size(App *a,WorldSize size)
     snprintf(a->dimensions[2],sizeof(a->dimensions[2]),"%u",(unsigned)size.height);
 }
 
+/* Ajustes que se guardan junto a las partidas, en ajustes.txt (D444, D451): la distancia de dibujo (F3) y, en SaguiOS, la escala
+ * de dibujo (F4). pref_view es la que se guarda (la de F3, la guardada o la elegida la primera vez); --view manda solo para esa vez. */
+static int pref_view=AJUSTE_VISTA_DEFECTO;
+static int probe;   /* SaguiOS: la primera vez, con gpu3d v3, se mide un rato si la vista de 104 va sobrada */
 #ifdef SAGUI_BRUMACANTO
 /* Escala de dibujo (SaguiOS, D451): 100, 75 o 50 % del tamaño de la ventana; SaguiGL lo amplía al presentar.
- * F4 la cambia y la guarda en escala.txt junto a la partida; --escala vale solo para esa vez. */
+ * F4 la cambia y la guarda; --escala vale solo para esa vez. */
 static int render_scale=100;
-static void scale_apply(const App *a,bool save)
+#endif
+
+static bool option_text(const App *a,const char *name,char *data,size_t capacity)
+{
+    char path[1024];
+    if (!a->save_dir || snprintf(path,sizeof(path),"%s%s",a->save_dir,name)>=(int)sizeof(path)) return false;
+    SDL_RWops *file=SDL_RWFromFile(path,"rb");
+    if (!file) return false;
+    const size_t n=SDL_RWread(file,data,1,capacity-1);
+    SDL_RWclose(file);
+    data[n]=0;
+    return true;
+}
+
+static void options_save(const App *a)
+{
+    char path[1024],text[64];
+    if (!a->save_dir || snprintf(path,sizeof(path),"%sajustes.txt",a->save_dir)>=(int)sizeof(path)) return;
+#ifdef SAGUI_BRUMACANTO
+    const int scale=render_scale;
+#else
+    const int scale=0;
+#endif
+    const int n=ajuste_formatear(text,sizeof(text),pref_view,scale);
+    SDL_RWops *file=n>0?SDL_RWFromFile(path,"wb"):NULL;
+    if (file) { SDL_RWwrite(file,text,1,(size_t)n); SDL_RWclose(file); }
+}
+
+#ifdef SAGUI_BRUMACANTO
+static void scale_apply(void)
 {
     char text[8];
     snprintf(text,sizeof(text),"%d",render_scale);
     SDL_SetHint(SDL_HINT_SAGUI_GL_ESCALA,text);
-    if (!save || !a->save_dir) return;
-    char path[1024];
-    if (snprintf(path,sizeof(path),"%sescala.txt",a->save_dir)>=(int)sizeof(path)) return;
-    SDL_RWops *file=SDL_RWFromFile(path,"wb");
-    if (file) { SDL_RWwrite(file,text,1,strlen(text)); SDL_RWclose(file); }
-}
-static void scale_read(const App *a)
-{
-    char path[1024],data[8]={0};
-    if (!a->save_dir || snprintf(path,sizeof(path),"%sescala.txt",a->save_dir)>=(int)sizeof(path)) return;
-    SDL_RWops *file=SDL_RWFromFile(path,"rb");
-    if (!file) return;
-    SDL_RWread(file,data,1,sizeof(data)-1);
-    SDL_RWclose(file);
-    const int v=atoi(data);
-    if (v==50 || v==75 || v==100) render_scale=v;
 }
 #endif
 
@@ -401,6 +419,10 @@ static void key_event(App *a,SDL_Keycode key)
             int next=steps[0];
             for (int i=0; i<5; ++i) if (steps[i]>draw_get_view_distance()) { next=steps[i]; break; }
             draw_set_view_distance(next);
+            pref_view=draw_get_view_distance();
+            options_save(a);   /* la elegida se guarda y vale la proxima vez */
+            probe=0;
+            SDL_Log("BRUMA_VISTA %d (F3, guardada)",next);
             char text[64];
             snprintf(text,sizeof(text),"Distancia de vision: %d",next);
             notify(g,text);
@@ -408,7 +430,8 @@ static void key_event(App *a,SDL_Keycode key)
 #ifdef SAGUI_BRUMACANTO
         else if (key==SDLK_F4) {
             render_scale=render_scale==100?75:render_scale==75?50:100;
-            scale_apply(a,true);
+            scale_apply();
+            options_save(a);
             char text[64];
             snprintf(text,sizeof(text),"Escala de dibujo: %d %%",render_scale);
             notify(g,text);
@@ -588,7 +611,8 @@ static bool smoke(App *a,const char *prefix)
 int main(int argc,char **argv)
 {
     const char *seed_arg=NULL,*capture=NULL;
-    int bench_frames=0,scale_arg=0;
+    int bench_frames=0,scale_arg=0,view_arg=0;
+    bool force_auto=false;
     WorldSize size=default_world_size;
     bool check=false,explicit_size=false,fullscreen=false;
     for (int i=1; i<argc; ++i) {
@@ -602,7 +626,11 @@ int main(int argc,char **argv)
                 return 1;
             }
         }
-        else if (strcmp(argv[i],"--view")==0 && i+1<argc) draw_set_view_distance(atoi(argv[++i]));
+        else if (strcmp(argv[i],"--view")==0 && i+1<argc) {   /* solo para esta vez; "auto" vuelve a elegirla segun el equipo */
+            ++i;
+            if (strcmp(argv[i],"auto")==0) force_auto=true;
+            else view_arg=atoi(argv[i]);
+        }
         else if (strcmp(argv[i],"--bench")==0 && i+1<argc) bench_frames=atoi(argv[++i]);
         else if (strcmp(argv[i],"--smoke-test")==0) check=true;
         else if (strcmp(argv[i],"--fullscreen")==0) fullscreen=true;   /* SaguiOS, D451 (F11 la cambia luego) */
@@ -612,7 +640,7 @@ int main(int argc,char **argv)
         }
         else if (strcmp(argv[i],"--capture-prefix")==0 && i+1<argc) capture=argv[++i];
         else {
-            printf("Uso: brumacanto [--seed SEMILLA] [--size X[xZ[xY]]] [--view 32-104] [--bench CUADROS] [--fullscreen] [--escala 50|75|100] [--smoke-test [--capture-prefix RUTA]]\n");
+            printf("Uso: brumacanto [--seed SEMILLA] [--size X[xZ[xY]]] [--view 32-104|auto] [--bench CUADROS] [--fullscreen] [--escala 50|75|100] [--smoke-test [--capture-prefix RUTA]]\n");
             return strcmp(argv[i],"--help")!=0;
         }
     }
@@ -644,13 +672,39 @@ int main(int argc,char **argv)
         goto done;
     }
     if (fullscreen && !check) SDL_SetWindowFullscreen(a.window,SDL_WINDOW_FULLSCREEN_DESKTOP);
-#ifdef SAGUI_BRUMACANTO
+    /* Ajustes (D444, D451): escala y distancia de dibujo. La distancia: --view manda; si no, la guardada (F3); la primera vez, la que
+     * toca segun el equipo (SaguiOS: sin 3D por la GPU o con una GPU sin gpu3d v3, 48; con v3, 64 y, si una medida corta va sobrada,
+     * 104) y en otros sistemas 64. */
+    const char *view_origin="por defecto";
     if (!check) {
-        scale_read(&a);
+        char text[96]={0};
+        const bool have=option_text(&a,"ajustes.txt",text,sizeof(text));
+        int saved=have && !force_auto ? ajuste_leer(text,"vista") : -1;
+#ifdef SAGUI_BRUMACANTO
+        int scale_saved=have ? ajuste_leer(text,"escala") : -1;
+        if (!have && option_text(&a,"escala.txt",text,sizeof(text))) scale_saved=atoi(text);   /* el fichero de antes (D451) */
+        if (scale_saved==50 || scale_saved==75 || scale_saved==100) render_scale=scale_saved;
         if (scale_arg) render_scale=scale_arg;
-        scale_apply(&a,false);   /* --escala vale para esta vez; F4 la guarda */
-    }
+        scale_apply();   /* --escala vale para esta vez; F4 la guarda */
 #endif
+        if (saved>=AJUSTE_VISTA_MIN && saved<=AJUSTE_VISTA_MAX) {
+            pref_view=saved;
+            view_origin="guardada";
+        } else {
+#ifdef SAGUI_BRUMACANTO
+            const char *renderer=draw_renderer();
+            pref_view=ajuste_vista_para(renderer);
+            const bool v3=strstr(renderer,"GPU v3")!=NULL;
+            view_origin=v3?"automatica: GPU con v3":strstr(renderer,"(GPU)")?"automatica: GPU sin v3":"automatica: sin 3D por la GPU";
+            probe=v3 && view_arg<=0;
+#endif
+            options_save(&a);
+        }
+        draw_set_view_distance(pref_view);
+    }
+    if (view_arg>0) draw_set_view_distance(view_arg);
+    SDL_Log("BRUMA_VISTA_AJUSTE %d (%s)",pref_view,view_origin);
+    SDL_Log("BRUMA_VISTA %d (%s)",draw_get_view_distance(),view_arg>0?"--view":view_origin);
     snprintf(a.seed,sizeof(a.seed),"Bruma-160");
     if (seed_arg && strlen(seed_arg)<sizeof(a.seed)) strcpy(a.seed,seed_arg);
     else if (seed_arg) {
@@ -672,7 +726,10 @@ int main(int argc,char **argv)
     const float step=1.f/120.f;
     float carry=0;
     Uint64 bench_start=0,bench_worst=0;
-    int bench_done=0;
+    int bench_done=0,probe_frames=0;
+    double probe_ms=0;
+#define PROBE_SKIP 45
+#define PROBE_FRAMES 45
     while (a.running) {
         const Uint64 start=SDL_GetPerformanceCounter();
         const float dt=fminf(.10f,(float)((double)(start-previous)/(double)clockrate));
@@ -722,6 +779,23 @@ int main(int argc,char **argv)
         draw_frame(a.game,&a.view,w,h);
         SDL_GL_SwapWindow(a.window);
         const float used=(float)((double)(SDL_GetPerformanceCounter()-start)/(double)clockrate);
+        if (probe && a.view.screen==PLAY && bench_frames<=0) {
+            /* SaguiOS, primera vez con gpu3d v3: unos cuadros con la vista de 64 (sin los primeros, que generan terreno); si el trabajo
+             * por cuadro es corto, la distancia de 104 va sobrada y se pasa a ella (y se guarda). */
+            if (++probe_frames>PROBE_SKIP) probe_ms+=(double)used*1000.0;
+            if (probe_frames>=PROBE_SKIP+PROBE_FRAMES) {
+                const double ms=probe_ms/PROBE_FRAMES;
+                const int next=ajuste_vista_medida(ms);
+                SDL_Log("BRUMA_VISTA medida %d decimas de ms por cuadro con la vista %d -> %d",(int)(ms*10),draw_get_view_distance(),next);
+                probe=0;
+                if (next!=pref_view && draw_get_view_distance()==pref_view) {
+                    pref_view=next;
+                    draw_set_view_distance(next);
+                    options_save(&a);
+                    notify(a.game,"Distancia de vision: 104 (el equipo va sobrado)");
+                }
+            }
+        }
         if (used<.015f && bench_frames<=0) SDL_Delay((Uint32)((.015f-used)*1000));
     }
     status=0;

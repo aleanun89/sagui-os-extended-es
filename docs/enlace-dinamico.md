@@ -8,7 +8,7 @@ prueba `tests/h385_dlopen.py`.
 Índice: 1. Estado actual medido · 2. Qué se gana y qué cuesta · 3. Diseño propuesto · 4. Memoria y kernel ·
 5. Seguridad · 6. Bibliotecas y convivencia con lo estático · 7. Rendimiento del PIC · 8. Compiladores ·
 9. Plan por fases · 10. Licencias · 11. Preguntas para el mantenedor · 12. El prototipo · 13. Fase 2 ·
-14. Revisión de seguridad de la fase 2 · 15. Fase 3 (páginas compartidas).
+14. Revisión de seguridad de la fase 2 · 15. Fase 3 (páginas compartidas) · 16. Fase 3b (`/bin` dinámico).
 
 ---
 
@@ -298,7 +298,8 @@ tabla, como `dl_exportar` del prototipo).
 | 2a (hecha) | Ejecutables con `PT_INTERP`: kernel acepta ET_EXEC con intérprete y pasa `auxv`; `ld-sagui.so` (el código de la fase 1 + `R_386_COPY` + arranque) | h386: programa dinámico de prueba, programa estático igual que antes, AT_SECURE con root | Bajo: cambio pequeño en `carregador.c`; los estáticos no pasan por él |
 | 2b (hecha en parte) | Sacar la BSS grande de la libsagui; `libsagui.so.1`, `libtls.so.1`, `libfontes.so.1`, `libc.so.1` con visibilidad oculta; reglas `DINAMICO=1`; algunos programas de `/apps` dinámicos | h385 + las pruebas de esos programas; medida de arranque | Medio: ABI; un fallo de la `.so` afecta a todos sus programas |
 | 3 | Páginas compartidas en el kernel (objetos imagen, cuenta de referencias, LRU, sin COW) | Estrés con `--smp`, swap y memoria alta; KVM | **Alto** (núcleo de memoria): fase propia, revisión de Opus |
-| 3b | `/bin` dinámico salvo lo esencial (servicios, sagsh, login, admin, su, instalador) | Batería completa | Medio: arranque; plan de vuelta atrás = imagen estática |
+| 3b (hecha, D462) | `/bin` dinámico salvo lo esencial (servicios, sagsh, login, admin, su, instalador, el initramfs y lo de reparar); las `.so` del sistema en `/lib` | h462 + reducida; batería completa | Medio: arranque; plan de vuelta atrás = `DINAMICO=0` (imagen estática) |
+| 3c (a futuro) | Ejecutables e intérprete compartidos en memoria (una copia del código en la RAM para todos los procesos) | Estrés con `--smp`, swap y memoria alta | Alto (núcleo de memoria): fuera de la 3b |
 | 4 | `cc` fase A (ejecutables que llaman a libc.so) | b5/b7/b8 + prueba nueva | Medio: ABI x87/SSE2 del `cc` |
 | 5 | `cc` fase B (`cc -shared`) y Pascal A y B | Prueba nueva: biblioteca del `cc` llamada desde gcc y viceversa | Medio |
 | 6 | TinyGo dinámico; JNI en miniJVM; extensiones C de Python | h366, h378, b6 | Bajo |
@@ -609,3 +610,27 @@ bytes que el proceso ya podía leer del fichero.
   natural, con el mismo módulo, si `/bin` pasa a dinámico (fase 3b).
 - La comprobación de confianza es por la ruta con la que se abrió el descriptor; como el contenido se compara, solo decide
   qué se comparte, no qué contenido ve un proceso.
+
+## 16. Fase 3b: `/bin` dinámico salvo lo esencial (v8.5.5.3, hecha el 2026-11-22; D462)
+
+- **Makefile:** `DINAMICO ?= 1`. La regla común de los programas enlaza `inicio.asm.o` y las `.so` del sistema en vez
+  de los objetos de la libsagui, con `--as-needed`; `libc.so.1` solo si el programa enlazaba la libc común. `DINAMICO=0`
+  vuelve a todo estático (plan de vuelta atrás). `BIN_ESTATICOS`: el initramfs entero, servicios, login, admin, su,
+  passwd, instalar, reparar, arranque, kconfig, chmod, chown, chgrp, kill, terminal y sshd (el porqué, en D462).
+  `tools/mkinitramfs.py` rechaza un ELF con `PT_INTERP`.
+- **Dónde:** `libsagui.so.1`, `libsagui_medios.so.1` y `libc.so.1` pasan de `/apps/lib` a **`/lib`** (en la raíz
+  SAGUI-RAIZ y en el ramdisk de siempre), como preveía §13; `/apps/lib` se queda para las de las aplicaciones
+  (`SO_APPS`). La búsqueda (`/lib` y después `/apps/lib`) no cambia.
+- **Base/medios:** widget, cron, raiz_live, planificador, sensores, regional, gui_componentes, pdf_escribir, des y
+  casa_migrar pasan a `libsagui.so.1` (sus búferes grandes, al malloc), para que los programas siempre abiertos no
+  carguen `libsagui_medios.so.1`.
+- **Resultado (KVM):** 159 dinámicos y 34 estáticos en `/bin`; `/bin` 8,98 → 5,52 MB, `/apps/bin` 34,7 → 31,9 MB, el
+  ramdisk de siempre 16,6 → 14,4 MB; arranque igual; +0,25 ms por lanzamiento; RAM de la sesión +0,5 MB en reposo y
+  +3,0 MB con 8 programas de ventana distintos (lo privado de cada proceso dinámico, sobre todo intérprete y BSS de las
+  `.so`, pesa más que lo compartido con pocos procesos de cada tipo: análisis y lo que lo bajaría, en D462).
+- **Prueba:** `tests/h462_dinamico_3b.py` (+ `/testes/dinamico3b`): imagen de serie, ramdisk de siempre y vuelta atrás.
+
+**Fase 3c (a futuro, fuera de la 3b por decisión del mantenedor):** ejecutables e intérprete compartidos en memoria. Hoy
+el núcleo los lee enteros (`vfs_ler_inteiro`) y copia cada `PT_LOAD` a páginas propias del proceso; compartir sus partes
+de solo lectura con `imagens.c` (como las `.so`) ahorraría unos 24 KB de código del intérprete y el código del
+ejecutable por proceso. Toca el cargador y el núcleo de la memoria (riesgo alto): fase propia con revisión.

@@ -12,6 +12,31 @@ enteros de 64 bits y números en punto flotante de doble precisión.
     luac -o guion.luac guion.lua   compila;   lua guion.luac   lo ejecuta
     luac -l guion.lua           lista el código de bytes
 
+## Lo básico del lenguaje
+
+Lua es sencillo: pocas palabras reservadas y una sola estructura para todo, la **tabla**. Un primer guion,
+`hola.lua`, escrito con `mico hola.lua` y ejecutado con `lua hola.lua`:
+
+    -- hola.lua: el primer guion en Lua
+    local nombre = "mundo"
+    print("Hola, " .. nombre)           -- .. une textos
+    for i = 1, 3 do print(i, i * i) end  -- 1 1 / 2 4 / 3 9
+    local function doble(x) return 2 * x end
+    print(doble(21))                     -- 42
+
+    local frutas = {"pera", "uva"}       -- una lista es una tabla con índices 1, 2...
+    frutas[#frutas + 1] = "piña"         -- # cuenta los elementos
+    for i, f in ipairs(frutas) do print(i, f) end
+
+    local sagui = {nombre = "Tito", bananas = 3}   -- una tabla con nombres
+    print(sagui.nombre, sagui.bananas)
+
+En Lua los índices de las listas empiezan en **1**, no en 0. Las variables son globales salvo que escribas
+`local` delante. `if`, `while` y `repeat` terminan con `end` (`until` en el `repeat`). Los comentarios empiezan
+por `--`. Las bibliotecas (`string`, `table`, `math`, `io`, `os`...) están más abajo, en «Bibliotecas».
+
+Para ventanas o gráficos no hay biblioteca de Lua en SaguiOS: en ese caso, C o Python (ver [Programar en SaguiOS](lenguajes/indice.md)).
+
 ## Bibliotecas
 
 `string` (con patrones y `string.format`), `table`, `math`, `utf8`, `coroutine`, `io` (`io.open`, `io.lines`,

@@ -15,9 +15,9 @@ Estado a 2026-11-16 (v8.0; 3dfx, Mach64 y S3, v8.3.3; Radeon de la v8.3 completa
 | **Intel Gen6** HD 2000/3000 (Sandy Bridge) | ✅ | ✅ v7.2, blitter por BCS (D195) | 📅 v11 (111) | — | Lenovo G470 |
 | **Intel Gen7** HD 2500/4000 (Ivy Bridge), Gen7.5 HD 4200-5200 (Haswell) | ✅ (VESA/GOP) | 🟡 **v8.5.2**, blitter por el anillo BCS heredado, con VESA y con GOP (D359), sin probar en hardware | 📅 v11 (111) | 📅 v11, hasvk (64 bits) | **Toshiba L850** (HD 4000, `8086:0166`) |
 | **Intel Gen8** HD 5300-6300, Iris 6100 (Broadwell) | ✅ (VESA/GOP) | 🟡 **v8.5.2**, blitter por el anillo BCS heredado (D359), sin probar en hardware | 📅 v11 (111) | 📅 v11, ANV (64 bits) | (ninguna) |
-| **Intel Gen9-Gen12** Skylake…Alder Lake (HD/UHD 6xx, Iris Xe) | ✅ (GOP) | 📅 v11 (111): necesita execlists; hoy la CPU, con el motivo en el log (D359) | 📅 v11 (111) | 📅 v11, ANV (64 bits) | **mini PC i3-1220P** (Gen12) |
+| **Intel Gen9-Gen12** Skylake…Alder Lake (HD/UHD 6xx, Iris Xe) | ✅ (GOP) | 🟡 v8.5.5.3: **2D por execlists** (D434; Skylake a Comet Lake, Ice Lake, Tiger/Rocket/Alder Lake con lista exacta), **sin probar en hardware**; si no arranca, la CPU con el motivo (antes, la CPU por D359) | ✅ **v8.5.5.3: 3D de Gen9** (D438, `gpu3d_intel9`: RCS por execlists, cauce sin VS, sombreadores de píxeles propios en la ISA de las EU; Skylake a Comet Lake), **probado en el Dell UHD 620 `8086:3ea0`** (8 de 8, `sgldemo -g` BIEN); **D448 (lotes, RAM con caché, RP0): 27069 puntos (antes 1951-2219), cubo de 320x240 4285 fps (antes 287; software 2857), paisaje 70-75 fps (antes 30; software 25), 4,46 M triángulos/s, 953 Mpx/s con mezcla, leer el cuadro 17 µs (antes 1,6 ms)**; el 2D gana 6,5 veces con la GPU en RP0 pero sigue por debajo de la CPU; **2D asíncrono (D434, 2026-11-22): RP0 también para el 2D (gobernador común `intel_rps.c`), vaciado solo entre órdenes dependientes, anillo en WC y solape resuelto por el blitter: 60 copias 48,7 → 4,9 ms (CPU 2,9), rellenos 2 veces más rápidos que la CPU; las copias siguen en la CPU y el motor queda para el volcado del búfer de atrás (probado en el Dell, igual que la CPU; a mano con `acel2d volcado encender`)**; **gpu3d v3 (D457, 2026-11-22): sombreador de vértices propio, autoprueba v3 BIEN (0 píxeles distintos en las 3 escenas), `es11demo` mundo 119 → 1666 fps, Brumacanto vista 64 en ventana 28,9 → 84,9 fps y a pantalla completa 13,8 → 30,6; revisado por `depurador-drivers` el 2026-11-22 (paquetes contra Mesa, mundo 1875 fps, Brumacanto 88,7 / 42,4 fps)**; **gpu3d v2 (D453): 17 de 18 capacidades pasan en el Dell (4 unidades con COMBINE y DOT3, esténcil, prueba alfa, tijera, máscaras, Z, mezcla ampliada/aparte/resta, lógica, niebla, espejo, NPOT y, desde la revisión del 2026-11-21, mipmaps: faltaba Vector Mask Enable en `3DSTATE_PS`); `es11demo` lightmap 3750 fps (software 74), partículas 2307-2500 (46), sombra 3333-3750 (194); NPOT con mipmaps sin prueba propia (por software); sin cubos, DXT ni destino en textura**; el resto de Gen9 sin probar; apagado hasta `gpu3d probar`; Gen11/Gen12 preparado en el codificador, aún no arranca; modos de pantalla 📅 v11 (111) | 📅 v11, ANV (64 bits) | **mini PC i3-1220P** (Gen12, 0x46A6/0x46A8); **portátil UHD 620** (Gen9.5, `8086:3ea0`, UEFI) |
 | **Radeon R5xx** X1300-X1950 (Mobility X1400) | ✅ | ✅ v7.2, **confirmado en el Amilo** (X1400, 2026-11-18: 176 órdenes iguales a la CPU, 34 veces más rápido; issue #3, D386) | ✅ **v8.3** (D287), **autoprueba superada en el Amilo** (X1400, 2026-11-18: 8 de 8, 348 mil triángulos/s, puntuación 2504) tras D386 (zona detrás de todas las superficies y el cero del programa de vértices); sigue apagado hasta `gpu3d encender`; diagnóstico por etapas (D357); 🟡 **gpu3d v2 (D426, v8.5.5.2)**: **en el Amilo (2026-11-20) colgaba el CP; corregido** (vaciar las cachés antes de esperar al cambiar el formato del vértice): la X1400 anuncia v2 con **una unidad**, prueba alfa, tijera, máscaras, Z, mezcla separada, lógica, espejo, anisótropo, DXT y destino textura; combinar con varias unidades, DOT3 y niebla fallan sus pruebas en la máquina, y esténcil/LIMPAR2 se quitaron (rayas en «sombra» de es11demo): van por software; sin NPOT con repetición, mipmaps ni cubos | — | Fujitsu Amilo |
-| **Radeon R6xx/R7xx** HD 2000-4000 (HD 4530/4550) | ✅ | ✅ v7.4, motor DMA (D223, D246); **confirmado en el dv7** (D402); R6xx solo con `--acel2d=radeon` | ✅ **R7xx probado en el dv7** (D402, v8.5.5: 8 pruebas BIEN, 5 min de `sgldemo` sin fallos; traer el cuadro limita a ~50 fps en 320x240); sigue apagado hasta `gpu3d probar`/`gpu3d encender`; GART y vuelta del cuadro por CP_DMA (D406): **probada en el dv7** (945 fps frente a 50, 15.000 cuadros) y, desde la v8.5.5, **encendida sola** con el 3D en la RV710 `1002:9553` (`gpu3d encender sin-gtt` la evita); R6xx sin probar (D357); 🟡 **gpu3d v2 (D426, v8.5.5.2)**: 4 unidades con COMBINE/DOT3 (sombreador generado, caché en la VRAM), esténcil, prueba alfa, tijera, máscaras, mezcla separada, lógica, niebla, NPOT, espejo, anisótropo, DXT, destino textura; anuncia solo lo que pasa sus pruebas en la máquina; sin mipmaps ni cubos | — | **HP dv7** |
+| **Radeon R6xx/R7xx** HD 2000-4000 (HD 4530/4550) | ✅ | ✅ v7.4, motor DMA (D223, D246); **confirmado en el dv7** (D402); R6xx solo con `--acel2d=radeon` | ✅ **R7xx probado en el dv7** (D402, v8.5.5: 8 pruebas BIEN, 5 min de `sgldemo` sin fallos; traer el cuadro limita a ~50 fps en 320x240); sigue apagado hasta `gpu3d probar`/`gpu3d encender`; GART y vuelta del cuadro por CP_DMA (D406): **probada en el dv7** (945 fps frente a 50, 15.000 cuadros) y, desde la v8.5.5, **encendida sola** con el 3D en la RV710 `1002:9553` (`gpu3d encender sin-gtt` la evita); R6xx sin probar (D357); 🟡 **gpu3d v2 (D426, v8.5.5.2)**: 4 unidades con COMBINE/DOT3 (sombreador generado, caché en la VRAM), esténcil, prueba alfa, tijera, máscaras, mezcla separada, lógica, niebla, NPOT, espejo, anisótropo, DXT, destino textura; anuncia solo lo que pasa sus pruebas en la máquina; sin mipmaps ni cubos; ✅ **gpu3d v3 (D457, v8.5.5.3)**: la GPU guarda y transforma los vértices, probado en el dv7 (`es11demo` «mundo» ×10, Brumacanto ×2-4) | — | **HP dv7** |
 | **Radeon Evergreen/NI** HD 5000-6000 (Cedar…Hemlock, Barts, Turks, Caicos, Cayman; sin las APU) | ✅ (VESA/GOP) | 🟡 **v8.3**, motor DMA (D286); ✅ **HD 7600M Turks `1002:6840` confirmada en v8.5.5.1** (VRAM del MC por encima de 4 GB, D408): copias x7, rellenos x3,8; el resto sin probar en hardware | 🔧 **v8.5.5.2** (D427): driver `gpu3d_evergreen` (CP con microcódigo, sombreadores de Evergreen, VRAM del MC de 40 bits) para Cedar…Hemlock, Barts, Turks y Caicos (Cayman no: VLIW4); apagado hasta `gpu3d probar`/`gpu3d encender`; en prueba en la HD 7600M del Toshiba | — | Toshiba L635 (Mobility HD 5000, `1002:68e0`); Toshiba con HD 7600M (`1002:6840`) |
 | **Radeon GCN 1.0** HD 7700-7900, R7 240/250, R9 270/280 (Tahiti, Pitcairn, Cape Verde, Oland) | ✅ (VESA/GOP) | 🟡 **v8.5.2**, motor DMA sin microcódigo (D360), sin probar en hardware | 📅 v11 (110) | 📅 v11, RADV (64 bits) (108) | **Radeon R9 270X del mantenedor** (Pitcairn/Curacao) |
 | **Radeon GCN 1.1-5** HD 7790, R9 290/390, RX 400/500 (Polaris), Vega | ✅ (GOP) | 📅 v11 por SDMA (110); desde v8.5.2 el log dice la familia y por qué copia la CPU (D360) | 📅 v11 (110) | 📅 v11, RADV (64 bits) (108) | (por definir) |
@@ -43,6 +43,18 @@ mientras dure (la recupera con Alt+Tab, avisos, salvapantallas, bloqueo...). Lo 
 2026-11-20: DOOM a 109 fps frente a 82 por software; `sdl2presentar` 640x480 a 177 frente a 83); 🟡 **sin probar** en el dv7
 ni en el Toshiba. Es opcional (`SDL_SAGUI_GPU=1` y el 3D encendido): `docs/gpu3d.md`,
 «Presentar sin volver a la RAM», y `docs/sdl-gpu.md`.
+
+**Vértices por la GPU: gpu3d v3 (D457, v8.5.5.3).** La capa 3D común puede guardar los vértices (los VBO de OpenGL ES) en la
+memoria de la GPU y dejar que ella los transforme (matrices, niebla, matriz de textura, recorte, vista y descarte de caras); antes
+lo hacía siempre la CPU. Es opcional por driver y la capa lo compara con la CPU antes de usarlo; si no cuadra, sigue la CPU.
+
+| Familia | Vértices por la GPU (v3) |
+| --- | --- |
+| Driver simulado de QEMU | ✅ (pruebas, `tests/h457_gpu3d_v3.py`) |
+| **Radeon R5xx** (X1400 del Amilo) | ✅ **probado en el Amilo** (2026-11-22, revisión de D457): búferes en la VRAM y programa de vértices del PVS; se anuncia solo tras la autoprueba v3 (las tres escenas, 0 píxeles distintos de la CPU); `inicio 4ff0 4000` en `/sistema/conf/gpu3d-r500.conf` lo quita. `es11demo` «mundo» **46 → 206 fps**; Brumacanto (vista 64) **8,4 → 9,7** en ventana y **8,5 → 13,4** a pantalla completa, con la escala al 50 % **9,4 → 21,3** y **10,9 → 26,2** (`docs/gpu3d.md`, «gpu3d v3») |
+| **Radeon R6xx/R7xx** (HD 4500 del HP dv7) | ✅ **probado en el HP** (RV710 `1002:9553`, 2026-11-22): búferes en la VRAM, sombreador de vértices generado, índices, tiras y abanicos; autoprueba v3 con 0 píxeles distintos; `es11demo` «mundo» de 45 a ~470 fps, Brumacanto (vista 64) de 9 a 36-38 fps en ventana y de 5-10 a 46 a pantalla completa (con la CPU en P0; el HP baja a 1050 MHz por temperatura y entonces da 19-31); revisado por `depurador-drivers` (2026-11-22: dos arreglos de sincronización, GART apagada también probada). Solo se anuncia sola en la `1002:9553`; otra R6xx/R7xx lo pide con `inicio 28ffc 2` en `/sistema/conf/gpu3d-r600.conf` |
+| **Intel Gen9** (UHD 620 del Dell) | ✅ **probado en el Dell 8086:3ea0** (2026-11-22): sombreador de vértices SIMD8 generado (transformación, niebla lineal, matriz de textura, índices, tiras, color de bytes o float), búferes en RAM con caché; se anuncia `0x23b` y la autoprueba v3 lo confirma; `es11demo` mundo 119 → 1666 fps, Brumacanto 28,9 → 84,9 fps en ventana (D457, «v3 en Intel») |
+| Evergreen/NI, Intel Gen3 | 📅 sin hacer: la CPU transforma (v2 o v1) |
 
 **El cuadro del 3D vuelve a la RAM por la GPU (D391, v8.5.4.10r2).** En las mismas **Radeon R5xx con PCI Express**, el 3D
 ya no obliga a la CPU a leer cada cuadro de la VRAM (lo más lento del cubo en el Amilo): el motor 2D lo escribe en la
@@ -93,6 +105,12 @@ el diálogo de administrador.
 | v8.3.1 | Ejemplos y benchmarks 3D, monitor de uso de la GPU |
 | v8.3.3 | Drivers de la época (mejora 126): **2D en las 3dfx** Banshee/Voodoo3/Voodoo4/5 (D305), con la capa 2D común ya en 16 y 24 bits, y **2D en ATI Mach64/Rage y S3 Trio64/ViRGE** (D308); probados en 86Box |
 | v8.5.2 | **2D en Intel Gen7, Gen7.5 y Gen8** (Ivy Bridge, Haswell, Broadwell) por el anillo BCS heredado, con VESA y con GOP (D359); Gen9-Gen12 reconocidas, en la CPU con el motivo |
+| v8.5.5.3 | **2D en Intel Gen9-Gen12 por execlists** (Skylake a Alder Lake, con lista exacta de IDs; D434), sin probar en hardware: solo 2D, sin GuC ni HuC, sin modos de pantalla ni 3D |
+| v8.5.5.3 | **3D en Intel Gen9** (Skylake a Comet Lake; D438, `gpu3d_intel9`): gpu3d v1 por el RCS con execlists, sin probar en hardware, apagado hasta `gpu3d probar`; Gen11/12 todavía no arrancan |
+| v8.5.5.3 | **gpu3d v2 en Intel Gen9** (D453): OpenGL ES 1.1 por la GPU (multitextura con COMBINE, esténcil, prueba alfa, tijera, mezcla ampliada, lógica, niebla, mipmaps); en el Dell UHD 620, 20-50 veces el software en `es11demo`; revisión de `depurador-drivers` (Vector Mask, Mip Tail Start LOD, paso del esténcil) |
+| v8.5.5.3 | **gpu3d v3 en Intel Gen9** (D457): la GPU guarda y transforma los vértices con un sombreador de vértices propio; probado en el Dell UHD 620 (13-14 veces en `es11demo` mundo, 3 veces Brumacanto en ventana) |
+| v8.5.5.3 | **2D asíncrono de Intel Gen9** (D434): RP0 común con el 3D, vaciados solo entre órdenes dependientes, anillo en WC, solape por el blitter y volcado del búfer de atrás (a mano); las copias siguen en la CPU, más rápida en el Dell |
+| v8.5.5.3 | **3D de Intel Gen9 rápido** (D448): lotes con varios dibujos, el destino en RAM con caché, la zona en WC y la GPU en RP0 mientras trabaja; en el Dell UHD 620, 14 veces la puntuación y 1,5 veces el software en el cubo con ventana (3 veces en el paisaje) |
 | v10.0 | SaguiOS de **64 bits** (base para Vulkan), sin quitar los 32 bits |
 | **v11** | **GPU modernas, Intel primero**: Intel Gen5-Gen12 (111) y luego AMD GCN/RDNA (107, 110): pantalla nativa, 2D, 3D en 32 bits y **Vulkan** en 64 bits (ANV/hasvk, RADV) (108) |
 
@@ -135,8 +153,8 @@ Lo que sirvió para encontrar el fallo de la X1400 del Amilo (D386) vale ahora p
    `[ACEL2D] activo: Intel HD 4000 M …`: `acel2d`, `acel2d probar --detalle`, otro `dmesg`, la pestaña GPU de Información
    del PC, mover ventanas y desplazar texto en el terminal. Si pone `[ACEL2D] CPU: …`, el motivo dice qué no cuadró
    (plano, GTT, forcewake, anillo): enviar el registro entero.
-3. **Mini PC i3-1220P (Gen12):** tiene que quedarse en la CPU con `(Intel Gen12, Alder Lake-P): el 2D necesita execlists`
-   (o `ninguna tarjeta de video tiene la pantalla` si el GOP dejó la apertura por encima de 4 GB). Nada debe cambiar.
+3. **Mini PC i3-1220P (Gen12):** en la v8.5.5.3 el 2D va por execlists (D434, sección «Qué probar en el mini PC i3-1220P»).
+   Si el log dice `[ACEL2D] CPU: …`, el motivo dice qué no cuadró; si la pantalla se ve bien, nada más que comprobar.
 4. Ante cualquier problema de imagen: `acel2d apagar`, o arrancar con `--sin-acel2d` (o Mayús al arrancar, D323).
 
 ## Qué probar en una Mach64/Rage o una S3 Trio64/ViRGE de verdad (D308)
@@ -199,3 +217,32 @@ Hasta ahora solo se ha probado en 86Box (Voodoo3 2000 y 3500 AGP con un Pentium 
 Más detalle: mejoras 054, 055, 060, 106-111 y la discusión de GitHub sobre v9.x/v10/v11.
 
 Nota (v8.4.3r2): las **3dfx Voodoo Graphics y Voodoo2** (121a:0001/0002) son aceleradores 3D adicionales, en cadena con la tarjeta de vídeo, sin driver en SaguiOS; infopc las nombra y lo dice (PCI y GPU).
+
+## Qué probar en el mini PC i3-1220P (Gen12, D434, v8.5.5.3)
+
+Sin probar en hardware: el blitter de Gen9-Gen12 va por execlists (`kernel/dispositivos/acel_intel_exec.c`), revisado contra i915
+(D434, «Revisión»). Con la imagen de la v8.5.5.3 grabada (UEFI, sin acceso SSH):
+
+1. Arrancar y abrir una terminal: `acel2d`. Si dice `activo: Intel … (Gen12, execlists)`, ir al paso 3.
+2. Si dice `[ACEL2D] CPU: … no se pudo iniciar: paso N: …`, **ese texto ya es la respuesta**: una foto de esa línea basta. Para más detalle,
+   `dmesg | grep "intel exec"` y una foto (o `dmesg > /home/x.txt`).
+3. `acel2d probar --detalle` y una foto de lo que salga (líneas `intel exec detalle`).
+4. Arrastrar ventanas y desplazar texto en el terminal: tiene que verse igual que con la CPU. Ante cualquier fallo de imagen,
+   `acel2d apagar` (o arrancar con `--sin-acel2d` o Mayús, D323) y una foto de la pantalla.
+
+Cómo leer la foto: el último `paso N` que aparece dice hasta dónde llegó el driver.
+
+| Paso | Qué hace | Si se para ahí | Qué hacer |
+|---|---|---|---|
+| 1 | Identifica la tarjeta, los BAR, la pantalla y el pitch | `BAR por encima de 4 GB` | El GOP puso la apertura arriba: sin PAE en las ventanas no hay 2D (esperado; anotarlo) |
+| 2 | Mira los planos (`plano A: CTL … SURF …`) | `en tiles`, `con otro formato`, `ningun plano muestra la pantalla` | Foto de las líneas `paso 2: plano` |
+| 3 | Memoria robada (`memoria robada …, N MB`) y GTT | `no caben en la memoria robada`, `GTT de la pantalla`, `memoria reservada` | Foto de las tres líneas `paso 3` |
+| 4 | Despierta la GPU (forcewake GT 0xA188) | `forcewake GT … sin respuesta` | Foto; la GPU no responde al MMIO |
+| 5 | Comprueba el motor, pone el PAT y el modo execlists | `el blitter ya esta en uso` | Foto de `paso 5: antes:` |
+| 6 | Monta la PPGTT y el contexto (`contexto en …, PPGTT de N tablas`) | `no se pueden montar` | Foto |
+| 7 | Primera tanda (vaciado y marca) | `la tanda de prueba no termina`, `tiempo agotado` | Foto de `tiempo agotado …` y de las líneas `CSB[n] memoria … MMIO …` |
+| 8 | Autoprueba de la capa común (píxeles como la CPU, y más rápida) | `autoprueba fallida` / `mas lenta que la CPU` | Foto. «Fallida»: el motor ejecuta pero la imagen no cuadra (PPGTT, PAT o MOCS). «Más lenta»: funciona, pero el motor no gana a la CPU (D438: desde la revisión del Dell las órdenes se juntan en una tanda y se espera una vez; las cifras salen en la línea `velocidad`) |
+
+Otras líneas que ayudan: `tanda N: CSB[…] = … (motor libre, memoria)` en las primeras tandas (si dice `MMIO` o aparece «la marca
+no llega a la pagina de estado», la GPU escribe pero la CPU no lo ve por la apertura: anotarlo aunque todo funcione).
+Antes de compartir un `dmesg` completo, quitar la MAC y los números de serie.

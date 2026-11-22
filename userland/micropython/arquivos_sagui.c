@@ -124,6 +124,10 @@ int sagui_errno(int e)
     case ERRO_RECUSADA:      return MP_ECONNREFUSED;
     case ERRO_INALCANCAVEL:  return MP_EHOSTUNREACH;
     case ERRO_CONEXAO_CAIU:  return MP_ECONNRESET;
+    case ERRO_INTERROMPIDO:  return MP_EINTR;
+    case ERRO_TENTAR:        return MP_EAGAIN;
+    case ERRO_EM_CURSO:      return MP_EINPROGRESS;
+    case ERRO_JA_EM_CURSO:   return MP_EALREADY;
     default:                 return MP_EIO;
     }
 }
@@ -493,7 +497,8 @@ static mp_obj_t sagui_open(size_t n_args, const mp_obj_t *pos, mp_map_t *kw)
             info_arquivo_t i;
             if (info_arquivo(caminho, &i) == 0) sagui_levantar_obj(ERRO_JA_EXISTE, arg[A_ARQ].u_obj);
         }
-        fd = abrir(caminho, modo);
+        /* «/dev/null» no existe en el SGFS (D419): un pipe vacío o un archivo temporal borrado. */
+        fd = !strcmp(caminho, "/dev/null") ? sagui_abrir_nulo(modo & ABRIR_ESCREVER) : abrir(caminho, modo);
         if (fd < 0) sagui_levantar_obj(fd, arg[A_ARQ].u_obj);
     }
     arquivo_t *a = mp_obj_malloc_with_finaliser(arquivo_t, binario ? &sagui_tipo_binario : &sagui_tipo_texto);

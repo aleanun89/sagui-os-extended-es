@@ -1,0 +1,16 @@
+# Un murciélago que vuela en ondas: se mueve a mano (sin colisiones con el mapa) y tiene un área de daño.
+[Cuerpo Murcielago]
+forma = "circulo" 8
+capa = 4
+mascara = 0
+grupo = "enemigos"
+guion = "guiones/murcielago.lua"
+[Sprite Dibujo padre=.]
+textura = "img/personajes.png"
+cuadricula = 9 3
+animacion = "volar" 8 si 24 25
+animar = "volar"
+z = 2
+[Area Dano padre=.]
+forma = "circulo" 8
+mascara = 2

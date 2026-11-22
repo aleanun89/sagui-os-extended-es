@@ -26,6 +26,22 @@ PROGRAMAS = ["sagsh", "sh", "ls", "cat", "cp", "mv", "rm", "mkdir", "echo", "mou
 PASTAS = ["bin", "etc", "home", "tmp", "dev", "sistema"]
 
 
+def es_dinamico(caminho):
+    """D462: ¿el ELF lleva PT_INTERP (necesita /lib/ld-sagui.so.1 y las .so)? En el initramfs no hay /lib."""
+    import struct
+    with open(caminho, "rb") as f:
+        d = f.read()
+    if len(d) < 52 or d[:4] != b"\x7fELF" or d[4] != 1:
+        return False
+    phoff, = struct.unpack_from("<I", d, 28)
+    phentsize, phnum = struct.unpack_from("<HH", d, 42)
+    for i in range(phnum):
+        o = phoff + i * phentsize
+        if o + 4 <= len(d) and struct.unpack_from("<I", d, o)[0] == 3:   # PT_INTERP
+            return True
+    return False
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("rootfs")
@@ -46,6 +62,9 @@ def main():
         for n in PROGRAMAS:
             src = os.path.join(a.rootfs, "bin", n)
             if os.path.isfile(src):
+                if es_dinamico(src):
+                    sys.exit(f"mkinitramfs: {src} es dinámico (PT_INTERP): el initramfs solo lleva programas "
+                             "estáticos (D462: añádelo a BIN_ESTATICOS del Makefile)")
                 shutil.copy2(src, os.path.join(tmp, "bin", n))
             else:
                 faltan.append(n)

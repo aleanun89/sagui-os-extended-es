@@ -36,6 +36,12 @@
 #define MICROPY_REPL_EMACS_KEYS                 (0)
 #define MICROPY_KBD_EXCEPTION                   (0)   /* Ctrl+C: o kernel encerra o grupo (D037) */
 #define MICROPY_ENABLE_SCHEDULER                (0)
+/* Señales (D419): los tratadores de Python de signal.signal los llama el bucle del
+ * intérprete en cada salto hacia atrás, si el manipulador de C levantó la bandera
+ * (sinais_sagui.c). Una lectura y una comparación por salto. */
+extern volatile int sagui_sinais_pend;
+void sagui_rodar_tratadores(void);
+#define MICROPY_VM_HOOK_LOOP                    if (sagui_sinais_pend) { MARK_EXC_IP_SELECTIVE(); sagui_rodar_tratadores(); }
 /* Ponto flutuante (D038): double de 64 bits, contas pelo SSE2, funções do
  * módulo math da libm_dbl (musl/FreeBSD) e sqrt pela instrução sqrtsd. */
 #define MICROPY_FLOAT_IMPL                      (MICROPY_FLOAT_IMPL_DOUBLE)
@@ -92,7 +98,7 @@
 #define MICROPY_PY_SELECT_SELECT                (1)
 /* O select pergunta a cada objeto (ioctl POLL) e, se nada está pronto,
  * dorme 10 ms (um tique do relógio do kernel) antes de perguntar de novo. */
-#define MICROPY_EVENT_POLL_HOOK                 { extern int dormir(unsigned); MP_THREAD_GIL_EXIT(); dormir(10); MP_THREAD_GIL_ENTER(); }
+#define MICROPY_EVENT_POLL_HOOK                 { extern int dormir(unsigned); MP_THREAD_GIL_EXIT(); dormir(10); MP_THREAD_GIL_ENTER(); sagui_rodar_tratadores(); }
 #define MICROPY_PY_TIME                         (1)
 #define MICROPY_PY_TIME_GMTIME_LOCALTIME_MKTIME (0)   /* os nossos, com zona horária, em tempo_sagui.h (D080) */
 #define MICROPY_PY_TIME_TIME_TIME_NS            (1)
@@ -100,7 +106,8 @@
 #define MICROPY_EPOCH_IS_1970                   (1)
 
 /* Módulos próprios do SaguiOS no lugar dos do extmod: os (os_sagui.c),
- * hashlib (hashlib_sagui.c), socket (rede_sagui.c) e ssl (ssl_sagui.c). */
+ * hashlib (hashlib_sagui.c), socket (rede_sagui.c), ssl (ssl_sagui.c) e
+ * signal (sinais_sagui.c, D419). */
 #define MICROPY_PY_OS                           (0)
 #define MICROPY_PY_HASHLIB                      (0)
 #define MICROPY_PY_SOCKET                       (0)
@@ -123,7 +130,8 @@
     X(EBUSY) X(EEXIST) X(ENODEV) X(ENOTDIR) X(EISDIR) X(EINVAL) X(EMFILE) X(ENOSPC) \
     X(ESPIPE) X(EROFS) X(EPIPE) X(ENOTEMPTY) X(EOPNOTSUPP) X(EAFNOSUPPORT) X(EADDRINUSE) \
     X(ECONNABORTED) X(ECONNRESET) X(ENOBUFS) X(EISCONN) X(ENOTCONN) X(ENETUNREACH) \
-    X(ETIMEDOUT) X(ECONNREFUSED) X(EHOSTUNREACH) X(EALREADY) X(EINPROGRESS)
+    X(ETIMEDOUT) X(ECONNREFUSED) X(EHOSTUNREACH) X(EALREADY) X(EINPROGRESS) \
+    X(EINTR) X(ECHILD) X(ENOEXEC) X(EDOM) X(ERANGE)
 
 /* random: a semente vem do kernel (mp_sagui.c). */
 #include <stdint.h>

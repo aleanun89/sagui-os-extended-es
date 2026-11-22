@@ -32,9 +32,14 @@ extern const desenho_t arte_mini_gebramini;   /* mejora 128: geometría dinámic
 extern const desenho_t arte_mini_planomini;   /* mejora 129: mini CAD 2D */
 extern const desenho_t arte_mini_jclic;   /* D185: actividades JClic */
 extern const desenho_t arte_mini_jclicbajar;   /* D185: bajar actividades JClic */
+extern const desenho_t arte_mini_ayuda;   /* D455: Ayuda */
 extern const desenho_t arte_mini_jabuti;   /* D377: Jabuti */
+extern const desenho_t arte_mini_visorlogs;   /* D463: Visor de registros */
+extern const desenho_t arte_mini_snake;   /* D463: Snake */
 extern const desenho_t arte_mini_aoen;     /* D382: AoEN */
 extern const desenho_t arte_mini_brumacanto; /* D444: Brumacanto */
+extern const desenho_t arte_mini_capibara;   /* D452: Capibara */
+extern const desenho_t arte_mini_capibara_editor;   /* D460: el editor de Capibara */
 #ifndef SAGUI_SEM_GPL
 extern const desenho_t arte_mini_tyrian;   /* D180: o OpenTyrian */
 extern const desenho_t arte_mini_openjazz;   /* D228: OpenJazz */

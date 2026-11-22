@@ -415,7 +415,7 @@ static const desenho_t *icone_do_processo(const char *nome)
         { "visorpdf", &arte_mini_visorpdf }, { "reproductor", &arte_mini_video }, { "camara", &arte_mini_video }, { "grabadora", &arte_mini_musica }, { "convertir-audio", &arte_mini_musica },
         { "ia", &arte_mini_ia }, { "vps", &arte_mini_vps }, { "exploradorbd", &arte_mini_exploradorbd }, { "exploradorsqlite", &arte_mini_exploradorsqlite }, { "exploradorlmk", &arte_mini_exploradorlmk }, { "macaco", &arte_mini_macaco }, { "pluma", &arte_mini_pluma }, { "tucan", &arte_mini_tucan }, { "gebramini", &arte_mini_gebramini }, { "planomini", &arte_mini_planomini }, { "spider", &arte_mini_spider },
         { "jclic", &arte_mini_jclic }, { "jclicbajar", &arte_mini_jclicbajar },   /* D185 */
-        { "jabuti", &arte_mini_jabuti },   /* D377 */
+        { "jabuti", &arte_mini_jabuti }, { "ayuda-gui", &arte_mini_ayuda },   /* D377 */
         { "aoen", &arte_mini_aoen }, { "aoen-config", &arte_mini_aoen },   /* D382 */
         { "vnc", &arte_mini_pantalla },   /* D254 */
 #ifndef SAGUI_SEM_GPL
@@ -1187,8 +1187,8 @@ void barra_tique(void)
 
 /* ------------------------------------------------------------ menú Inicio */
 
-enum { G_ACESSORIOS, G_GRAFICOS, G_INTERNET, G_MULTIMEDIA, G_EDUCACION, G_JUEGOS, G_SISTEMA, QTD_GRUPOS };
-static const char *const nome_grupo[QTD_GRUPOS] = { N_("Accesorios"), N_("Gráficos"), N_("Internet"), N_("Multimedia"), N_("Educación"), N_("Juegos"), N_("Sistema") };
+enum { G_ACESSORIOS, G_GRAFICOS, G_INTERNET, G_MULTIMEDIA, G_EDUCACION, G_PROGRAMACION, G_JUEGOS, G_SISTEMA, QTD_GRUPOS };
+static const char *const nome_grupo[QTD_GRUPOS] = { N_("Accesorios"), N_("Gráficos"), N_("Internet"), N_("Multimedia"), N_("Educación"), N_("Programación"), N_("Juegos"), N_("Sistema") };
 
 typedef struct {
     const char *nome, *caminho, *argumento, *processo;
@@ -1207,6 +1207,8 @@ static const programa_t programas[] = {
     { N_("MIDI"),                    "/bin/midi",        NULL, "midi",        G_ACESSORIOS, &arte_mini_musica, false },   /* D190 */
     { N_("Sintonía (reproductor)"),  "/apps/bin/sintonia", NULL, "sintonia",  G_MULTIMEDIA, &arte_mini_musica, false },   /* D225: en /apps (D194); sólo si está */
     { N_("Markdown"),                "/bin/markdown",    NULL, "markdown",    G_ACESSORIOS, &arte_mini_markdown, false },
+    { N_("Visor de registros"),      "/bin/visorlogs",   NULL, "visorlogs",   G_SISTEMA,    &arte_mini_visorlogs, false },   /* D463: registro del kernel y archivos de registro, en vivo */
+    { N_("Ayuda"),                   "/bin/ayuda-gui",   NULL, "ayuda-gui",   G_SISTEMA,    &arte_mini_ayuda, true },   /* D455: la ayuda de SaguiOS (F1 en el escritorio) */
     { N_("Mico (editor de código)"), "/apps/bin/mico",        NULL, "mico",        G_ACESSORIOS, &arte_mini_mico, false },
     { N_("VisualPythonS (diseñador)"), "/apps/bin/python", "/lib/python/vps/disenador.py", "vps", G_ACESSORIOS, &arte_mini_vps, false },   /* D297: melhoria 123 */
     { N_("Explorador SQLite"), "/apps/bin/python", "/lib/python/basedatos/explorador_sqlite.py", "exploradorsqlite", G_ACESSORIOS, &arte_mini_exploradorsqlite, false },   /* D333: melhoria 131 (antes D304, 127) */
@@ -1235,8 +1237,12 @@ static const programa_t programas[] = {
     { N_("Sagui Atrapa Bananas"),    "/apps/bin/banana",      NULL, "banana",      G_JUEGOS,     &arte_icone_banana, false },
     { N_("Solitario Spider"),        "/apps/bin/spider",      NULL, "spider",      G_JUEGOS,     &arte_mini_spider, false },   /* D173 */
     { N_("Buscaminas"),              "/apps/bin/buscaminas",  NULL, "buscaminas",  G_JUEGOS,     &arte_mini_buscaminas, false },   /* D248 */
+    { N_("Snake"),                   "/apps/bin/snake",       NULL, "snake",       G_JUEGOS,     &arte_mini_snake, false },   /* D463: la serpiente; en /apps, sólo si está */
     { N_("AoEN"),                    "/apps/bin/aoen",        NULL, "aoen",        G_JUEGOS,     &arte_mini_aoen, false },   /* D382: estrategia en tiempo real; en /apps, sólo si está */
     { N_("Brumacanto"),              "/apps/bin/brumacanto",  NULL, "brumacanto",  G_JUEGOS,     &arte_mini_brumacanto, false },   /* D444: juego de vóxeles con OpenGL ES 1.1 (MIT); en /apps, sólo si está */
+    { N_("Capibara: editor"),        "/apps/bin/capibara-editor", NULL, "capibara-editor", G_PROGRAMACION, &arte_mini_capibara_editor, false },   /* D460: el editor del motor de juegos Capibara; en /apps, sólo si está */
+    { N_("Capibara: plataformas"),   "/apps/bin/capibara", "/apps/capibara/plataformas", "capibara",  G_JUEGOS,     &arte_mini_capibara, false },   /* D452: motor de juegos 2D con guiones en Lua (MIT); ejemplo; en /apps, sólo si está */
+    { N_("Capibara: escuadrón"),     "/apps/bin/capibara", "/apps/capibara/disparos", "capibara-escuadron", G_JUEGOS, &arte_mini_capibara, false },   /* D452: el segundo ejemplo */
 #ifndef SAGUI_SEM_GPL   /* D184: la h81 encontraba «OpenTyrian» en el kernel sin GPL */
     { N_("OpenTyrian"),              "/apps/bin/opentyrian",  NULL, "opentyrian",  G_JUEGOS,     &arte_mini_tyrian, false },   /* D180: sólo si está en la imagen (no en la variante sin GPL) */
     { N_("OpenTyrian (pantalla completa)"), "/apps/bin/opentyrian", "--pantalla-completa", "opentyrian-cheia", G_JUEGOS, &arte_mini_tyrian, false },   /* D204 */

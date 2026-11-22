@@ -1,0 +1,18 @@
+# Un limo que patrulla: cuerpo cinemático con un área que hace daño al tocarla.
+[Cuerpo Limo]
+forma = "caja" 14 12
+desplazamiento_forma = 0 6
+capa = 4
+mascara = 1
+grupo = "enemigos"
+guion = "guiones/enemigo.lua"
+[Sprite Dibujo padre=.]
+textura = "img/personajes.png"
+cuadricula = 9 3
+animacion = "andar" 5 si 18 19
+animar = "andar"
+z = 2
+[Area Dano padre=.]
+forma = "caja" 14 14
+desplazamiento_forma = 0 5
+mascara = 2

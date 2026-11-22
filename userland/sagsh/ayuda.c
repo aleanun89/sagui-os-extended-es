@@ -125,13 +125,13 @@ const comando_t comandos[] = {
     { "discos", NULL, false, false, "lista pendrives", "discos", "Muestra los pendrives conectados, su formato y si están montados."  },
     { "montar", NULL, false, false, "monta el pendrive", "montar [usb0]", "Monta el pendrive FAT32 en /usb."  },
     { "desmontar", NULL, false, false, "expulsa pendrive", "desmontar [usb0]", "Guarda todo lo pendiente y libera el pendrive para poder retirarlo."  },
-    { "mount", NULL, false, false, "monta discos", "mount [-t tipo] [-o ro|rw] <disp> <carpeta>", "Sin argumentos lista lo montado; si no, monta una partición FAT32/ext2/ext4 o un CD/DVD (iso9660, udf; discos internos: solo lectura salvo -o rw). Ver /etc/fstab."  },
+    { "mount", NULL, false, false, "monta discos", "mount [-t tipo] [-o ro|rw] <disp> <carpeta>", "Sin argumentos lista lo montado; si no, monta una partición FAT32/exFAT/ext2/ext4, un XFS de Linux (siempre en solo lectura) o un CD/DVD (iso9660, udf; discos internos: solo lectura salvo -o rw). Ver /etc/fstab."  },
     { "umount", NULL, false, false, "desmonta discos", "umount <carpeta|disp>", "Guarda lo pendiente y desmonta."  },
     { "reparar", "fsck", false, false, "repara un ext2", "reparar [-n|-y] [--copia ARCHIVO] <partición>", "Repara un ext2 que quedó mal tras un corte o un cuelgue (D397): mapas y contadores, punteros fuera del volumen, bloques que usan dos archivos (cada uno se queda una copia), carpetas rotas, archivos sin carpeta (a /lost+found) y enlaces. -n solo dice qué haría; sin -n pregunta antes de escribir (-y no pregunta). Guarda antes una copia de lo que cambia (reparar --deshacer COPIA <partición>). La partición no puede estar montada con escritura: si está de solo lectura, se desmonta, se repara y se vuelve a montar con escritura. Ver /ayuda/reparar.md."  },
     { "eject", NULL, false, false, "expulsa el CD/DVD", "eject [-t] [cd0|/cd]", "Desmonta el CD/DVD y abre la bandeja; -t la cierra. Un CD o DVD de datos (ISO 9660 o UDF) que se mete se monta solo en /cd (D233)."  },
     { "usb", "lsusb", false, false, "diagnóstico USB", "usb", "Muestra los controladores USB 2.0, los puertos y los dispositivos."  },
     /* Red */
-    { "ifconfig", "ip", false, false, "tarjeta de red", "ifconfig [-a] | ifconfig eth0 <ip>/<bits> gw <puerta> [dns <ip>] | ifconfig eth0 down|up", "Muestra la tarjeta de red (MAC, IP, máscara, puerta de enlace, DNS, paquetes) y el bucle local lo (127.0.0.1); -a añade conexiones y caché ARP. Con una dirección, la fija a mano; down/up desactiva o activa la interfaz."  },
+    { "ifconfig", "ip", false, false, "tarjetas de red", "ifconfig [-a] | ifconfig [IFAZ] <ip>/<bits> gw <puerta> [dns <ip>] | ifconfig [IFAZ] dhcp|down|up|metric N | ifconfig route", "Muestra las interfaces de red (eth0, eth1, wlan0: MAC, IP, máscara, puerta de enlace, DNS, paquetes) y el bucle local lo (127.0.0.1); -a añade conexiones y caché ARP. Con una dirección, la fija a mano; down/up desactiva o activa la interfaz; metric N cambia la prioridad de su ruta por defecto (menor = preferida); route enseña la tabla de rutas. Sin IFAZ, la de la ruta por defecto."  },
     { "dhcp", NULL, false, false, "pide IP por DHCP", "dhcp", "Pide una dirección IP al servidor DHCP de la red (el arranque ya lo hace solo)."  },
     { "wifi", NULL, false, false, "Wi-Fi (pincho USB)", "wifi [estado | buscar | conectar <SSID> [clave] | desconectar | recordadas | olvidar <SSID>]", "Wi-Fi con el pincho USB Realtek RTL8188EU: busca redes (SSID, canal, señal y seguridad), se conecta a redes abiertas o WPA2-PSK (wlan0, con DHCP) y las recuerda en /home/.config/wifi.conf (la clave se guarda como PMK, no en claro); el sistema se vuelve a conectar solo."  },
     { "ping", NULL, false, false, "prueba la red", "ping [-c veces] [-s bytes] <host>", "Manda ecos ICMP y muestra el tiempo de ida y vuelta (ej.: ping -c 3 10.0.2.2)."  },
@@ -186,6 +186,7 @@ const comando_t comandos[] = {
     { "editor", NULL, false, true, "editor de texto", "editor [archivo]", "Abre el Editor de texto en una ventana."  },
     { "calculadora", NULL, false, true, "calculadora", "calculadora", "Abre la Calculadora en una ventana."  },
     { "markdown", NULL, false, true, "visor de Markdown", "markdown [-t] [archivo.md]", "Abre un documento Markdown formateado y permite editarlo (Ctrl+E alterna). Con -t lo imprime maquetado en el terminal."  },
+    { "ayuda-gui", NULL, false, true, "la aplicación Ayuda", "ayuda-gui [TEMA | archivo.md[#apartado]]", "Abre Ayuda (F1 en el escritorio): las guías del kernel y de las aplicaciones, los manuales y las guías de los lenguajes, con índice, enlaces, búsqueda e idiomas. TEMA es el nombre de un documento (lua, guia-kernel) o parte de su título. Sin escritorio imprime el documento en texto. También: ayuda -g TEMA. Ver /ayuda/ayuda.md."  },
     { "mico", NULL, false, true, "editor de código", "mico [carpeta | archivo...] | mico -t archivo", "Abre Mico, el editor de código: explorador, pestañas, resaltado (C, Python, sh, Markdown, CHIP-8), buscar y reemplazar, terminal y problemas; F5 compila y ejecuta. Con -t muestra en el terminal la clase de cada letra. Ayuda: /ayuda/mico.md."  },
     { "tareas", NULL, false, true, "admin. de tareas", "tareas [-t]", "Abre el Administrador de tareas (procesos, rendimiento con CPU, memoria, temperatura y frecuencia, ventanas, red y servicios; también con Ctrl+Mayús+Esc o Ctrl+Alt+Supr). Con -t muestra una instantánea en el terminal."  },
     { "visor", NULL, false, true, "visor de imágenes", "visor [-i] [archivo | carpeta] [x y]...", "Abre imágenes BMP, PPM/PGM/PBM y PNG: ajustar o 1:1, zoom con la rueda o +/-, arrastrar, flechas y AvPág/RePág para la imagen anterior o siguiente, F11 pantalla completa. Con -i muestra formato, tamaño y colores en el terminal."  },
@@ -434,11 +435,35 @@ static void listar_alias(int ancho, bool cor)
                  "también funcionan, para los scripts de antes.", ancho, 0);
 }
 
+/* D455: abre la aplicación Ayuda en un tema. Sin escritorio, ayuda-gui imprime el documento con la maquetación de
+ * «markdown -t», así que se puede usar igual desde la consola de texto. */
+static int abrir_ayuda_gui(const char *tema)
+{
+    char *av[3] = { "ayuda-gui", (char *)tema, NULL };
+    int pid = executar("/bin/ayuda-gui", av);
+    if (pid < 0) { imprimir_em(ERROS, "ayuda: no se pudo abrir ayuda-gui (%s)\n", nome_erro(pid)); return 1; }
+    return 0;
+}
+
+static bool hay_doc_ayuda(const char *tema)
+{
+    static const char *const dirs[] = { "/ayuda", "/ayuda/lenguajes", "/ayuda/guias" };
+    info_arquivo_t inf;
+    for (int i = 0; i < 3; i++) {
+        char r[160];
+        formatar_texto(r, sizeof r, "%s/%s.md", dirs[i], tema);
+        if (info_arquivo(r, &inf) >= 0) return true;
+    }
+    return false;
+}
+
 int interno_ajuda(int argc, char **argv)
 {
     int ancho = sh_largura();
     bool cor = com_cor();
     if (argc > 1) {
+        if (compara_texto(argv[1], "-g") == 0 || compara_texto(argv[1], "--gui") == 0)
+            return abrir_ayuda_gui(argc > 2 ? argv[2] : NULL);
         if (compara_texto(argv[1], "sh") == 0 || compara_texto(argv[1], "sagsh") == 0 ||
             compara_texto(argv[1], "shell") == 0) { titulo("El lenguaje de sagsh (como sh/bash):\n"); sai(ajuda_sh + 37); return 0; }
         if (compara_texto(argv[1], "internos") == 0) { sai(ajuda_internos); return 0; }
@@ -446,6 +471,7 @@ int interno_ajuda(int argc, char **argv)
         if (compara_texto(argv[1], "alias") == 0) { listar_alias(ancho, cor); return 0; }
         const comando_t *c = achar_comando(argv[1]);
         if (!c) {
+            if (!interno_achar(argv[1]) && hay_doc_ayuda(argv[1])) return abrir_ayuda_gui(argv[1]);   /* D455 */
             if (interno_achar(argv[1])) { imprimir("%s: comando interno del shell (ayuda internos)\n", argv[1]); return 0; }
             imprimir("ayuda: no conozco la orden %s (escribe «ayuda» para ver la lista)\n", argv[1]);
             return 1;
@@ -480,6 +506,7 @@ int interno_ajuda(int argc, char **argv)
     sai_ajustado("Redirigir: orden > archivo, >> archivo, < archivo, 2>&1.  Tubería: orden1 | orden2.  "
                  "Segundo plano: orden &.  Tab completa nombres; flechas: historial; Ctrl+R busca en él.", ancho, 0);
     sai_ajustado("Más ayuda: «ayuda sh» (el lenguaje del shell), «ayuda internos», «ayuda alias» (nombres en "
-                 "español), «ayuda atajos» (teclas). Tu configuración: ~/.sagshrc.", ancho, 0);
+                 "español), «ayuda atajos» (teclas). Tu configuración: ~/.sagshrc. «ayuda -g TEMA» abre la aplicación "
+                 "Ayuda (F1 en el escritorio) con las guías y los manuales.", ancho, 0);
     return 0;
 }

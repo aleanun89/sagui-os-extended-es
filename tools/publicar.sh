@@ -125,6 +125,8 @@ comp_correos() {
     # Avisos de copyright de terceros que la licencia obliga a conservar (ISC de OpenBSD, en
     # tools/gerar_r92creg_92c.py, D409): son de autores públicos, no datos personales del proyecto.
     printf '%s\n' 'damien.bergamini@free.fr' 'stsp@openbsd.org' >> "$permitidos"
+    # D433: el aviso de copyright del if_ure.c de OpenBSD (BSD de dos clausulas) en kernel/rede/ure_logica.h.
+    printf '%s\n' 'kevlo@openbsd.org' 'jonathon.fletcher@gmail.com' >> "$permitidos"
     r="$(cd "$a" && grep -rIoE --exclude-dir=.git --exclude-dir=terceros --exclude-dir=micropython --exclude='LICENSE*' --exclude='LICENCA*' --exclude='COPYING*' \
         --exclude=publicar.sh --exclude=h260_publicar.py --exclude=publicar.md \
         '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}' . 2>/dev/null \

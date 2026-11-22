@@ -52,6 +52,10 @@ extern const struct _mp_obj_module_t mp_module___main__;
 #undef MODULE_DEF___MAIN__
 #define MODULE_DEF___MAIN__ { MP_ROM_QSTR(MP_QSTR___main__), MP_ROM_PTR(&mp_module___main__) },
 
+extern const struct _mp_obj_module_t mp_module_thread;
+#undef MODULE_DEF__THREAD
+#define MODULE_DEF__THREAD { MP_ROM_QSTR(MP_QSTR__thread), MP_ROM_PTR(&mp_module_thread) },
+
 extern const struct _mp_obj_module_t mp_module_builtins;
 #undef MODULE_DEF_BUILTINS
 #define MODULE_DEF_BUILTINS { MP_ROM_QSTR(MP_QSTR_builtins), MP_ROM_PTR(&mp_module_builtins) },
@@ -84,6 +88,10 @@ extern const struct _mp_obj_module_t modulo_sagui;
 #undef MODULE_DEF_SAGUI
 #define MODULE_DEF_SAGUI { MP_ROM_QSTR(MP_QSTR_sagui), MP_ROM_PTR(&modulo_sagui) },
 
+extern const struct _mp_obj_module_t modulo_signal;
+#undef MODULE_DEF_SIGNAL
+#define MODULE_DEF_SIGNAL { MP_ROM_QSTR(MP_QSTR_signal), MP_ROM_PTR(&modulo_signal) },
+
 extern const struct _mp_obj_module_t modulo_socket;
 #undef MODULE_DEF_SOCKET
 #define MODULE_DEF_SOCKET { MP_ROM_QSTR(MP_QSTR_socket), MP_ROM_PTR(&modulo_socket) },
@@ -95,10 +103,6 @@ extern const struct _mp_obj_module_t modulo_sqlite3;
 extern const struct _mp_obj_module_t modulo_ssl;
 #undef MODULE_DEF_SSL
 #define MODULE_DEF_SSL { MP_ROM_QSTR(MP_QSTR_ssl), MP_ROM_PTR(&modulo_ssl) },
-
-extern const struct _mp_obj_module_t mp_module_thread;
-#undef MODULE_DEF__THREAD
-#define MODULE_DEF__THREAD { MP_ROM_QSTR(MP_QSTR__thread), MP_ROM_PTR(&mp_module_thread) },
 
 extern const struct _mp_obj_module_t mp_module_sys;
 #undef MODULE_DEF_SYS
@@ -114,6 +118,7 @@ extern const struct _mp_obj_module_t mp_module_sys;
     MODULE_DEF_MICROPYTHON \
     MODULE_DEF_OS \
     MODULE_DEF_SAGUI \
+    MODULE_DEF_SIGNAL \
     MODULE_DEF_SOCKET \
     MODULE_DEF_SQLITE3 \
     MODULE_DEF_SSL \

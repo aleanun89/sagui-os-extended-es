@@ -4,7 +4,7 @@
 
 Criterio:
   1. En el PC: /lib/ld-sagui.so.1 es un ELF estático en la zona del intérprete
-     (0xD8000000); libsagui.so.1, libc.so.1 y libsagui_medios.so.1 (en /apps/lib) son ET_DYN de
+     (0xD8000000); libsagui.so.1, libc.so.1 y libsagui_medios.so.1 (en /lib desde D462) son ET_DYN de
      i386 sin TEXTREL, con BIND_NOW y RELRO, sin segmentos RWX; los programas
      dinámicos (/testes/dinamico, /apps/bin/buscaminas) llevan PT_INTERP.
   2. ABI (D378, decisión 8a): los símbolos que exportan libsagui.so.1 y libc.so.1
@@ -43,7 +43,7 @@ def no_pc():
     cargas = [l.split() for l in seg.splitlines() if l.strip().startswith("LOAD")]
     verificar("EXEC (Executable file)" in h and cargas and all(int(c[2], 16) >= 0xD8000000 for c in cargas),
               "ld-sagui.so.1: ELF ejecutable en la zona del intérprete (0xD8000000)")
-    for rel in ("lib-apps/libsagui.so.1", "lib-apps/libc.so.1", "lib-apps/libsagui_medios.so.1"):
+    for rel in ("lib/libsagui.so.1", "lib/libc.so.1", "lib/libsagui_medios.so.1"):
         f = os.path.join(BUILD, rel)
         h, seg, din = readelf("-h", f), readelf("-l", f), readelf("-d", f)
         rwx = [l for l in seg.splitlines() if l.strip().startswith("LOAD") and "RWE" in l]
@@ -56,7 +56,7 @@ def no_pc():
         ref = os.path.join(RAIZ, "userland", so + ".simbolos")
         with open(ref) as h:
             esperados = {l.strip() for l in h if l.strip()}
-        hoy = exportados(os.path.join(BUILD, "lib-apps", so))
+        hoy = exportados(os.path.join(BUILD, "lib", so))
         faltan, nuevos = sorted(esperados - hoy), sorted(hoy - esperados)
         if faltan:
             print("    %s: FALTAN %s" % (so, " ".join(faltan[:20])))

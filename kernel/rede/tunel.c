@@ -289,7 +289,7 @@ int32_t tunel_configurar(const void *dono, uint32_t ptr)
     if (c.mtu < 576 || c.mtu > 1500) return ERRO_INVALIDO;
     uint32_t ip = c.ip, m = c.mascara;
     if (ip == 0 || ip == IP_TODOS || (ip >> 28) >= 14 || (ip >> 24) == 127) return ERRO_INVALIDO;
-    if (ip == rede_meu_ip()) return ERRO_INVALIDO;   /* la de la física: el filtro de ip_chegou ya no distinguiría */
+    if (rede_ip_de_interface(ip)) return ERRO_INVALIDO;   /* la de la física: el filtro de ip_chegou ya no distinguiría */
     if (m == 0 || (~m & (~m + 1)) != 0) return ERRO_INVALIDO;   /* unos seguidos de ceros */
     if (c.nrotas > TUNEL_ROTAS_MAX) return ERRO_INVALIDO;
     for (uint32_t i = 0; i < c.nrotas; i++) {

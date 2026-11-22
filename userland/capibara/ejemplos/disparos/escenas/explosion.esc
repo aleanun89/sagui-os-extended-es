@@ -1,0 +1,21 @@
+# Explosión: una animación de cinco fotogramas y una ráfaga de partículas; se borra al terminar la animación.
+[Sprite Explosion]
+textura = "img/tiles.png"
+cuadricula = 12 10
+fotograma = 4
+animacion = "estallar" 16 no 4 5 6 7 8
+animar = "estallar"
+z = 3
+guion = "guiones/explosion.lua"
+[Particulas Humo padre=.]
+una_vez = si
+emitiendo = si
+cantidad = 12
+vida = 0.45
+velocidad = 30 90
+dispersion = 360
+tamano_part = 3 0
+color_inicial = "#ffd050"
+color_final = "#c03010"
+aditivo = si
+z = 4

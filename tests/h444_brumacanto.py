@@ -2,12 +2,16 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """H444 (D444) - Brumacanto: juego de vóxeles con SDL 2 y OpenGL ES 1.1 sobre SaguiGL.
 
-  unidad     en el PC: tests/world_test.c del juego (generación determinista, guardar y cargar, mundo por sectores).
+  unidad     en el PC: tests/world_test.c del juego (generación determinista, guardar y cargar, mundo por sectores) y
+             tests/ajustes_test.c (D444: ajustes.txt y la distancia de dibujo que toca según el equipo y según una medida).
   fuentes    el código MIT y los gráficos CC0 con sus licencias y ORIGEM.md; nada de third_party, .exe, .dll ni binarios;
              fila en docs/terceros.md, decisión D444, entrada en Inicio > Juegos, ayuda y sin otros alfabetos.
   saguios    en QEMU (software): abre una ventana con SaguiGL, genera el mundo con semilla fija (captura H444-1),
-             guarda con F5, sale limpio desde la pausa, vuelve a cargar la partida y mide los cuadros por segundo.
-  gpu        con --gpu3d=simulado: lo mismo, y la imagen se parece a la de software (captura H444-2).
+             guarda con F5, sale limpio desde la pausa, vuelve a cargar la partida y mide los cuadros por segundo. Luego, la
+             distancia de dibujo (D444): la primera vez la elige según el equipo (48 sin 3D por la GPU), F3 la cambia y la
+             guarda, la guardada vale la vez siguiente, --view manda solo para esa vez, y un escala.txt de antes se sigue leyendo.
+  gpu        con --gpu3d=simulado: lo mismo, y la imagen se parece a la de software (captura H444-2); el 3D anuncia
+             «SaguiGL (GPU v3)» y la primera vez elige 64.
 
 Uso: h444_brumacanto.py [unidad] [fuentes] [saguios] [gpu]   (sin nada: todo)
 """
@@ -35,6 +39,11 @@ def unidad():
     r = subprocess.run([exe, os.path.join(SAIDA, "h444", "save.bruma")], capture_output=True, text=True)
     print("   ", (r.stdout.strip().splitlines() or [""])[-1])
     verificar(r.returncode == 0, "world_test del juego sin fallos: " + r.stdout[-300:] + r.stderr[-300:])
+    exe2 = os.path.join(SAIDA, "h444", "ajustes_test")
+    subprocess.run(["gcc", "-std=c11", "-O1", "-Wall", "-Wextra", "-o", exe2, os.path.join(D, "fuentes", "tests", "ajustes_test.c")], check=True)
+    r = subprocess.run([exe2], capture_output=True, text=True)
+    print("   ", (r.stdout.strip().splitlines() or [""])[-1])
+    verificar(r.returncode == 0, "ajustes_test sin fallos: " + r.stdout[-300:])
 
 
 def fuentes():
@@ -63,6 +72,14 @@ def fuentes():
     verificar("LGPL" in creditos, "créditos: no se copia código LGPL")
     verificar("## D451." in open(os.path.join(RAIZ, "docs", "decisoes.md"), encoding="utf-8").read(), "decisión D451 (por la GPU)")
     verificar("--escala" in open(os.path.join(D, "fuentes", "src", "main.c"), encoding="utf-8").read(), "--escala y --fullscreen (D451)")
+    principal = open(os.path.join(D, "fuentes", "src", "main.c"), encoding="utf-8").read()
+    verificar("ajustes.txt" in principal and "BRUMA_VISTA" in principal and "escala.txt" in principal,
+              "la distancia de dibujo se guarda en ajustes.txt y se lee el escala.txt de antes (D444)")
+    verificar("#ifdef SAGUI_BRUMACANTO" in principal and "draw_renderer()" in principal, "la elección según el equipo es de SaguiOS")
+    ayuda = open(os.path.join(RAIZ, "rootfs", "ayuda", "brumacanto.md"), encoding="utf-8").read()
+    verificar("ajustes.txt" in ayuda and "48" in ayuda and "--view auto" in ayuda, "la ayuda explica la distancia que se guarda")
+    verificar("SaguiGL (GPU v3)" in open(os.path.join(RAIZ, "userland", "libsgl", "sgl_es.c"), encoding="utf-8").read(),
+              "SaguiGL anuncia su v3 en GL_RENDERER")
     verificar("/apps/bin/brumacanto" in open(os.path.join(RAIZ, "kernel", "gui", "barra.c"), encoding="utf-8").read(), "entrada en Inicio > Juegos")
     verificar(os.path.isfile(os.path.join(RAIZ, "rootfs", "ayuda", "brumacanto.md")), "ayuda en rootfs/ayuda")
     mk = open(os.path.join(D, "brumacanto.mk")).read()
@@ -135,6 +152,63 @@ def lanzar(m, args, patron, tiempo=300):
     return marca, esperar(m, patron, tiempo, desde=marca)
 
 
+def orden(m, texto):
+    """Una orden en el terminal de la escritorio (sin esperar al prompt: el terminal no escribe en la serie)."""
+    import h136_opentyrian as h136
+    h136.focar_terminal(m)
+    m.digitar(texto, 0.04)
+    m.tecla("ret")
+    time.sleep(3)
+
+
+def salir_de_la_partida(m, esperar, marca):
+    for t in ("esc", "down", "down", "ret"):   # pausa > guardar y salir
+        m.tecla(t, 0.4)
+    esperar(m, r"processo \d+ \(brumacanto\) terminou com codigo (\d+)", 300, desde=marca)
+    esperar(m, r"sagui:/\$", 60, desde=marca)
+    time.sleep(2)
+
+
+def vista_guardada(m, esperar):
+    """D444: la distancia de dibujo que se guarda (F3), la que manda --view y el escala.txt de antes."""
+    # sin --view: vale la guardada (la elegida la primera vez, 48 por software)
+    marca, _ = lanzar(m, "--seed Prueba --size 160x160x48", r"BRUMA_MUNDO (nuevo|cargado) ")
+    verificar("BRUMA_VISTA 48 (guardada)" in m.serial()[marca:], "sin --view vale la guardada la primera vez (48)")
+    time.sleep(6)
+    m.tecla("f3", 1.5)   # 48 -> 64
+    m.tecla("f3", 1.5)   # 64 -> 80
+    esperar(m, r"BRUMA_VISTA 80 \(F3, guardada\)", 60, desde=marca)
+    verificar(True, "F3 cambia la distancia (48, 64, 80) y la guarda")
+    salir_de_la_partida(m, esperar, marca)
+    marca, _ = lanzar(m, "--seed Prueba --size 160x160x48", r"BRUMA_MUNDO (nuevo|cargado) ")
+    verificar("BRUMA_VISTA 80 (guardada)" in m.serial()[marca:], "la distancia elegida con F3 vale la vez siguiente (80)")
+    time.sleep(3)
+    salir_de_la_partida(m, esperar, marca)
+    marca, _ = lanzar(m, "--seed Prueba --size 160x160x48 --view 32", r"BRUMA_MUNDO (nuevo|cargado) ")
+    verificar("BRUMA_VISTA 32 (--view)" in m.serial()[marca:] and "BRUMA_VISTA_AJUSTE 80 (guardada)" in m.serial()[marca:],
+              "--view 32 manda, y lo guardado sigue siendo 80")
+    time.sleep(3)
+    salir_de_la_partida(m, esperar, marca)
+    marca, _ = lanzar(m, "--seed Prueba --size 160x160x48", r"BRUMA_MUNDO (nuevo|cargado) ")
+    verificar("BRUMA_VISTA 80 (guardada)" in m.serial()[marca:], "--view no se guardó: sigue valiendo el 80 de F3")
+    time.sleep(3)
+    salir_de_la_partida(m, esperar, marca)
+    # el escala.txt de antes (D451) se sigue leyendo cuando no hay ajustes.txt
+    orden(m, "rm /home/brumacanto/ajustes.txt; echo 50 > /home/brumacanto/escala.txt")
+    marca, _ = lanzar(m, "--seed Prueba --size 160x160x48", r"BRUMA_MUNDO (nuevo|cargado) ")
+    time.sleep(8)
+    s = m.serial()[marca:]
+    verificar("escala de dibujo 50 %" in s, "el escala.txt de antes vale (escala 50 %)")
+    verificar("BRUMA_VISTA 48 (automatica: sin 3D por la GPU)" in s, "sin ajustes.txt vuelve a elegir la distancia según el equipo")
+    salir_de_la_partida(m, esperar, marca)
+    orden(m, "rm /home/brumacanto/escala.txt")
+    marca, _ = lanzar(m, "--seed Prueba --size 160x160x48", r"BRUMA_MUNDO (nuevo|cargado) ")
+    time.sleep(8)
+    s = m.serial()[marca:]
+    verificar("escala de dibujo 50 %" in s and "BRUMA_VISTA 48 (guardada)" in s, "ajustes.txt guarda a la vez la escala (50 %) y la vista (48)")
+    salir_de_la_partida(m, esperar, marca)
+
+
 def sesion(nome, extras, captura):
     from h60_barra_tareas import esperar
     if not os.path.isfile(os.path.join(APPS_RAIZ, "bin", "brumacanto")):
@@ -145,6 +219,14 @@ def sesion(nome, extras, captura):
         time.sleep(4)
         marca, g = lanzar(m, "--seed Prueba --size 160x160x48 --view 64", r"BRUMA_MUNDO nuevo 160x160x48 semilla (\d+)")
         verificar(g == SEMILLA_HASH, "el mundo se genera con la semilla fija (%s)" % g)
+        # D444: la primera vez elige la distancia según el equipo (la guarda aunque --view mande en esta sesión)
+        esperada = "GPU con v3" if "gpu" in nome else "sin 3D por la GPU"
+        esp_ajuste = "64" if "gpu" in nome else "48"
+        verificar("BRUMA_VISTA_AJUSTE %s (automatica: %s)" % (esp_ajuste, esperada) in m.serial()[marca:],
+                  "la primera vez elige %s (%s)" % (esp_ajuste, esperada))
+        verificar("BRUMA_VISTA 64 (--view)" in m.serial()[marca:], "--view 64 manda en esta sesión")
+        verificar("SaguiGL (GPU v3)" in m.serial()[marca:] if "gpu" in nome else "SaguiGL (software)" in m.serial()[marca:],
+                  "GL_RENDERER anuncia lo que hay (%s)" % ("GPU v3" if "gpu" in nome else "software"))
         verificar("SaguiGL" in m.serial()[marca:], "el renderizador es SaguiGL (OpenGL ES-CM 1.1)")
         time.sleep(6)
         m.captura(captura)
@@ -177,6 +259,8 @@ def sesion(nome, extras, captura):
             print("    cuadros/s (%s, vista 64, escala 50 %%): %.1f, peor cuadro %s ms" % (nome, int(r2[2]) / 10.0, r2[3]))
             verificar("escala de dibujo 50 %" in m.serial()[marca:], "--escala 50: SaguiGL dibuja a la mitad (D451)")
             verificar(int(r2[2]) > 0, "mide los cuadros por segundo con la escala al 50 %")
+        if nome == "sw":
+            vista_guardada(m, esperar)
         s = m.serial()
         verificar("EXCECAO" not in s and "PANICO" not in s, "sin excepciones")
         return os.path.join(RAIZ, "docs", "capturas", captura + ".png")

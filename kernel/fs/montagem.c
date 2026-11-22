@@ -77,6 +77,7 @@ static const sistema_arquivos_t *fs_do_tipo(const char *tipo)
 {
     if (txt_compara(tipo, "fat32") == 0) return &fs_fat32;
     if (txt_compara(tipo, "exfat") == 0) return &fs_exfat;       /* D325 */
+    if (txt_compara(tipo, "xfs") == 0) return &fs_xfs;           /* D446: solo lectura */
     if (txt_comeca_com(tipo, "ext")) return &fs_ext2;
     if (txt_compara(tipo, "iso9660") == 0) return &fs_iso9660;   /* D207: CD/DVD */
     if (txt_compara(tipo, "udf") == 0) return &fs_udf;           /* D233: DVD y CD grabados */

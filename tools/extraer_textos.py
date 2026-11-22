@@ -29,7 +29,7 @@ import sys
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIR_IDIOMAS = os.path.join(RAIZ, "idiomas")
 # Dónde se buscan las marcas (no se recorre kernel/terceros ni los puertos).
-BUSCAR = ["kernel/gui", "kernel/dispositivos/acpi.c", "kernel/nucleo/supervisor.c", "kernel/nucleo/energia.c", "userland/programas", "userland/libsagui", "userland/inc"]
+BUSCAR = ["kernel/gui", "kernel/dispositivos/acpi.c", "kernel/nucleo/supervisor.c", "kernel/nucleo/energia.c", "userland/programas", "userland/capibara/editor", "userland/libsagui", "userland/inc"]
 # Fuentes que no están en UTF-8 (AGENTS.md, «Codificación de los ficheros»).
 LATIN1 = set()   # arquivos.c pasó a UTF-8 en la v8.5.5.2 (D420)
 IDIOMAS = ["pt_BR", "en"]          # los que se mantienen con .po; «es» es el original y «xx» el de pruebas
@@ -40,6 +40,8 @@ MAGIA = 0x54434753
 def catalogo_de(ruta):
     if ruta.startswith("kernel/"):
         return "kernel"
+    if ruta.startswith("userland/capibara/editor/"):
+        return "capibara-editor"   # D460: el editor de Capibara (libc, Lua y el motor aparte de la libsagui)
     if ruta.startswith("userland/programas/"):
         base = os.path.splitext(os.path.basename(ruta))[0]
         if ruta.endswith(".h"):

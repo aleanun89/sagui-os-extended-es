@@ -142,8 +142,11 @@ int casa_migrar_sagui(void)
         mudar_permisos(novo, 0700);
         const char *bn = novo + 6, *bd = dest + 6;
         int movidos = 0, erros = 0;
+        /* D462: 32 KB del malloc solo mientras se migra (antes en la BSS, que pagaba cada programa que usa
+         * libsagui.so.1 aunque nunca migre). */
+        char (*nomes)[NOME_MAX] = aloca(sizeof(char[MAX_ENTR][NOME_MAX]));
+        if (!nomes) { registrar("casa_migrar: sin memoria para la lista de /home"); return ERRO_SEM_MEMORIA; }
         for (int vuelta = 0; vuelta < 64; vuelta++) {   /* los nombres primero: renombrar cambia la lista */
-            static char nomes[MAX_ENTR][NOME_MAX];
             int k = 0;
             entrada_pasta_t e;
             for (int i = 0; k < MAX_ENTR && listar("/home", i, &e) > 0; i++) {
@@ -171,6 +174,7 @@ int casa_migrar_sagui(void)
             }
             if (movidos == antes) break;   /* nada más se puede mover */
         }
+        libera(nomes);
         registrar("casa_migrar: %d entrada(s) movidas a %s, %d no", movidos, novo, erros);
         r = renomear(novo, dest);
         if (r < 0) { registrar("casa_migrar: no se pudo renombrar %s (%s): se reintenta al arrancar", novo, nome_erro(r)); return r; }

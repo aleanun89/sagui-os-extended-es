@@ -54,4 +54,10 @@ float sinf(float), cosf(float), tanf(float), atanf(float), atan2f(float, float);
 float powf(float, float), fmodf(float, float), fminf(float, float), fmaxf(float, float);
 float expf(float), logf(float);
 long  lroundf(float);
+double exp2(double), j1(double);
+void sincos(double, double *, double *);
+void sincosf(float, float *, float *);
+float exp2f(float), log2f(float), log10f(float), cbrtf(float), asinf(float), acosf(float);
+long  lrintf(float);
+long long llrint(double), llround(double), llrintf(float), llroundf(float);
 #endif

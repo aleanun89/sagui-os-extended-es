@@ -68,9 +68,20 @@ mp_uint_t mp_hal_ticks_cpu(void) { return tempo_ms(); }
 void mp_hal_delay_ms(mp_uint_t ms)
 {
     if (!ms) return;
-    MP_THREAD_GIL_EXIT();
-    dormir(ms);
-    MP_THREAD_GIL_ENTER();
+    /* Una señal despierta al kernel antes de tiempo: se llama al tratador de Python
+     * (puede levantar una excepción, que sale de sleep) y se sigue esperando lo que
+     * falte (PEP 475, D419). */
+    unsigned fim = tempo_ms() + ms, resto = ms;
+    for (;;) {
+        sagui_rodar_tratadores();
+        MP_THREAD_GIL_EXIT();
+        dormir(resto);
+        MP_THREAD_GIL_ENTER();
+        sagui_rodar_tratadores();
+        int d = (int)(fim - tempo_ms());
+        if (d <= 0) break;
+        resto = d;
+    }
 }
 /* El reloj del kernel tiene 10 ms: menos de 1 ms no permite esperar. */
 void mp_hal_delay_us(mp_uint_t us) { if (us >= 1000) mp_hal_delay_ms(us / 1000); }
@@ -289,9 +300,11 @@ static void ajuda(void)
         "  -V               muestra la versión\n"
         "Variables: PYTHONHEAP=TAMAÑO (como -X heap), PYTHONPATH=carpeta:carpeta.\n"
         "Módulos: os, sys, io, json, re, random, time, struct, collections, hashlib,\n"
-        "binascii, socket, ssl, select, math, _thread, sagui (ventanas y dibujo)...\n"
-        "y en /lib/python: threading, tkinter, requests, urllib.parse.\n"
-        "Ayuda: /ayuda/python-tk.md; los hilos (con GIL): /ejemplos/hilos.py.\n"
+        "binascii, socket, ssl, select, signal, math, _thread, sagui (ventanas y dibujo)...\n"
+        "y en /lib/python: threading, subprocess, selectors, pwd, grp, resource, tkinter,\n"
+        "requests, urllib.parse.\n"
+        "Ayuda: /ayuda/python.md (sockets, subprocess, señales...), /ayuda/python-tk.md;\n"
+        "los hilos (con GIL): /ejemplos/hilos.py.\n"
         "Ejemplos en /ejemplos.\n");
 }
 

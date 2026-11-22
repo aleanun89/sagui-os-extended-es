@@ -74,11 +74,11 @@ def parte_fuentes():
     verificar(any(f[1] == 0x0166 and f[3] == "acel_intel" and f[4] == 7 for f in tab), "la HD 4000 del L850 (0x0166) va a Gen7")
     logica = ler("kernel/dispositivos/acel_intel_logica.h")
     sem = [(int(a, 16), int(b, 16)) for a, b in re.findall(r"\{ 0x([0-9A-F]{4}), 0x([0-9A-F]{4}), \d+, \"", logica)]
-    verificar(len(sem) >= 20, f"{len(sem)} intervalos de familias sin 2D")
-    malas = [(f[1], f[2]) for f in tab if f[3] == "acel_intel" for a, b in sem if f[1] <= b and a <= f[2]]
-    verificar(not malas, "ninguna fila de acel_intel cubre una familia sin 2D (Atom, Gen9, Gen11-12)" +
+    verificar(len(sem) >= 12, f"{len(sem)} intervalos de familias sin 2D")
+    malas = [(f[1], f[2]) for f in tab if f[3] in ("acel_intel", "acel_intel_exec") for a, b in sem if f[1] <= b and a <= f[2]]
+    verificar(not malas, "ninguna fila de acel_intel ni de acel_intel_exec cubre una familia sin 2D (Atom, Gen9-12 sin lista)" +
               (f": {malas}" if malas else ""))
-    verificar(any(a <= 0x46A8 <= b for a, b in sem), "Alder Lake-P (el i3-1220P) se reconoce como sin 2D")
+    verificar(any(f[1] == 0x46A8 and f[3] == "acel_intel_exec" and f[4] == 12 for f in tab), "el i3-1220P (0x46A8) tiene su fila de execlists (Gen12, D434)")
     capa = ler("kernel/gui/acel2d.c")
     verificar("intel_familia_sem_2d(" in capa, "acel2d.c dice por qué una Intel moderna se queda en la CPU")
     drv = ler("kernel/dispositivos/acel_intel.c")
@@ -105,7 +105,7 @@ def parte_fuentes():
     verificar("in_detalle," in drv, "«acel2d probar --detalle» vuelca el estado del anillo")
     verificar("## D359." in ler("docs/decisoes.md"), "docs/decisoes.md tiene la D359")
     gpus = ler("docs/gpus.md")
-    verificar(re.search(r"Intel Gen7\*\*.*D359", gpus) and re.search(r"Gen9.*D359", gpus), "docs/gpus.md recoge la D359")
+    verificar(re.search(r"Intel Gen7\*\*.*D359", gpus) and re.search(r"Gen9.*D434", gpus), "docs/gpus.md recoge la D359 y la D434")
 
 
 def sin_intel(s):

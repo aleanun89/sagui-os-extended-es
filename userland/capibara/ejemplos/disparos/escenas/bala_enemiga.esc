@@ -1,0 +1,12 @@
+# Disparo enemigo: baja y hace daño a la nave (cuerpo de la capa 2).
+[Area BalaEnemiga]
+forma = "circulo" 3
+capa = 8
+mascara = 2
+z = 1
+guion = "guiones/bala_enemiga.lua"
+[Sprite Dibujo padre=.]
+textura = "img/tiles.png"
+cuadricula = 12 10
+fotograma = 12
+espejo_v = si

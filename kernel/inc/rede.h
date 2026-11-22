@@ -18,8 +18,8 @@
 
 /* ------------------------------------------------------------ placas */
 
-/* O que um driver entrega para a pilha. Uma placa por vez (a primeira
- * suportada que aparecer no PCI). */
+/* O que um driver entrega para a pilha. D445: cada tarjeta es una interfaz (eth0, eth1, wlan0);
+ * cada driver lleva una sola tarjeta (sus funciones no tienen contexto). */
 typedef struct placa {
     const char *nome;          /* driver: "e1000", "rtl8139", "ne2000", "rtl810x" */
     const char *descricao;     /* "Intel 82540EM (PRO/1000 MT)" */
@@ -55,11 +55,14 @@ bool r8169_procurar(placa_t *p, bool ativar);
  * ativar=false solo detecta (y lee la MAC que dejó la BIOS). */
 bool alc_procurar(placa_t *p, bool ativar);
 
-/* D215: la interfaz wlan0 (pincho Wi-Fi, kernel/rede/wifi.c). La pila tiene
- * una interfaz activa: mientras el Wi-Fi está conectado, la wlan0 ocupa su
- * lugar y la eth0 queda aparcada (sus quadros se descartan); al desconectar,
- * vuelve la eth0. registrar(NULL) = el pincho se retiró. */
+/* D215: la interfaz wlan0 (pincho Wi-Fi, kernel/rede/wifi.c). D445: conectada, funciona a la vez
+ * que la eth0 (antes la aparcaba); la ruta por defecto va por el cable mientras tenga enlace
+ * (métrica 100 frente a 600). registrar(NULL) = el pincho se retiró. */
 void rede_wifi_registrar(placa_t *p);
+/* D433: Ethernet USB (kernel/rede/ure.c). D445: una interfaz más (eth0 sin tarjeta PCI, si no eth1); p NULL = el
+ * adaptador se retiró. Puede llegar antes de rede_iniciar() (el USB arranca primero): entonces se activa al final de esta. */
+void rede_usb_eth_registrar(placa_t *p);
+bool ure_usb_visto(void);   /* kernel/rede/ure.c: hay un adaptador reconocido (lo usa URE_PREFERIR=1) */
 void rede_wifi_conectada(bool sim);
 /* D238: la wlan0 dejó tramas para la pila: la tarea de la red no espera al tic. */
 void rede_acordar(void);
@@ -67,9 +70,10 @@ void rede_acordar(void);
 /* ------------------------------------------------------------ pilha (rede.c) */
 
 void        rede_iniciar(void);        /* procura a placa, liga a tarefa e o DHCP */
-placa_t    *rede_placa(void);          /* NULL = sem placa */
-bool        rede_pronta(void);         /* tem placa e IP */
-uint32_t    rede_meu_ip(void);
+placa_t    *rede_placa(void);          /* D445: la de la interfaz principal; NULL = sem placa */
+bool        rede_pronta(void);         /* alguna interfaz tiene placa e IP */
+uint32_t    rede_meu_ip(void);         /* D445: la de la interfaz principal */
+bool        rede_ip_de_interface(uint32_t ip);   /* D445: ip es la dirección de alguna interfaz */
 /* Loopback (D079): 127.0.0.0/8 e o próprio endereço não saem pela placa;
  * os pacotes dão a volta numa fila e entram de novo pela tarefa da rede.
  * O endereço de origem de um pacote para 127.x é 127.0.0.1. */
@@ -90,6 +94,8 @@ void        rede_renovar_dhcp(void);
 uint8_t *rede_carga(void);             /* onde montar o conteúdo do próximo pacote IP */
 /* Manda o pacote montado em rede_carga() (n bytes). false = sem rota/placa. */
 bool     ip_enviar(uint32_t destino, uint8_t protocolo, uint32_t n);
+/* D445: con el origen fijado (0 = el de la ruta): sale por la interfaz de esa dirección si puede llevarlo. */
+bool     ip_enviar_de(uint32_t origem, uint32_t destino, uint8_t protocolo, uint32_t n);
 bool     rede_envio_recusado(void);   /* D437: el último ip_enviar no cupo en la tarjeta (o el lo/túnel) */
 bool     udp_enviar(uint32_t destino, uint16_t porta_origem, uint16_t porta_destino, uint32_t n);   /* dados em rede_carga()+8 */
 uint32_t soma_parcial(uint32_t s, const uint8_t *p, uint32_t n);

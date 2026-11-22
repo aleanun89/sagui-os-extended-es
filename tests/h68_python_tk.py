@@ -41,7 +41,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar, ler_ppm, imagem_console, RAIZ, SAIDA  # noqa: E402
+from qemu import opcoes_apps, Maquina, verificar, ler_ppm, imagem_console, RAIZ, SAIDA  # noqa: E402
 
 BORDA, TITULO = 2, 24
 
@@ -227,7 +227,7 @@ def imagem(console=False):
     subprocess.run(["python3", os.path.join(RAIZ, "tools", "mkimagem.py"),
                     "--mbr", os.path.join(b, "boot", "mbr.bin"), "--estagio2", os.path.join(b, "boot", "estagio2.bin"),
                     "--kernel", os.path.join(b, "kernel.bin"), "--kernel-elf", os.path.join(b, "kernel.elf"),
-                    "--ramdisk", sgfs, "--saida", img, "--vesa"] + (["--console"] if console else []),
+                    "--ramdisk", sgfs, "--saida", img, "--vesa", *opcoes_apps()] + (["--console"] if console else []),
                    check=True, stdout=subprocess.DEVNULL)
     return img
 

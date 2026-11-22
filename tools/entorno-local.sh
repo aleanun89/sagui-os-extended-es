@@ -105,6 +105,22 @@ if { [ ! -f /usr/share/OVMF/OVMF_CODE_4M.fd ] && [ ! -f "$ROOT/usr/share/OVMF/OV
         echo "AVISO: sin OVMF; la prueba h264 (arranque UEFI) no podrá correr."
 fi
 
+# xfsprogs (D446): mkfs.xfs, xfs_db y xfs_repair para crear y comprobar las imágenes XFS de la
+# prueba h446. Con sus bibliotecas que falten (libinih1, liburcu8t64 en Ubuntu 24.04). Quedan en
+# $ROOT/sbin y $ROOT/usr/sbin, que ya están en el PATH de env.sh.
+if ! command -v mkfs.xfs >/dev/null 2>&1 && [ ! -x "$ROOT/sbin/mkfs.xfs" ] && [ ! -x "$ROOT/usr/sbin/mkfs.xfs" ]; then
+    echo "Descargando xfsprogs (pruebas de XFS)..."
+    FALTAN_XFS="xfsprogs"
+    for p in $(apt-cache depends xfsprogs 2>/dev/null | sed -n 's/^ *Depends: \([a-z0-9][a-z0-9.+-]*\)$/\1/p'); do
+        dpkg -s "$p" >/dev/null 2>&1 || FALTAN_XFS="$FALTAN_XFS $p"
+    done
+    mkdir -p "$PKGS/xfs"
+    if ( cd "$PKGS/xfs" && apt-get download $FALTAN_XFS ); then
+        for d in "$PKGS"/xfs/*.deb; do dpkg-deb -x "$d" "$ROOT/"; done
+    fi
+    [ -x "$ROOT/sbin/mkfs.xfs" ] || [ -x "$ROOT/usr/sbin/mkfs.xfs" ] || echo "AVISO: sin mkfs.xfs; la prueba h446 (XFS) no podrá correr."
+fi
+
 # ------------------------------------------------------- 2. datos de QEMU
 # El BIOS (seabios) y las ROM de iPXE: QEMU los busca en /usr/share/qemu.
 for f in "$ROOT"/usr/share/seabios/*.bin "$ROOT"/usr/share/qemu/*.bin; do

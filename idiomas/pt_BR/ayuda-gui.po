@@ -1,0 +1,97 @@
+# Traducción de SaguiOS: catálogo «ayuda-gui», idioma pt_BR (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/ayuda-gui.c:274
+msgid "Conoce SaguiOS"
+msgstr "Conheça o SaguiOS"
+
+#: userland/programas/ayuda-gui.c:274
+msgid "Programación"
+msgstr "Programação"
+
+#: userland/programas/ayuda-gui.c:274
+msgid "Juegos y aplicaciones"
+msgstr "Jogos e aplicativos"
+
+#: userland/programas/ayuda-gui.c:509 userland/programas/ayuda-gui.c:1259
+msgid "Ayuda"
+msgstr "Ajuda"
+
+#: userland/programas/ayuda-gui.c:562
+#, c-format
+msgid "No se puede abrir %s (%s)"
+msgstr "Não foi possível abrir %s (%s)"
+
+#: userland/programas/ayuda-gui.c:583 userland/programas/ayuda-gui.c:664
+#, c-format
+msgid "No se encuentra el apartado #%s"
+msgstr "Seção #%s não encontrada"
+
+#: userland/programas/ayuda-gui.c:668
+#, c-format
+msgid "Enlace externo (no se abre): %s"
+msgstr "Link externo (não é aberto): %s"
+
+#: userland/programas/ayuda-gui.c:682
+#, c-format
+msgid "No es un documento de la ayuda: %s"
+msgstr "Não é um documento da ajuda: %s"
+
+#: userland/programas/ayuda-gui.c:699
+#, c-format
+msgid "No está en la ayuda: %s"
+msgstr "Não está na ajuda: %s"
+
+#: userland/programas/ayuda-gui.c:762
+msgid "Todo"
+msgstr "Tudo"
+
+#: userland/programas/ayuda-gui.c:762
+msgid "Ant."
+msgstr "Ant."
+
+#: userland/programas/ayuda-gui.c:762
+msgid "Sig."
+msgstr "Próx."
+
+#: userland/programas/ayuda-gui.c:771
+msgid "Buscar en la ayuda"
+msgstr "Buscar na ajuda"
+
+#: userland/programas/ayuda-gui.c:803
+msgid "Índice"
+msgstr "Índice"
+
+#: userland/programas/ayuda-gui.c:882 userland/programas/ayuda-gui.c:1023
+msgid "Copiar"
+msgstr "Copiar"
+
+#: userland/programas/ayuda-gui.c:911
+msgid "sin coincidencias"
+msgstr "sem resultados"
+
+#: userland/programas/ayuda-gui.c:915
+msgid " (solo en español)"
+msgstr " (somente em espanhol)"
+
+#: userland/programas/ayuda-gui.c:963
+msgid "No hay versión en ese idioma: se muestra la española"
+msgstr "Não há versão nesse idioma: mostrando a espanhola"
+
+#: userland/programas/ayuda-gui.c:1202
+#, c-format
+msgid "Código copiado (%d líneas)"
+msgstr "Código copiado (%d linhas)"
+
+#: userland/programas/ayuda-gui.c:1279 userland/programas/ayuda-gui.c:1284
+#, c-format
+msgid "No hay ayuda sobre «%s»"
+msgstr "Não há ajuda sobre "
+

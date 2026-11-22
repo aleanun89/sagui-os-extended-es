@@ -64,6 +64,10 @@ typedef struct tcp_conexao {
     bool     na_fila;             /* estabelecida, esperando o aceitar */
     int      fila_max;            /* escuta: quantas podem esperar */
     uint32_t ip;
+    /* D445: la dirección local de la conexión (la que se usó al abrirla o a la que llegó el SYN):
+     * los segmentos salen con ella y por su interfaz, aunque cambie la ruta por defecto. 0 = la de
+     * la ruta (rede_origem_para). */
+    uint32_t ip_local;
     uint16_t porta_local, porta_remota;
     uint32_t iss, snd_una, snd_nxt, rcv_nxt;
     uint32_t janela_remota, mss, janela_anunciada;
@@ -98,9 +102,13 @@ static bool passou(uint32_t t) { return (int32_t)(agora() - t) >= 0; }
 
 /* Monta e manda um segmento com "n" bytes do anel de envio a partir de
  * "desloc" (contado de snd_una). */
-static bool segmento_para(uint32_t ip, uint16_t pl, uint16_t pr, uint32_t seq, uint32_t ack, uint8_t flags,
+static uint32_t origem_de(const tcp_t *c) { return c->ip_local ? c->ip_local : rede_origem_para(c->ip); }
+
+/* origem: a dirección local (0 = a da rota). */
+static bool segmento_para(uint32_t origem, uint32_t ip, uint16_t pl, uint16_t pr, uint32_t seq, uint32_t ack, uint8_t flags,
                           uint16_t janela, const tcp_t *c, uint32_t desloc, uint32_t n)
 {
+    if (!origem) origem = rede_origem_para(ip);
     uint8_t *t = rede_carga();
     bool escala = (flags & F_SYN) && c && c->esc_oferecer;
     uint32_t cab = (flags & F_SYN) ? (escala ? 28 : 24) : 20;
@@ -116,8 +124,8 @@ static bool segmento_para(uint32_t ip, uint16_t pl, uint16_t pr, uint32_t seq, u
     if (flags & F_SYN) { t[20] = 2; t[21] = 4; poe16(t + 22, (uint16_t)rede_mss_para(ip)); }   /* opção MSS (D363: menor por el túnel) */
     if (escala) { t[24] = 1; t[25] = 3; t[26] = 3; t[27] = c->esc_env; }   /* NOP + escala de janela (D437) */
     for (uint32_t i = 0; i < n; i++) t[cab + i] = c->tx[(c->tx_ini + desloc + i) & (c->tx_tam - 1)];
-    poe16(t + 16, soma_pseudo(rede_origem_para(ip), ip, IP_TCP, t, cab + n));
-    return ip_enviar(ip, IP_TCP, cab + n) && !rede_envio_recusado();
+    poe16(t + 16, soma_pseudo(origem, ip, IP_TCP, t, cab + n));
+    return ip_enviar_de(origem, ip, IP_TCP, cab + n) && !rede_envio_recusado();
 }
 
 /* Devolve false se a placa (ou o lo, ou o túnel) recusou o segmento por estar cheia. */
@@ -134,20 +142,22 @@ static bool segmento(tcp_t *c, uint32_t seq, uint8_t flags, uint32_t desloc, uin
         c->janela_anunciada = janela << c->esc_env;
     }
     if (flags & F_ACK) { c->ack_pendente = false; }   /* este segmento já confirma tudo */
-    return segmento_para(c->ip, c->porta_local, c->porta_remota, seq, c->rcv_nxt, flags,
+    return segmento_para(origem_de(c), c->ip, c->porta_local, c->porta_remota, seq, c->rcv_nxt, flags,
                          (uint16_t)janela, c, desloc, n);
 }
 
 /* Resposta a um segmento que não pertence a nenhuma conexão (RFC 793). */
-static void rst_responder(uint32_t origem, const uint8_t *t, uint32_t tam_dados)
+/* D445: destino = a dirección a la que llegó (la respuesta sale con ella). */
+static void rst_responder(uint32_t origem, uint32_t destino, const uint8_t *t, uint32_t tam_dados)
 {
     uint8_t flags = t[13];
     if (flags & F_RST) return;
     uint16_t po = be16(t), pd = be16(t + 2);
-    if (flags & F_ACK) segmento_para(origem, pd, po, be32(t + 8), 0, F_RST, 0, NULL, 0, 0);
+    uint32_t local = rede_eh_local(destino) && (destino >> 24) != 127 ? destino : 0;
+    if (flags & F_ACK) segmento_para(local, origem, pd, po, be32(t + 8), 0, F_RST, 0, NULL, 0, 0);
     else {
         uint32_t ack = be32(t + 4) + tam_dados + ((flags & F_SYN) ? 1 : 0) + ((flags & F_FIN) ? 1 : 0);
-        segmento_para(origem, pd, po, 0, ack, F_RST | F_ACK, 0, NULL, 0, 0);
+        segmento_para(local, origem, pd, po, 0, ack, F_RST | F_ACK, 0, NULL, 0, 0);
     }
 }
 
@@ -332,7 +342,7 @@ static void medir_rtt(tcp_t *c, uint32_t ack)
 }
 
 /* Uma escuta recebeu um SYN: cria a conexão filha em SYN_RECEBIDO. */
-static void aceitar_syn(tcp_t *e, uint32_t origem, const uint8_t *t, uint32_t cab)
+static void aceitar_syn(tcp_t *e, uint32_t origem, uint32_t destino, const uint8_t *t, uint32_t cab)
 {
     int na_fila = 0;
     for (int i = 0; i < CONEXOES; i++)
@@ -344,6 +354,7 @@ static void aceitar_syn(tcp_t *e, uint32_t origem, const uint8_t *t, uint32_t ca
     c->pai = e;
     c->pid = e->pid;
     c->ip = origem;
+    c->ip_local = (destino >> 24) == 127 ? 0 : destino;   /* D445: responde con la dirección a la que llamaron */
     c->porta_local = e->porta_local;
     c->porta_remota = be16(t);
     c->rcv_nxt = be32(t + 4) + 1;
@@ -379,13 +390,13 @@ void tcp_receber(uint32_t origem, uint32_t destino, const uint8_t *t, uint32_t n
         else if (x->ip == origem && x->porta_remota == po) c = x;
     }
     if (!c || c->estado == T_FECHADA) {
-        if (!c && escuta && (flags & (F_SYN | F_ACK | F_RST)) == F_SYN) { aceitar_syn(escuta, origem, t, cab); return; }
-        if (!c) rst_responder(origem, t, tam);   /* porta fechada: "conexão recusada" para o outro lado */
+        if (!c && escuta && (flags & (F_SYN | F_ACK | F_RST)) == F_SYN) { aceitar_syn(escuta, origem, destino, t, cab); return; }
+        if (!c) rst_responder(origem, destino, t, tam);   /* porta fechada: "conexão recusada" para o outro lado */
         return;
     }
 
     if (c->estado == T_SYN_ENVIADO) {
-        if ((flags & F_ACK) && ack != c->iss + 1) { if (!(flags & F_RST)) rst_responder(origem, t, tam); return; }
+        if ((flags & F_ACK) && ack != c->iss + 1) { if (!(flags & F_RST)) rst_responder(origem, destino, t, tam); return; }
         if (flags & F_RST) { if (flags & F_ACK) cair(c, ERRO_RECUSADA); return; }
         if (!(flags & F_SYN) || !(flags & F_ACK)) return;
         c->rcv_nxt = seq + 1;
@@ -415,7 +426,7 @@ void tcp_receber(uint32_t origem, uint32_t destino, const uint8_t *t, uint32_t n
             segmento(c, c->iss, F_SYN | F_ACK, 0, 0);
             return;
         }
-        if (!(flags & F_ACK) || ack != c->iss + 1) { if (flags & F_ACK) rst_responder(origem, t, tam); return; }
+        if (!(flags & F_ACK) || ack != c->iss + 1) { if (flags & F_ACK) rst_responder(origem, destino, t, tam); return; }
         c->snd_una = ack;
         c->estado = T_ESTABELECIDA;
         c->tentativas = 0;
@@ -557,6 +568,7 @@ tcp_t *tcp_abrir(uint32_t ip, uint16_t porta, int32_t *erro)
     c->com_socket = true;
     c->pid = processo_atual()->pid;
     c->ip = ip;
+    c->ip_local = (ip >> 24) == 127 ? 0 : rede_origem_para(ip);   /* D445: fija la interfaz de salida */
     c->porta_remota = porta;
     c->porta_local = local;
     c->iss = isn();
@@ -693,7 +705,7 @@ void tcp_soltar(tcp_t *c)
 
 void tcp_enderecos(tcp_t *c, uint32_t *ip_l, uint16_t *p_l, uint32_t *ip_r, uint16_t *p_r)
 {
-    *ip_l = rede_origem_para(c->ip);
+    *ip_l = origem_de(c);
     *p_l = c->porta_local;
     *ip_r = c->ip;
     *p_r = c->porta_remota;
@@ -721,7 +733,7 @@ int tcp_listar(void *v, int max)
         if (c->estado == T_LIVRE) continue;
         o[k].tipo = SOCK_TCP;
         o[k].estado = estado_abi(c);
-        o[k].ip_local = c->estado == T_ESCUTA ? rede_meu_ip() : rede_origem_para(c->ip);
+        o[k].ip_local = c->estado == T_ESCUTA ? rede_meu_ip() : origem_de(c);
         o[k].porta_local = c->porta_local;
         o[k].ip_remoto = c->ip;
         o[k].porta_remota = c->porta_remota;
@@ -761,7 +773,7 @@ int tcp_listar_detalhado(info_socket_t *o, int max)
         memset(&o[k], 0, sizeof o[k]);
         o[k].c.tipo = SOCK_TCP;
         o[k].c.estado = estado_abi(c);
-        o[k].c.ip_local = c->estado == T_ESCUTA ? rede_meu_ip() : rede_origem_para(c->ip);
+        o[k].c.ip_local = c->estado == T_ESCUTA ? rede_meu_ip() : origem_de(c);
         o[k].c.porta_local = c->porta_local;
         o[k].c.ip_remoto = c->ip;
         o[k].c.porta_remota = c->porta_remota;

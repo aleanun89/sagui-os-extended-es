@@ -195,6 +195,13 @@ static int fp_posto = -1;          /* entrada de la caché cargada en el US (-1:
 static struct { bool usado; uint32_t uso; uint8_t desc[R5_FP_DESC]; r5_fp_t fp; } fp_cache[R5_FP_CACHE];
 static uint32_t fp_relogio, fp_gerados, fp_acertos, fp_cargas;
 static uint32_t caps_v2;           /* lo que pasó las pruebas v2 (para el detalle) */
+/* gpu3d v3 (D457): los búferes de vértices viven en un bloque de la zona (b_vb), repartido por huecos (vbm); la
+ * etapa de vértices que tiene puesta el motor (vs_posto, si v3_posto) y las cuentas para el detalle. */
+static g3d_buffer_t b_vb;
+static g3d_vbmonte_t vbm;
+static r5_vs_t vs_posto;
+static bool v3_posto;
+static uint32_t v3_dibujos, v3_estados, v3_subidas, v3_montes;
 
 static inline uint32_t rd(uint32_t r)             { return *(volatile uint32_t *)(mmio + r); }
 static inline void     wr(uint32_t r, uint32_t v) { *(volatile uint32_t *)(mmio + r) = v; }
@@ -319,6 +326,8 @@ static void r5_detalle(const char *fase)
     klog("[GPU3D] r500 %s: v2 (D426): capacidades %x; destino %s; programas: %u generados, %u de la cache, %u cargas; "
          "juegos de coordenadas en el motor %d\n", fase, caps_v2, dest_vaga < 0 ? "principal" : "textura", fp_gerados, fp_acertos,
          fp_cargas, ntc_posto);
+    klog("[GPU3D] r500 %s: v3 (D457): %u dibujos desde buferes, %u estados de vertices, %u subidas; monton %u KB (%u usados en %u buferes)%s\n",
+         fase, v3_dibujos, v3_estados, v3_subidas, b_vb.usado ? vbm.total >> 10 : 0, vbm.usado >> 10, vbm.n, v3_posto ? "; el motor tiene puesta la etapa de v3" : "");
     klog("[GPU3D] r500 %s: presentar (D432): pantalla MC %x paso %u %dx%d de %d bytes/pixel por el controlador D%d: %s; "
          "%u copias, %u sin retrazado a tiempo; texturas subidas con write-combining %u, sin cache %u\n", fase, mc_tela, tela_passo_px,
          tela_l, tela_a, tela_bytes_px, tela_ctl ? 2 : 1, mc_tela && tela_bytes_px == 4 ? "se puede" : "no se puede", apres_n,
@@ -371,6 +380,11 @@ static bool motor_parado(uint32_t ms)
 #define R5D_BARREIRA_TODAS 0x100u /* D451 (diagnóstico): el vaciado y la espera delante de cada dibujo */
 #define R5D_2D_SEM_BARREIRA 0x200u /* D451: el 2D por el anillo sin esperar antes a que el 3D termine */
 #define R5D_ANEL_SEM_WC 0x400u    /* D451: la cola sin write-combining (como antes: sin caché) */
+#define R5D_COM_V3   0x800u       /* D457: pedía gpu3d v3 cuando no estaba probado; desde la revisión (Amilo, 2026-11-22) v3 se
+                                   * anuncia solo y decide la autoprueba v3: el bit se acepta y no hace nada */
+#define R5D_SEM_V3   0x4000u      /* D457: SIN gpu3d v3 (la CPU transforma, como antes) */
+#define R5D_V3_DESC_INV 0x1000u   /* D457 (diagnóstico): el descarte de caras de v3 con la otra convención */
+#define R5D_V3_BARREIRA 0x2000u   /* D457 (diagnóstico): vaciado y espera delante de cada dibujo v3 */
 static uint32_t anel_wc_virt, anel_wc_fis;   /* D451: la cola vista en write-combining (una vez; no se suelta) */
 static uint32_t r5_dep;
 static bool v2_ultimo;               /* D451: el último dibujo fue v2 */
@@ -925,6 +939,7 @@ static int r5_iniciar_etapas(const pci_disp_t *d, int geracao, const acel_tela_t
     memset(&b_cor, 0, sizeof b_cor); memset(&b_z, 0, sizeof b_z); memset(b_tex, 0, sizeof b_tex); memset(&alvo, 0, sizeof alvo);
     memset(tex_fmt, 0, sizeof tex_fmt); memset(&b_zdest, 0, sizeof b_zdest); memset(fp_cache, 0, sizeof fp_cache);
     cur_cor = &b_cor; dest_vaga = -1; ntc_posto = 1; v2_sujo = false; fp_posto = -1; v2_ultimo = false;
+    memset(&b_vb, 0, sizeof b_vb); memset(&vbm, 0, sizeof vbm); v3_posto = false; v3_dibujos = v3_estados = v3_subidas = v3_montes = 0;
     pronto = true;
     return G3D_OK;
 }
@@ -1053,6 +1068,7 @@ static int desenhar_int(const gpu3d_estado_t *e, const r5_tex_t *t, const gpu3d_
             v2_ultimo = false;
             if (v2_sujo || ntc_posto != 1) {
                 /* D426: lo que un dibujo v2 cambió y el estado de v1 no vuelve a poner. */
+                if (v3_posto) { r5_estado_v3_fim(&f); v3_posto = false; }   /* D457 */
                 if (ntc_posto != 1) r5_estado_vertices(&f, 1);
                 r5_reg(&f, R5_US_PIXSIZE, R5_T_TEX);
                 r5_reg(&f, R5_RB3D_ABLEND, 0);
@@ -1296,6 +1312,7 @@ static int desenhar2_int(const gpu3d_estado2_t *e, const gpu3d_vert2_t *v, int n
                 if (rr_ != G3D_OK) { fp_posto = -1; return G3D_FALHA; } g3d_fila_iniciar(&f, prep, PREP_PAL); } } while (0)
             if (sy) klog("[GPU3D] r500 v2 sinc: dibujo n %d ntc %d (motor %d) unidades %x programa %d inst, temp %d, consts %x, flags %x\n",
                          n, fp->ntc, ntc_posto, mask, fp->n, fp->max_temp, fp->consts, e->flags);
+            if (v3_posto) { r5_estado_v3_fim(&f); v3_posto = false; }   /* D457: ntc_posto es -1 y el vaciado ya va delante */
             if (fp->ntc != ntc_posto) {
                 if (sy) {
                     /* Por partes: espera y vaciado, PSC, programa de vértices, formato de salida, RS. */
@@ -1466,6 +1483,148 @@ static int r5_destino(int vaga, int zbits, int estencil)
  * No se toca ningún registro de la pantalla: solo se leen (CP parado) la superficie y el paso del
  * controlador, por si cambiaron desde el encendido, y con G3D_APRES_VSYNC el bit de retrazado. La
  * ventana móvil de la CPU no interviene: la CPU no lee ni escribe nada aquí. */
+/* ============================================================ gpu3d v3 (D457)
+ *
+ * Búferes de vértices en la VRAM y programa de vértices generado (r500_pacotes.h, «gpu3d v3»). Seguridad: lo
+ * mismo que v2 (todo por la cola del CP, registros del 3D 0x1D98-0x4FFF, nada de pantalla ni de relojes); los
+ * búferes están dentro de nuestra zona de la VRAM y la capa ya comprobó que cada dibujo cabe en lo subido.
+ * Probado en la X1400 del Amilo (revisión de D457, 2026-11-22): se anuncia solo, pero la autoprueba v3 de la capa
+ * tiene que dar los mismos píxeles que la CPU; «inicio 4ff0 4000» en gpu3d-r500.conf lo quita. Diagnóstico (se suman): «1000» el descarte de caras al revés; «2000» vaciado
+ * y espera delante de cada dibujo; con «2» (R5D_SYNC) cada dibujo v3 se espera y se dice en el registro. */
+
+/* Copia n bytes de la RAM a la dirección gpu de la zona (por la ventana móvil; en write-combining si se puede). */
+static bool r5_escrever(uint64_t gpu, const uint8_t *o, uint32_t n)
+{
+    bool wc = r5_wc_pode();
+    uint64_t off = gpu - mc_zona;
+    if (!wc && off + n <= zona_vista) {
+        volatile uint8_t *d = zona_cpu + (uint32_t)off;
+        uint32_t i = 0;
+        for (; i + 4 <= n; i += 4) *(volatile uint32_t *)(d + i) = (uint32_t)o[i] | ((uint32_t)o[i + 1] << 8) | ((uint32_t)o[i + 2] << 16) | ((uint32_t)o[i + 3] << 24);
+        for (; i < n; i++) d[i] = o[i];
+    } else {
+        for (uint32_t feito = 0; feito < n;) {
+            uint32_t m = n - feito < JANELA_BYTES - 4096u ? n - feito : JANELA_BYTES - 4096u;
+            volatile uint8_t *d = r5_janela_tipo(gpu + feito, m, wc ? PG_PWT : PG_PCD | PG_PWT);
+            if (!d) return false;
+            if (wc) memcpy((void *)d, o + feito, m);
+            else for (uint32_t i = 0; i < m; i++) d[i] = o[feito + i];
+            feito += m;
+        }
+    }
+    __asm__ volatile("lock; orl $0, (%%esp)" ::: "memory");
+    if (wc) r5_janela(gpu, 4096u);   /* la ventana móvil no se queda en write-combining (como en r5_textura) */
+    return true;
+}
+
+static int r5_vbuf(int vaga, uint32_t bytes, uint32_t desloc, const void *dados, uint32_t n)
+{
+    if (!pronto) return G3D_FALHA;
+    if (vaga < 0 || vaga >= GPU3D_VBUFS) return G3D_NAO;
+    if (!dados && !bytes && !vbm.tam[vaga]) return G3D_OK;
+    /* un dibujo pendiente puede estar leyendo ese búfer (o el sitio que va a ocupar) */
+    if (r5_esperar(0, GPU3D_PRAZO_MS) != G3D_OK) return G3D_FALHA;
+    if (dados) {
+        if (!b_vb.usado || !vbm.tam[vaga] || desloc > vbm.tam[vaga] || n > vbm.tam[vaga] - desloc) return G3D_NAO;
+        v3_subidas++;
+        return r5_escrever(b_vb.gpu + vbm.off[vaga] + desloc, dados, n) ? G3D_OK : G3D_NAO;
+    }
+    g3d_vbmonte_soltar(&vbm, vaga);
+    if (!bytes) {
+        if (b_vb.usado && !vbm.n) g3d_buffer_soltar(&arena, &b_vb);   /* nadie usa búferes: la memoria vuelve a las texturas */
+        return G3D_OK;
+    }
+    if (!b_vb.usado) {
+        /* el montón: la mitad de lo libre de la zona, hasta R5_VB_MAX (lo otro queda para las texturas). Revisión de D457
+         * (Amilo): con 4 MB el mundo de Brumacanto (vista 64) no cabía y cada dibujo expulsaba otro búfer (165 000
+         * expulsiones en un minuto, mucho más lento que sin v3); la zona del 3D de la X1400 tiene 117 MB. */
+        #define R5_VB_MAX (64u << 20)
+        #define R5_VB_MIN (256u << 10)
+        uint64_t livre = g3d_arena_livre(&arena) / 2;
+        uint32_t t = livre > R5_VB_MAX ? R5_VB_MAX : (uint32_t)livre & ~(R5_VB_MIN - 1u);
+        for (; t >= R5_VB_MIN; t = (t / 2) & ~(R5_VB_MIN - 1u))
+            if (r5_criar(&b_vb, G3D_BUF_VERTICES, t)) break;
+        if (t < R5_VB_MIN) return G3D_NAO;
+        g3d_vbmonte_iniciar(&vbm, t);
+        if (!v3_montes++) klog("[GPU3D] r500 v3: monton de vertices de %u KB en la VRAM (MC %x)\n", t >> 10, (uint32_t)b_vb.gpu);
+    }
+    if (!g3d_vbmonte_criar(&vbm, vaga, bytes)) {
+        if (!vbm.n) g3d_buffer_soltar(&arena, &b_vb);
+        return G3D_NAO;
+    }
+    return G3D_OK;
+}
+
+static int r5_desenhar3(const g3d_desenho3_t *d, g3d_vala_t *vala)
+{
+    if (!pronto || !b_cor.usado || !alvo.cor_gpu) return G3D_FALHA;
+    const gpu3d_estado2_t *e = d->e;
+    const gpu3d_transf_t *t = d->t;
+    if (d->d.indices != GPU3D_SEM_INDICES || (t->flags & G3D3_LUZ) || ((t->flags & G3D3_NEBLINA) && t->neb_modo != G3D_NEB_LINEAR) ||
+        d->d.n < 3 || d->d.n > 65535u || !b_vb.usado) return G3D_NAO;
+    r5_tex_t tx[4];
+    uint32_t mask = 0;
+    int nu = e->unidades > 4 ? 4 : e->unidades;
+    for (int u = 0; u < nu; u++) {
+        const gpu3d_unidade_t *un = &e->u[u];
+        if (!un->ativa) continue;
+        if (un->vaga >= GPU3D_TEXTURAS || (int)un->vaga == dest_vaga || un->tipo != G3D_TEX_2D) return G3D_NAO;
+        const g3d_buffer_t *b = &b_tex[un->vaga];
+        if (!b->usado || (un->filtro & (G3D_FIL_MIP_VECINO | G3D_FIL_MIP_LINEAR))) return G3D_NAO;
+        if ((un->env_s != G3D_ENV_BORDE && !pot2(b->larg)) || (un->env_t != G3D_ENV_BORDE && !pot2(b->alt))) return G3D_NAO;
+        static const uint32_t f1[4] = { 0, R5_TX_DXT1, R5_TX_DXT3, R5_TX_DXT5 };
+        tx[u] = (r5_tex_t){ (uint32_t)b->gpu, b->passo / 4, b->larg, b->alt, f1[tex_fmt[un->vaga] & 3] };
+        mask |= 1u << u;
+    }
+    int pi = programa(e);
+    const r5_fp_t *fp = &fp_cache[pi].fp;
+    if (fp->erro || fp->n < 1) return G3D_NAO;
+    static r5_vs_t vs;
+    r5_vs_gerar(&vs, t, &d->d, fp->ntc, fp->mapa, (r5_dep & R5D_V3_DESC_INV) != 0);
+    if (vs.erro || vs.arrays < 1 || vs.arrays > R5_VS_ARRAYS) return G3D_NAO;
+    /* la dirección del primer vértice de cada array */
+    uint32_t gpu[R5_VS_ARRAYS];
+    for (uint32_t k = 0; k < vs.arrays; k++) {
+        const gpu3d_atrib_t *a = vs.atr[k] == 0 ? &d->d.pos : vs.atr[k] == 1 ? &d->d.cor_a : &d->d.tc[(vs.atr[k] - 2u) & 3u];
+        /* 3D_LOAD_VBPNTR lleva el paso en palabras en 8 bits: uno mayor pisaría el campo del array siguiente */
+        if (a->vaga >= GPU3D_VBUFS || !vbm.tam[a->vaga] || (a->passo & 3) || a->passo > 255u * 4u || (a->desloc & 3)) return G3D_NAO;
+        uint64_t desl = (uint64_t)a->desloc + (uint64_t)d->d.primeiro * a->passo;
+        if (desl >= vbm.tam[a->vaga]) return G3D_NAO;
+        gpu[k] = (uint32_t)b_vb.gpu + vbm.off[a->vaga] + (uint32_t)desl;
+    }
+    g3d_fila_t f;
+    g3d_fila_iniciar(&f, prep, PREP_PAL);
+    bool muda = !v3_posto || memcmp(&vs, &vs_posto, sizeof vs) != 0;
+    if (muda) {
+        r5_estado_vertices3(&f, &vs);   /* con su vaciado y su espera delante (D451) */
+        vs_posto = vs; v3_posto = true; ntc_posto = -1; v3_estados++;
+    } else if (!(r5_dep & R5D_SEM_BARREIRA) && (!v2_ultimo || fp_posto != pi || (r5_dep & (R5D_BARREIRA_TODAS | R5D_V3_BARREIRA))))
+        r5_vaciar(&f);
+    v2_ultimo = true;
+    r5_estado_alvo(&f, &alvo);
+    for (int u = 0; u < nu; u++) if (mask & (1u << u)) r5_estado_unidade(&f, (uint32_t)u, &tx[u], &e->u[u]);
+    r5_reg(&f, R5_TX_INVALTAGS, 0);
+    r5_reg(&f, R5_TX_ENABLE, mask);
+    r5_fp_constantes(&f, fp, e);
+    if (fp_posto != pi) { r5_fp_carregar(&f, fp); fp_posto = pi; fp_cargas++; }
+    r5_estado_fragmento(&f, e, alvo.larg, alvo.alt, alvo.zbits == 24);
+    r5_ajustes_por(&f, &gpu3d_ajustes, G3D_AJ_DIBUJO);
+    v2_sujo = true;
+    r5_desenho3(&f, &vs, &d->d, gpu);
+    if (f.transbordou) { fp_posto = -1; v3_posto = false; return G3D_NAO; }
+    int r = emitir(&f);
+    if (r != G3D_OK) { fp_posto = -1; v3_posto = false; r5_detalle("al dibujar (v3)"); return r; }
+    if (!v3_dibujos++) klog("[GPU3D] r500 v3: primer dibujo desde buferes: %u vertices, %u arrays, programa de vertices de %u instrucciones y %u constantes, %u palabras\n",
+                            d->d.n, vs.arrays, vs.n, vs.nc, f.n);
+    if (r5_dep & R5D_SYNC) {
+        r = sincronizar(500);
+        klog("[GPU3D] r500 v3 sinc: dibujo de %u vertices (estado de vertices %s): %s\n", d->d.n, muda ? "nuevo" : "igual", r == G3D_OK ? "bien" : "CUELGA");
+        if (r != G3D_OK) { fp_posto = -1; v3_posto = false; r5_detalle("al dibujar (v3)"); return G3D_FALHA; }
+    }
+    if (vala) *vala = seq + 1;
+    return G3D_OK;
+}
+
 #define D1CRTC_STATUS        0x609C            /* AVIVO: bit 0 = en el retrazado vertical */
 #define APRES_VBLANK_MS      20
 
@@ -1571,6 +1730,9 @@ static void r5_capacidades(gpu3d_capas_t *c)
     c->max_aniso = (ok & G3D_CAP_TEX_ANISO) ? 16 : 1;
     c->zbits = 3;
     c->estencil_bits = (ok & G3D_CAP_ESTENCIL) ? 8 : 0;
+    /* D457: la capa lo pone a prueba contra la CPU (autoprueba v3) antes de anunciarlo */
+    if ((ok & G3D_CAP_V2) && !(r5_dep & R5D_SEM_V3)) c->bits3 = G3D_C3_V3 | G3D_C3_NEBLINA | G3D_C3_TEX_MAT | G3D_C3_TIRAS | G3D_C3_COR_FLOAT;
+    else klog("[GPU3D] r500 v3 (D457): sin anunciar (%s)\n", (r5_dep & R5D_SEM_V3) ? "\"inicio 4ff0 4000\" en /sistema/conf/gpu3d-r500.conf" : "sin v2");
 }
 
 const gpu3d_driver_t gpu3d_r500 = {
@@ -1578,4 +1740,5 @@ const gpu3d_driver_t gpu3d_r500 = {
     "r500", r5_faixas_ajustes, R5_N_FAIXAS_AJUSTES, r5_vistas,
     r5_capacidades, r5_desenhar2, r5_textura2, r5_limpar2, r5_destino,
     r5_apresentar,
+    r5_vbuf, r5_desenhar3,
 };

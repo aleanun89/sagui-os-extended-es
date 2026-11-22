@@ -3,7 +3,8 @@
 Pedido del mantenedor (2026-11-20): leer discos XFS en la próxima revisión, en **solo lectura**, y dejar
 planteados los ajustes necesarios para que más adelante se pueda **escribir**.
 
-La decisión se numera al empezar el trabajo: comprobar el primer número libre en todas las ramas.
+Decisión **D446** (`docs/decisoes.md`). **Fase 1 hecha** el 2026-11-21 en la rama `v8.5.5.3-xfs`; la fase 2 sigue
+pendiente.
 
 ## Por qué
 
@@ -20,9 +21,21 @@ publicada aparte).
 - No se copia código del kernel ni de `xfsprogs`.
 - Las constantes y los formatos del disco no son código y se pueden usar.
 
-## Fase 1 (v8.5.5.3): solo lectura
+## Fase 1 (v8.5.5.3): solo lectura — HECHA (D446)
 
-Fichero `kernel/fs/xfs.c` (más `kernel/inc/xfs.h`), registrado en el VFS como `ext2.c` y `exfat.c`.
+Fichero `kernel/fs/xfs.c` (más `kernel/inc/xfs.h`), registrado en el VFS como `ext2.c` y `exfat.c` (`fs_xfs`, tipo
+`xfs`, `mount -t xfs`).
+
+**Estado al terminar la fase 1** (lo que sigue de esta sección era el plan; se cumplió entero salvo lo anotado):
+- todo lo de «Qué se lee», «Funciones del disco», «Diario sucio» e «Integración» está hecho y probado (`tests/h446_xfs.py`);
+- los enlaces simbólicos con destino relativo se siguen al resolver rutas; los de destino absoluto, rotos o en bucle se
+  leen como un fichero con el destino de texto (el VFS no tiene enlaces);
+- la barra lateral de Archivos pone un candado a toda unidad de solo lectura;
+- `infopc` y `discos` enseñan el formato «XFS (solo lectura)», o el motivo si no se puede leer;
+- sin hacer (para la fase 2): la tabla CRC32C «slice-by-8» o con la instrucción `crc32` (punto 5); la lectura sigue byte
+  a byte, que basta para leer;
+- probado solo en QEMU y con imágenes de mkfs.xfs 6.6: falta un disco XFS de verdad escrito por Linux (Fedora, RHEL) en
+  una de las máquinas del mantenedor.
 
 ### Qué se lee
 - **Superbloque** del grupo de asignación 0: magia `XFSB`, versión 4 o 5, tamaño de bloque (512 B-64 KB),
@@ -69,8 +82,14 @@ Si el diario no está limpio, Linux se niega a montar en solo lectura sin `norec
 - `infopc` y `df` muestran el tipo.
 
 ### Pruebas
-- Las imágenes de prueba se crean en el PC con `mkfs.xfs` (paquete `xfsprogs`, que hoy **no** está instalado: hay
-  que añadirlo a `tools/entorno-local.sh` o compilarlo en `~/.local/saguitools`).
+- Las imágenes de prueba se crean en el PC con `mkfs.xfs -p` (fichero «proto»: sin montar ni root). `xfsprogs` lo trae
+  `tools/entorno-local.sh` sin sudo (el paquete de Ubuntu extraído en `~/.local/saguitools/root`).
+- `tests/xfs_lib.py` hace lo que mkfs no hace solo: fragmentar un fichero en cientos de extents (árbol bmbt), con huecos y
+  extents sin escribir, sin tocar el espacio libre (con los bloques que ya eran del fichero); ensuciar el diario; y poner
+  la cabecera v5 de los enlaces en bloques, que el mkfs.xfs 6.6 no escribe (xfs_repair -n lo marca). Que `xfs_repair -n`
+  quede limpio y que `xfs_db` lea los mismos mapas comprueba esas estructuras sin el driver de SaguiOS.
+- `tools/xfs_anfitriao.c` corre el mismo `kernel/fs/xfs.c` en el PC (32 bits) sobre una imagen: la prueba lo usa antes
+  de arrancar QEMU, y sirve para depurar.
 - Variantes:
   - v5 con CRC;
   - v4 antigua;

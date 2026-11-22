@@ -1,0 +1,10 @@
+[Area Moneda]
+forma = "circulo" 7
+mascara = 2
+grupo = "monedas"
+guion = "guiones/moneda.lua"
+[Sprite Dibujo padre=.]
+textura = "img/tilemap.png"
+cuadricula = 20 9
+animacion = "girar" 4 si 151 152
+animar = "girar"

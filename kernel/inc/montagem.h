@@ -70,6 +70,7 @@ typedef struct {
 } arq_montado_t;
 
 extern const sistema_arquivos_t fs_fat32, fs_exfat, fs_ext2, fs_iso9660, fs_udf, fs_cdda, fs_ramfs;
+extern const sistema_arquivos_t fs_xfs;   /* D446: XFS, solo lectura */
 extern sistema_arquivos_t fs_sobreposicao;   /* D379: su tam_arq lo pone sobreposicao_preparar */
 extern sistema_arquivos_t fs_serie;          /* v8.5.4.2: la capa inferior de la live, a la vista (sobreposicao.c) */
 extern trava_t trava_fs;   /* D095: una operación de sistema de archivos a la vez (ver montagem.c) */
@@ -86,7 +87,7 @@ montagem_t *montagem_da_raiz(void);
 /* D379: opción interna (no llega de los programas): montar este volumen como "/". */
 #define MONTAR_RAIZ_INTERNO 0x80000000u
 
-/* tipo: "auto", "fat32", "exfat", "ext2", "ext3", "ext4", "iso9660", "udf" (NULL = auto). */
+/* tipo: "auto", "fat32", "exfat", "ext2", "ext3", "ext4", "iso9660", "udf", "xfs" (NULL = auto). */
 int  montagem_montar(disco_t *d, const char *ponto, const char *tipo, uint32_t opcoes);
 /* D282: con dueño (uid | gid << 16) si opcoes lleva MONTAR_DONO, y la máscara si lleva MONTAR_COM_UMASK. */
 int  montagem_montar_dono(disco_t *d, const char *ponto, const char *tipo, uint32_t opcoes, uint32_t dono);

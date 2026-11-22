@@ -293,10 +293,19 @@ Entity *ent_get(Ref r);
 Ref ent_ref(int idx);
 int tile_walk(int x, int y);
 float frand(void);
+float dsinf(float x);                    /* D461: seno, coseno y arco tangente deterministas (misma salida en todas las máquinas) */
+float dcosf(float x);
+float datan2f(float y, float x);
 int irand(int n);
 
 /* órdenes dadas por el humano o la IA */
 void cmd_move(Ref e, float x, float y);
+int cmd_build_grupo(int player, const Ref *workers, int n, EntType t, int tx, int ty);   /* D461: el primer aldeano que puede levanta el edificio y los demás lo ayudan */
+void cmd_eliminar(Ref e);              /* D461: la unidad se elimina (la interfaz ya no toca el mundo) */
+void world_invalidar_cachas(void);     /* D461: antes de aplicar las órdenes de un turno */
+unsigned world_suma_grupos(unsigned g[16]);   /* D461: suma total y sumas por grupos (para localizar una desincronización) */
+int world_volcar(const char *ruta);    /* D461: volcado de texto del estado, para comparar dos máquinas */
+extern int ord_red;                    /* D461: 1 con una partida multijugador en marcha (ordenes.c) */
 void cmd_target(Ref e, Ref target);   /* recolectar / atacar / construir / guarnecer según el objetivo */
 int cmd_build(int player, Ref worker, EntType t, int tx, int ty);
 int cmd_train(int player, Ref bld, EntType t);

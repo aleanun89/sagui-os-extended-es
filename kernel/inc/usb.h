@@ -117,6 +117,7 @@ typedef struct usb_disp {
     uint8_t   int_intervalo;
     bool      bt;                              /* controlador Bluetooth atendido por kernel/usb/usbbt.c (D279) */
     bool      camara;                          /* cámara UVC registrada (D277) */
+    bool      ure;                             /* adaptador Ethernet USB Realtek atendido por kernel/rede/ure.c (D433) */
 } usb_disp_t;
 
 /* ---- ehci.c ---- */
@@ -371,6 +372,9 @@ int  hid_relatorio(char *s, int max);
 
 /* ---- Bluetooth (D279): kernel/usb/usbbt.c y kernel/bluetooth/ ---- */
 bool bt_usb_reconhecer(usb_disp_t *d);       /* true = es un controlador Bluetooth (clase 0xE0/0x01/0x01) y queda atendido */
+/* D433: adaptador Ethernet USB Realtek RTL8152/8153/8156 (kernel/rede/ure.c); true = es de esa familia (aunque no se use) */
+bool ure_usb_reconhecer(usb_disp_t *d);
+void ure_usb_retirado(usb_disp_t *d);
 void bt_usb_retirado(usb_disp_t *d);
 int  bt_relatorio(char *s, int max);
 

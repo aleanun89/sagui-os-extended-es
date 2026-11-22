@@ -195,12 +195,60 @@ msgstr ""
 msgid "Carpeta:"
 msgstr ""
 
-#: userland/libsagui/gui_arquivos.c:1024
+#: userland/libsagui/gui_arquivos.c:1024 userland/libsagui/gui_selcor.c:278
 msgid "Aceptar"
 msgstr ""
 
 #: userland/libsagui/gui_cinta.c:434 userland/libsagui/gui_cinta.c:434
 msgid "Más"
+msgstr ""
+
+#: userland/libsagui/gui_codigo.c:354
+msgid "Edición de texto"
+msgstr ""
+
+#: userland/libsagui/gui_codigo.c:487
+msgid "Buscar"
+msgstr ""
+
+#: userland/libsagui/gui_codigo.c:493
+msgid "sin resultados"
+msgstr ""
+
+#: userland/libsagui/gui_codigo.c:493
+msgid "Intro: siguiente · Esc: cerrar"
+msgstr ""
+
+#: userland/libsagui/gui_codigo.c:599 userland/libsagui/gui_codigo.c:884
+msgid "Escribir"
+msgstr ""
+
+#: userland/libsagui/gui_consola.c:105
+msgid "Mensajes"
+msgstr ""
+
+#: userland/libsagui/gui_consola.c:105
+msgid "Avisos"
+msgstr ""
+
+#: userland/libsagui/gui_consola.c:105
+msgid "Errores"
+msgstr ""
+
+#: userland/libsagui/gui_consola.c:110
+msgid "Copiar"
+msgstr ""
+
+#: userland/libsagui/gui_consola.c:110 userland/libsagui/gui_consola.c:112
+msgid "Limpiar"
+msgstr ""
+
+#: userland/libsagui/gui_inspetor.c:453
+msgid "Elegir color"
+msgstr ""
+
+#: userland/libsagui/gui_inspetor.c:461
+msgid "Elegir archivo"
 msgstr ""
 
 #: userland/libsagui/opcoes_kernel.c:11

@@ -1,0 +1,218 @@
+# Traducción de SaguiOS: catálogo «demoeditor», idioma plantilla (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/demoeditor.c:80
+msgid "Fondo"
+msgstr ""
+
+#: userland/programas/demoeditor.c:80
+msgid "Juego"
+msgstr ""
+
+#: userland/programas/demoeditor.c:80
+msgid "Interfaz"
+msgstr ""
+
+#: userland/programas/demoeditor.c:145 userland/programas/demoeditor.c:274
+msgid "Escena"
+msgstr ""
+
+#: userland/programas/demoeditor.c:167
+msgid "Transformación"
+msgstr ""
+
+#: userland/programas/demoeditor.c:168
+msgid "Posición X"
+msgstr ""
+
+#: userland/programas/demoeditor.c:169
+msgid "Posición Y"
+msgstr ""
+
+#: userland/programas/demoeditor.c:170
+msgid "Ancho"
+msgstr ""
+
+#: userland/programas/demoeditor.c:171
+msgid "Alto"
+msgstr ""
+
+#: userland/programas/demoeditor.c:172
+msgid "Giro"
+msgstr ""
+
+#: userland/programas/demoeditor.c:173
+msgid "Escala"
+msgstr ""
+
+#: userland/programas/demoeditor.c:174
+msgid "Apariencia"
+msgstr ""
+
+#: userland/programas/demoeditor.c:175
+msgid "Color"
+msgstr ""
+
+#: userland/programas/demoeditor.c:176
+msgid "Visible"
+msgstr ""
+
+#: userland/programas/demoeditor.c:177
+msgid "Capa"
+msgstr ""
+
+#: userland/programas/demoeditor.c:178
+msgid "Opacidad"
+msgstr ""
+
+#: userland/programas/demoeditor.c:179
+msgid "Datos"
+msgstr ""
+
+#: userland/programas/demoeditor.c:180
+msgid "Nombre"
+msgstr ""
+
+#: userland/programas/demoeditor.c:181
+msgid "Script"
+msgstr ""
+
+#: userland/programas/demoeditor.c:275
+msgid "Inspector"
+msgstr ""
+
+#: userland/programas/demoeditor.c:276
+msgid "Recursos"
+msgstr ""
+
+#: userland/programas/demoeditor.c:350
+msgid "Transformar objeto"
+msgstr ""
+
+#: userland/programas/demoeditor.c:388
+msgid "Movido"
+msgstr ""
+
+#: userland/programas/demoeditor.c:388
+msgid "Escalado"
+msgstr ""
+
+#: userland/programas/demoeditor.c:388
+msgid "Girado"
+msgstr ""
+
+#: userland/programas/demoeditor.c:425
+msgid "Cambiar propiedad"
+msgstr ""
+
+#: userland/programas/demoeditor.c:443
+msgid "Crear objeto"
+msgstr ""
+
+#: userland/programas/demoeditor.c:462
+msgid "Soltar objeto"
+msgstr ""
+
+#: userland/programas/demoeditor.c:465
+msgid "Objeto soltado"
+msgstr ""
+
+#: userland/programas/demoeditor.c:469
+msgid "Pintar casillas"
+msgstr ""
+
+#: userland/programas/demoeditor.c:480
+msgid "casillas pintadas"
+msgstr ""
+
+#: userland/programas/demoeditor.c:491
+msgid "no se puede soltar aquí"
+msgstr ""
+
+#: userland/programas/demoeditor.c:547
+msgid "Código correcto"
+msgstr ""
+
+#: userland/programas/demoeditor.c:562 userland/programas/demoeditor.c:570 userland/programas/demoeditor.c:694
+msgid "Alinear todo"
+msgstr ""
+
+#: userland/programas/demoeditor.c:573
+msgid "Objetos alineados"
+msgstr ""
+
+#: userland/programas/demoeditor.c:650
+msgid "Demo del editor"
+msgstr ""
+
+#: userland/programas/demoeditor.c:665
+msgid "Escena cargada: 4 objetos"
+msgstr ""
+
+#: userland/programas/demoeditor.c:666
+msgid "El script del jugador no se ha comprobado"
+msgstr ""
+
+#: userland/programas/demoeditor.c:667
+msgid "Ejemplo de error de la consola"
+msgstr ""
+
+#: userland/programas/demoeditor.c:694
+msgid "Deshacer"
+msgstr ""
+
+#: userland/programas/demoeditor.c:694
+msgid "Rehacer"
+msgstr ""
+
+#: userland/programas/demoeditor.c:694
+msgid "Comprobar código"
+msgstr ""
+
+#: userland/programas/demoeditor.c:694
+msgid "Guardar disposición"
+msgstr ""
+
+#: userland/programas/demoeditor.c:694
+msgid "Restaurar"
+msgstr ""
+
+#: userland/programas/demoeditor.c:694
+msgid "Imán"
+msgstr ""
+
+#: userland/programas/demoeditor.c:694
+msgid "Rejilla"
+msgstr ""
+
+#: userland/programas/demoeditor.c:760
+msgid "casillas"
+msgstr ""
+
+#: userland/programas/demoeditor.c:790
+msgid "Deshecho"
+msgstr ""
+
+#: userland/programas/demoeditor.c:791
+msgid "Rehecho"
+msgstr ""
+
+#: userland/programas/demoeditor.c:794
+msgid "Disposición guardada"
+msgstr ""
+
+#: userland/programas/demoeditor.c:796
+msgid "Disposición restaurada"
+msgstr ""
+
+#: userland/programas/demoeditor.c:837
+msgid "Casillas elegidas"
+msgstr ""
+

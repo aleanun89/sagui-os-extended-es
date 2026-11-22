@@ -4,13 +4,15 @@
  * Toda la parte gráfica usa SOLO las cabeceras estándar (GLES/gl.h, GLES/glext.h
  * y EGL/egl.h): es lo mismo que se escribiría para cualquier OpenGL ES 1.1. Lo
  * único de SaguiOS es abrir la ventana (la «ventana nativa» de EGL, al final).
- * Cuatro escenas:
+ * Cinco escenas:
  *   1 lightmap    multitextura: ladrillo × mapa de luz (GL_COMBINE, escala 2)
  *   2 particulas  fuente de partículas con sprites de puntos y tamaño por punto
  *   3 sombra      sombra plana con esténcil (cada píxel se oscurece una vez)
  *   4 reflejo     esfera con REFLECTION_MAP sobre un cubo de cielo
+ *   5 mundo       (D457) un terreno de 25 trozos en búferes (VBO), unos 50 000 vértices con niebla: con gpu3d v3
+ *                 la GPU los guarda y los transforma (no entra en la lista sin argumentos del anfitrión)
  *
- *   es11demo            ventana de 320x240; 1-4 o espacio cambian de escena, Esc cierra
+ *   es11demo            ventana de 320x240; 1-5 o espacio cambian de escena, Esc cierra
  *   es11demo -c N       la escena N (cuadro fijo) en un pbuffer de EGL: escribe su suma
  *                       (el mismo programa en el anfitrión da la misma: tests/h424_sgl_es11.py)
  *   es11demo -n N       la ventana durante N cuadros por escena y los fps de cada una
@@ -398,9 +400,103 @@ static void cena_reflexo(float t)
     desligar_tudo();
 }
 
+/* ------------------------------------------------------------ 5: un mundo en búferes (D457) */
+
+/* Un terreno de escalones (como un mundo de vóxeles) hecho de M_LADO x M_LADO trozos, cada uno en su búfer
+ * (VBO) con el vértice entrelazado (posición, textura y color de 4 bytes), que se crean una vez y se dibujan
+ * cada cuadro con glDrawArrays: unos 50 000 vértices. Con un driver gpu3d v3 la GPU los guarda y los
+ * transforma; si no, los transforma la CPU cada cuadro. Es la medida de «cuánto cuesta la geometría». */
+#define M_LADO   5
+#define M_CELDAS 12
+typedef struct { GLfloat x, y, z, s, t; GLubyte cor[4]; } mundo_v_t;
+static GLuint mundo_vbo[M_LADO * M_LADO];
+static GLsizei mundo_n[M_LADO * M_LADO];
+static int mundo_feito;
+
+static float mundo_altura(int x, int z)
+{
+    if (x < 0 || z < 0 || x >= M_LADO * M_CELDAS || z >= M_LADO * M_CELDAS) return 0.0f;
+    return (float)((x * 3 + z * 5) % 7 + ((x / 4 + z / 3) % 3) * 2) * 0.25f;
+}
+
+static mundo_v_t *mundo_quad(mundo_v_t *p, const float q[4][3], int luz, int verde)
+{
+    static const float uv[4][2] = { { 0, 0 }, { 0, 1 }, { 1, 1 }, { 1, 0 } };
+    static const int ordem[6] = { 0, 1, 2, 0, 2, 3 };
+    for (int k = 0; k < 6; k++) {
+        int i = ordem[k];
+        p->x = q[i][0]; p->y = q[i][1]; p->z = q[i][2]; p->s = uv[i][0]; p->t = uv[i][1];
+        p->cor[0] = (GLubyte)(luz - verde / 3); p->cor[1] = (GLubyte)luz; p->cor[2] = (GLubyte)(luz - verde); p->cor[3] = 255;
+        p++;
+    }
+    return p;
+}
+
+static void mundo_criar(void)
+{
+    static mundo_v_t buf[M_CELDAS * M_CELDAS * 18];
+    glGenBuffers(M_LADO * M_LADO, mundo_vbo);
+    for (int cz = 0; cz < M_LADO; cz++)
+        for (int cx = 0; cx < M_LADO; cx++) {
+            mundo_v_t *p = buf;
+            for (int j = 0; j < M_CELDAS; j++)
+                for (int i = 0; i < M_CELDAS; i++) {
+                    int x = cx * M_CELDAS + i, z = cz * M_CELDAS + j;
+                    float h = mundo_altura(x, z), hx = mundo_altura(x + 1, z), hz = mundo_altura(x, z + 1);
+                    float fx = (float)x, fz = (float)z;
+                    /* la tapa (mira hacia arriba) */
+                    const float tapa[4][3] = { { fx, h, fz }, { fx, h, fz + 1 }, { fx + 1, h, fz + 1 }, { fx + 1, h, fz } };
+                    p = mundo_quad(p, tapa, 200 + ((x ^ z) & 1) * 40, 60);
+                    /* las paredes hacia +x y +z donde cambia la altura (miran hacia el lado más bajo) */
+                    if (h > hx) { const float w[4][3] = { { fx + 1, hx, fz }, { fx + 1, h, fz }, { fx + 1, h, fz + 1 }, { fx + 1, hx, fz + 1 } }; p = mundo_quad(p, w, 150, 20); }
+                    if (h < hx) { const float w[4][3] = { { fx + 1, h, fz }, { fx + 1, h, fz + 1 }, { fx + 1, hx, fz + 1 }, { fx + 1, hx, fz } }; p = mundo_quad(p, w, 120, 20); }
+                    if (h > hz) { const float w[4][3] = { { fx, hz, fz + 1 }, { fx + 1, hz, fz + 1 }, { fx + 1, h, fz + 1 }, { fx, h, fz + 1 } }; p = mundo_quad(p, w, 170, 20); }
+                    if (h < hz) { const float w[4][3] = { { fx, h, fz + 1 }, { fx, hz, fz + 1 }, { fx + 1, hz, fz + 1 }, { fx + 1, h, fz + 1 } }; p = mundo_quad(p, w, 100, 20); }
+                }
+            int k = cz * M_LADO + cx;
+            mundo_n[k] = (GLsizei)(p - buf);
+            glBindBuffer(GL_ARRAY_BUFFER, mundo_vbo[k]);
+            glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)mundo_n[k] * (GLsizeiptr)sizeof(mundo_v_t), buf, GL_STATIC_DRAW);
+        }
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    mundo_feito = 1;
+}
+
+static void cena_mundo(float t)
+{
+    static const GLfloat neblina[4] = { 0.55f, 0.70f, 0.90f, 1 };
+    if (!mundo_feito) mundo_criar();
+    glClearColor(neblina[0], neblina[1], neblina[2], 1);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    perspectiva(1.0f, 0.3f, 80.0f);
+    glRotatef(24.0f, 1, 0, 0);
+    glRotatef(40.0f + 25.0f * seno(t * 0.4f), 0, 1, 0);
+    glTranslatef(-0.5f * M_LADO * M_CELDAS + 6.0f * seno(t * 0.3f), -7.0f, -0.5f * M_LADO * M_CELDAS);
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+    glEnable(GL_FOG);
+    glFogf(GL_FOG_MODE, GL_LINEAR); glFogf(GL_FOG_START, 12.0f); glFogf(GL_FOG_END, 42.0f);
+    glFogfv(GL_FOG_COLOR, neblina);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex_suelo);
+    glEnable(GL_TEXTURE_2D);
+    glClientActiveTexture(GL_TEXTURE0);
+    glEnableClientState(GL_VERTEX_ARRAY); glEnableClientState(GL_TEXTURE_COORD_ARRAY); glEnableClientState(GL_COLOR_ARRAY);
+    for (int k = 0; k < M_LADO * M_LADO; k++) {
+        glBindBuffer(GL_ARRAY_BUFFER, mundo_vbo[k]);
+        glVertexPointer(3, GL_FLOAT, sizeof(mundo_v_t), (const void *)0);
+        glTexCoordPointer(2, GL_FLOAT, sizeof(mundo_v_t), (const void *)12);
+        glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(mundo_v_t), (const void *)20);
+        glDrawArrays(GL_TRIANGLES, 0, mundo_n[k]);
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    desligar_tudo();
+}
+
 typedef void (*cena_f)(float);
-static const cena_f cenas[4] = { cena_lightmap, cena_particulas, cena_sombra, cena_reflexo };
-static const char *nomes[4] = { "lightmap", "particulas", "sombra", "reflejo" };
+#define N_CENAS 5
+static const cena_f cenas[N_CENAS] = { cena_lightmap, cena_particulas, cena_sombra, cena_reflexo, cena_mundo };
+static const char *nomes[N_CENAS] = { "lightmap", "particulas", "sombra", "reflejo", "mundo" };
 
 /* ------------------------------------------------------------ EGL */
 
@@ -461,12 +557,12 @@ int main(int argc, char **argv)
     if (!egl_iniciar(0)) { printf("es11demo: sin EGL\n"); return 1; }
     if (argc > 2 && !strcmp(argv[1], "-c")) {
         int n = atoi(argv[2]);
-        if (n < 1 || n > 4) return 1;
+        if (n < 1 || n > N_CENAS) return 1;
         cenas[n - 1](T_FIXO);
         printf("%s %08x\n", nomes[n - 1], soma_quadro());
     } else if (argc > 3 && !strcmp(argv[1], "-p")) {
         int n = atoi(argv[2]);
-        if (n < 1 || n > 4) return 1;
+        if (n < 1 || n > N_CENAS) return 1;
         cenas[n - 1](T_FIXO);
         static unsigned char p[L * A * 4];
         glReadPixels(0, 0, L, A, GL_RGBA, GL_UNSIGNED_BYTE, p);
@@ -502,7 +598,7 @@ int principal(int argc, char **argv)
     if (!tem_sse2()) { imprimir("es11demo: SaguiGL pide SSE2\n"); return 1; }
     if (argc > 2 && argv[1][0] == '-' && argv[1][1] == 'c') {
         int n = argv[2][0] - '0';
-        if (n < 1 || n > 4) { imprimir("es11demo: escena 1 a 4\n"); return 1; }
+        if (n < 1 || n > N_CENAS) { imprimir("es11demo: escena 1 a %d\n", N_CENAS); return 1; }
         if (!egl_iniciar(0)) { imprimir("es11demo: sin EGL (%x)\n", eglGetError()); return 1; }
         cenas[n - 1](T_FIXO);
         imprimir("%s %08x\n", nomes[n - 1], soma_quadro());
@@ -513,7 +609,7 @@ int principal(int argc, char **argv)
         /* D426: la escena N por software y por la GPU (gpu3d v1 o v2, lo que anuncie el driver): sumas y
          * cuántos píxeles se apartan más de 24 en algún canal (los bordes de los triángulos no son iguales). */
         int n = argv[2][0] - '0';
-        if (n < 1 || n > 4) { imprimir("es11demo: escena 1 a 4\n"); return 1; }
+        if (n < 1 || n > N_CENAS) { imprimir("es11demo: escena 1 a %d\n", N_CENAS); return 1; }
         if (!egl_iniciar(0)) { imprimir("es11demo: sin EGL (%x)\n", eglGetError()); return 1; }
         static unsigned char sw[L * A * 4], gp[L * A * 4];
         cenas[n - 1](T_FIXO);
@@ -544,8 +640,8 @@ int principal(int argc, char **argv)
         evento_t e;
         while (proximo_evento(j->id, &e, false)) {
             if (e.tipo == EV_FECHAR || (e.tipo == EV_TECLA && e.tecla == 27)) sair = 1;
-            else if (e.tipo == EV_TECLA && e.tecla >= '1' && e.tecla <= '4') cena = e.tecla - '1';
-            else if (e.tipo == EV_TECLA && e.tecla == ' ') cena = (cena + 1) % 4;
+            else if (e.tipo == EV_TECLA && e.tecla >= '1' && e.tecla <= '0' + N_CENAS) cena = e.tecla - '1';
+            else if (e.tipo == EV_TECLA && e.tecla == ' ') cena = (cena + 1) % N_CENAS;
         }
         float t = (float)(tempo_ms() - t0) * 0.001f;
         cenas[cena](t);
@@ -556,7 +652,7 @@ int principal(int argc, char **argv)
             if (!ms) ms = 1;
             imprimir("es11demo: %s %d cuadros en %u ms, %u fps\n", nomes[cena], quadros, ms, (unsigned)quadros * 1000u / ms);
             quadros = 0; tc = tempo_ms();
-            if (++cena == 4) sair = 1;
+            if (++cena == N_CENAS) sair = 1;
         }
     }
     egl_fim();

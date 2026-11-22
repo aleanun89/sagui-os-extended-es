@@ -15,12 +15,19 @@
 
 extern char **__argv_inicial;   /* lo guarda inicio.asm */
 
+#ifdef SAGUI_PORTABLE
+/* D459: en la capa portable (SDL 2) no hay kernel al que preguntar; la capa contesta (LANG manda). */
+int portavel_idioma(unsigned op, const void *p, unsigned n);
+#define CHAMAR_IDIOMA(op, p, n) portavel_idioma((op), (p), (n))
+#else
 static inline int chamar(unsigned n, unsigned a, unsigned b, unsigned c)
 {
     int r;
     __asm__ volatile("int $0x80" : "=a"(r) : "a"(n), "b"(a), "c"(b), "d"(c) : "memory");
     return r;
 }
+#define CHAMAR_IDIOMA(op, p, n) chamar(SIS_IDIOMA, (op), (unsigned)(p), (n))
+#endif
 
 #define VISTOS 64
 
@@ -86,7 +93,7 @@ static void iniciar(void)
     char sis[IDIOMA_MAX];
     if (!l || !*l) {
         sis[0] = 0;
-        chamar(SIS_IDIOMA, IDIOMA_LER, (unsigned)sis, sizeof sis);
+        CHAMAR_IDIOMA(IDIOMA_LER, sis, sizeof sis);
         l = sis;
     }
     catalogo_idioma_norm(l, nome);
@@ -194,7 +201,7 @@ void idioma_recargar(void) { iniciar(); }
 
 int idioma_fijar(const char *nombre)
 {
-    int r = chamar(SIS_IDIOMA, IDIOMA_FIXAR, (unsigned)nombre, 0);
+    int r = CHAMAR_IDIOMA(IDIOMA_FIXAR, nombre, 0);
     if (r < 0) return r;
     /* Este proceso sigue lo que se fijó, aunque tenga LANG en el entorno. */
     iniciado = true;

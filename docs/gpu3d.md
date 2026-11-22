@@ -12,7 +12,7 @@ driver de **Intel Gen3** y **qué probar en una máquina real**.
 
 | Capa | Dónde | Qué hace |
 | --- | --- | --- |
-| SaguiGL | `userland/libsgl/sgl.c` | matrices, luces, niebla, recorte y descarte de caras con la CPU; triángulos en coordenadas de la ventana (`gpu3d_vert_t`) |
+| SaguiGL | `userland/libsgl/sgl.c` | matrices, luces, niebla, recorte y descarte de caras con la CPU; triángulos en coordenadas de la ventana (`gpu3d_vert_t`); con un driver **v3** (D457), los dibujos desde VBO los transforma la GPU |
 | Capa común | `kernel/gui/gpu3d.c`, `kernel/gui/gpu3d_mem.c`, `kernel/inc/gpu3d.h` | elige el driver, autoprueba, dueño del motor, vigilante, medida, llamadas `INFO_GPU3D*` |
 | Driver | `kernel/dispositivos/gpu3d_*.c` | traduce a las órdenes de su GPU |
 
@@ -135,6 +135,8 @@ la variante del driver) e `INFO_*` 71 a 74.
 | 2026-11-15 | D284 (sin cambio de interfaz): driver `gpu3d_r600`, que arranca en `GPU3D_APAGADO`; modo 4 de `CAB_GPU3D` (`--gpu3d=radeon`); `INFO_GPU3D_CTL` e `INFO_GPU3D_PROVA` solo para el administrador |
 | 2026-11-16 | D358 (se amplía, nada incompatible): bit `0x40` de `CAB_GPU3D` (`GPU3D_CAB_GTT`, RAM del sistema en el GTT) que llega al driver en `variante` (los que no lo usan lo ignoran); `INFO_GPU3D_CTL` acepta 3 (lotes + GTT) y 4 (anillo + GTT); `info_gpu3d_t.variante` pasa a bits `GPU3D_VAR_*` de `abi.h` (el 1 sigue siendo «anillo») con lo que de verdad quedó, y `reservado[0]` = KB de RAM en el GTT; `gpu3d_intel_estado()` en `gpu3d.h`. `gpu3d_driver_t` no cambia |
 | 2026-11-20 | D432 (se amplía, nada incompatible): **presentar sin volver a la RAM**: operación 14 (`GPU3D_OP_APRESENTAR`, `gpu3d_apresentar_t`), bit `G3D_CAP_APRESENTAR` (0x00400000), una función más al final de `gpu3d_driver_t` (`apresentar`, puede ser `NULL`), `info_gpu3d_t.reservado[3..5]`. Ver «Presentar sin volver a la RAM» |
+| 2026-11-21 | D438 (sin cambio de interfaz): driver `gpu3d_intel9` (Intel Gen9 por el RCS con execlists), apagado hasta `gpu3d probar`; `--gpu3d=intel` (modo 3) también lo deja «sin probar» en estas tarjetas |
+| 2026-11-22 | D457 (se amplía, nada incompatible): **gpu3d v3** (operaciones 15-18: búferes de vértices residentes, transformación por la GPU), `gpu3d_capas_t.bits3`, dos funciones más al final de `gpu3d_driver_t` (`vbuf`, `desenhar3`, pueden ser `NULL`). Ver «gpu3d v3» |
 | 2026-11-20 | D425 (se amplía, nada incompatible): **gpu3d v2** (operaciones 8-13, estado de varias unidades, esténcil, DXT, cubos, destino = textura) y bits de capacidad; cinco funciones nuevas al final de `gpu3d_driver_t` que pueden ser `NULL`. Ver «gpu3d v2» |
 
 ### Cómo añadir un driver (como se hizo con las Radeon R7xx, D284)
@@ -350,6 +352,297 @@ de vez en cuando vuelve solo a la GPU.
 | --- | --- |
 | 2026-11-20 | Primera versión de gpu3d v2 (D425): operaciones 8 a 13, `gpu3d_capas_t`, `gpu3d_estado2_t`, `gpu3d_unidade_t`, `gpu3d_vert2_t`, `gpu3d_textura2_t`, `gpu3d_limpar2_t`, bits `G3D_CAP_*`, cinco funciones al final de `gpu3d_driver_t`, `info_gpu3d_t.reservado[1..2]`. Ningún driver la usa todavía; nada de v1 cambia |
 | 2026-11-20 | (a petición de los drivers, D426) `G3D_CAP_TEX_NPOT` pasa a ser «sin mipmaps» y hay un bit nuevo, `G3D_CAP_TEX_NPOT_MIP` (0x00200000), para lados no potencia de 2 con mipmaps; la capa lo comprueba en `ESTADO2` con el tamaño del hueco. `GPU3D_OP_ABRIR`: `c` = bits de Z \| bits de esténcil << 8 (SaguiGL pide 8 salvo que EGL diga 0); la capa quita el esténcil antes de `alvo()` y, con esténcil, pide Z de 24 (Z24S8). Ningún driver cambia |
+
+## gpu3d v3: la GPU guarda los vértices y los transforma (D457)
+
+Hasta la v8.5.5.2 SaguiGL transformaba cada vértice con la CPU (matrices, niebla, recorte, paso a la pantalla) y mandaba al
+kernel vértices ya en píxeles: en un mundo de 55 000 vértices por cuadro (Brumacanto) eso, y copiarlos a la cola de la tarjeta, es
+lo que limita los fps en la X1400 y en la HD 4500. Con **v3**, que **se añade a v2 sin cambiarla**, los vértices viven en la
+memoria de la GPU y la GPU hace la transformación:
+
+- un driver sin v3 **sigue igual** (`gpu3d_capas_t.bits3` = 0) y SaguiGL le manda lo de siempre;
+- un driver con v3 anuncia lo que sabe en `bits3` y **la capa lo pone a prueba contra la CPU** antes de dejar que se use;
+- la parte de los **píxeles no cambia**: un dibujo v3 usa el último `ESTADO2` aceptado (texturas, combinación, prueba alfa,
+  Z, mezcla...), así que el programa de píxeles de v2 de cada driver sirve tal cual. v3 pide `G3D_CAP_V2`.
+
+### Lo que ve el programa (`kernel/inc/abi.h`)
+
+| Operación | Qué hace |
+| --- | --- |
+| `GPU3D_OP_VBUF` (15) | `ptr` = `gpu3d_vbuf_t` (32 bytes): crea (`G3D_VB_NOVO`), sube un trozo o suelta (`bytes` = 0) un **búfer residente** de vértices (`G3D_VB_VERTICES`) o de índices de 16 bits (`G3D_VB_INDICES16`) en un hueco (`GPU3D_VBUFS` = 512) |
+| `GPU3D_OP_TRANSF` (16) | `ptr` = `gpu3d_transf_t` (580 bytes): la transformación de los dibujos siguientes |
+| `GPU3D_OP_DESENHAR3` (17) | `ptr` = `gpu3d_desenho3_t` (80 bytes): dibuja desde los búferes con el último `ESTADO2` y la última `TRANSF` |
+| `GPU3D_OP_LUZES` (18) | `ptr` = `gpu3d_luzes_t` (880 bytes): luces y material de ES 1.1 para `G3D3_LUZ`. **La ABI está definida y ningún driver la anuncia todavía** |
+
+Devuelven 0, `GPU3D_SEM_SUPORTE` (ese dibujo, por la CPU), **`GPU3D_EXPULSO`** (2: «ese búfer no está en la GPU: súbelo otra vez
+entero y repite»; no es un fallo) o un error (< 0).
+
+**`gpu3d_transf_t`** (todo lo que es coma flotante va como bits de `float`; matrices por columnas, como en GL):
+
+| Campo | Qué es |
+| --- | --- |
+| `mvp[16]` | recorte = `mvp` × posición. La GPU **recorta** a −w ≤ x, y, z ≤ w y divide por w |
+| `mv[16]` | ojo = `mv` × posición: para la niebla (distancia al ojo) y, cuando las haya, las luces |
+| `vp_escala[3]`, `vp_desloc[3]` | la vista: `x = ndc.x × escala[0] + desloc[0]` en píxeles del destino con el origen arriba a la izquierda (`escala[1]` < 0), `z` de 0 a 1. La vista tiene que caer **dentro del destino** (la capa lo comprueba) |
+| `descarte` | caras que no se dibujan, por el **signo del área en la pantalla** `(x1−x0)(y2−y0) − (x2−x0)(y1−y0)` con la y hacia abajo: `G3D_DESC_POS` (> 0) o `G3D_DESC_NEG` (< 0). SaguiGL lo saca de `glCullFace`/`glFrontFace` |
+| `flags` | `G3D3_NEBLINA` (niebla por vértice: `f = saturar(neb_a − d × neb_b)` con d = distancia al ojo; `G3D_NEB_EXP/EXP2` con `G3D_C3_NEB_EXP`), `G3D3_NEB_MEZCLADA` (la niebla ya mezclada en el vértice: `color.rgb × f` y `espec.rgb = neb_cor × (1 − f)`, para un `ESTADO2` sin `G3D2_NEBLINA`, D451; sin el bit, `f` va en el byte alto de `espec`, como en v2), `G3D3_TEX_MAT(u)` (la unidad u multiplica su coordenada por `tex[u]`), `G3D3_LUZ` |
+| `cor`, `tc_const[4][4]`, `normal_const` | el valor de un atributo que el dibujo no trae en un array |
+
+**`gpu3d_desenho3_t`**: `modo` (`G3D_PRIM_TRIANGULOS`, `TIRA`, `ABANICO`), `primeiro`, `n` (hasta `GPU3D_MAX_VERT3` = 65535),
+`indices` (un hueco `G3D_VB_INDICES16` o `GPU3D_SEM_INDICES`) y los **atributos** (`gpu3d_atrib_t`: hueco, formato, paso y
+desplazamiento, múltiplos de 4): `pos` (`G3D_AT_FLOAT2/3/4`), `cor_a` (`G3D_AT_UBYTE4N`, cuatro bytes R, G, B, A, o
+`G3D_AT_FLOAT4`), `normal_a` y `tc[4]` (`FLOAT2/3/4`). Los atributos van **con el dibujo y no con la transformación**: un mundo
+de cientos de búferes con el mismo formato es una sola `TRANSF` y **un `DESENHAR3` (80 bytes) por búfer**.
+
+### Bits de capacidad (`gpu3d_capas_t.bits3`)
+
+| Bit | Qué significa |
+| --- | --- |
+| `G3D_C3_V3` | búferes residentes, transformación, recorte, vista, descarte, color (bytes o constante) y coordenadas |
+| `G3D_C3_NEBLINA` | niebla lineal por vértice, en las dos salidas |
+| `G3D_C3_NEB_EXP` | niebla exponencial |
+| `G3D_C3_TEX_MAT` | matriz de textura |
+| `G3D_C3_INDICES` | dibujos con índices de 16 bits |
+| `G3D_C3_TIRAS` | tiras y abanicos |
+| `G3D_C3_COR_FLOAT` | color en `G3D_AT_FLOAT4` |
+| `G3D_C3_LUZ`, `G3D_C3_LUZ_ESPEC`, `G3D_C3_LUZ_FOCO` | luces por vértice (`max_luzes`): **nadie las anuncia todavía** |
+
+`gpu3d_capas_t` sigue midiendo 64 bytes (`bits3`, `vbufs` y `max_luzes` salen de los reservados). `reservado[0..4]` de la respuesta
+lleva, para `gpu3d` e `infopc`: el resultado de la autoprueba v3 (0 sin hacer, 1 bien, 2 | escena << 8) | lo que anunció el driver
+<< 16, los búferes en la GPU, sus KB, las expulsiones y los dibujos desde búferes.
+
+### Lo que hace la capa (`kernel/gui/gpu3d.c`)
+
+- **Contabilidad**: de cada hueco, su capacidad, cuánto se ha subido (un prefijo sin huecos: no se dibuja desde memoria sin
+  escribir), el mayor índice (búferes de índices) y cuándo se usó por última vez.
+- **Expulsión**: si el driver no tiene sitio para un búfer nuevo (`G3D_NAO`), la capa suelta el que lleva más tiempo sin
+  usarse y repite, hasta que quepa o no quede ninguno. El programa lo nota porque el siguiente dibujo con el búfer expulsado
+  devuelve `GPU3D_EXPULSO`; SaguiGL lo sube otra vez y repite. El registro avisa de la primera expulsión.
+- **Validación antes del driver**: cada atributo tiene que caber en lo subido a su búfer para todos los vértices del dibujo
+  (con índices, para el mayor índice del búfer); matrices finitas; la vista dentro del destino; nada que el driver no anunciara.
+- Las subidas grandes se copian en trozos de 64 KB con `gpu3d_respirar` entre ellos (el sonido no se corta, D436).
+- **Autoprueba v3** (al encender, tras la de v1, y con `gpu3d probar`): tres escenas en el destino de 128x96 (perspectiva con
+  recorte por los lados y por el plano cercano, color por vértice y Z; índices, tira y descarte de caras; textura con matriz y
+  niebla). Cada una se dibuja por el `desenhar3` del driver y **por la CPU** (`g3d_v3_cpu` + su `desenhar2`) y se comparan las
+  dos imágenes (se toleran 28 por canal y un 3 % de píxeles de borde). Si no cuadran, **v3 queda apagado y el 3D sigue encendido
+  por v2**; en `dmesg`: `[GPU3D] v3: escena N (nombre): FALLO; M pixeles distintos...` y el peor píxel con lo que dio la GPU y
+  lo que dio la CPU. Solo si la GPU deja de responder se apaga todo, como siempre. `gpu3d probar --detalle` lo dice de las tres.
+
+### La transformación por la CPU (`kernel/gui/gpu3d_v3.c`)
+
+Es v3 hecho con enteros: coma flotante IEEE de 32 bits **por software** (multiplicar, sumar, dividir y raíz con redondeo al más
+próximo: iguales bit a bit a las del procesador, comprobado con millones de valores en `tests/g3d_v3_unidad.c`), búsqueda de los
+atributos con comprobación de límites, recorte, proyección y descarte; entrega triángulos v2. La usan el **driver simulado** de
+QEMU (su v3 es esto más su v2) y la autoprueba de la capa. No hace luces ni niebla exponencial (`G3D_V3_CPU_BITS3`).
+
+### Lo que debe hacer un driver
+
+Dos funciones más al final de `gpu3d_driver_t` (las dos o ninguna) y `bits3` en `capacidades()`:
+
+```c
+int (*vbuf)(int vaga, uint32_t bytes, uint32_t desloc, const void *dados, uint32_t n);
+int (*desenhar3)(const g3d_desenho3_t *d, g3d_vala_t *vala);
+```
+
+`vbuf`: con `dados` NULL y `bytes` > 0 crea el hueco (`G3D_NAO` si no cabe: la capa expulsa y repite); con `dados`, copia; con
+`bytes` 0, suelta. Para repartir la memoria hay una pieza común, **`g3d_vbmonte_t`** (`gpu3d_mem.c`): el driver pide un bloque
+grande a su arena (que solo tiene 48 bloques) y el montón lo reparte por huecos. `desenhar3` recibe el `ESTADO2`, la `TRANSF`,
+el dibujo ya validado y el mayor vértice que puede leer. Lo que no pueda en un caso concreto, `G3D_NAO` (SaguiGL lo repite por
+la CPU). Las salidas de la etapa de vértices son las de un vértice v2 (posición, color, especular con el factor de niebla en el
+alfa, y las coordenadas de cada unidad).
+
+### Qué hace SaguiGL (`userland/libsgl/sgl_es.c`, `es_v3_desenhar`)
+
+Un `glDrawArrays`/`glDrawElements` va por v3 si **todos los arrays activos están en búferes (VBO)** y: triángulos (o tiras y
+abanicos con `G3D_C3_TIRAS`), posición `GL_FLOAT`, color de 4 `GL_UNSIGNED_BYTE` (o 4 `GL_FLOAT`) o constante, coordenadas
+`GL_FLOAT`, índices `GL_UNSIGNED_SHORT` en un búfer de elementos, sin luces, sin planos de recorte, sin `glPolygonOffset`, sin
+sombreado plano, sin generación de coordenadas ni paleta de matrices, niebla de GL lineal, la vista dentro de la ventana, y el
+estado de píxeles cabe en v2. Si no, ese dibujo va como siempre (la CPU transforma, v2/v1/software): las dos formas pintan en
+el mismo destino. Cada VBO se sube **una vez** (`glBufferData`), `glBufferSubData` sube **solo el trozo**, y un `GPU3D_EXPULSO`
+se resuelve subiendo otra vez (con los huecos donde caigan). Si lo de un cuadro no cabe en la memoria de la GPU (tres cuadros seguidos
+con más de 24 subidas por expulsión), v3 se deja en ese contexto y se sueltan sus búferes: expulsar en cada dibujo es mucho más lento
+que transformar con la CPU. `ESTADO2` y `TRANSF` solo se mandan cuando cambian. `SAGUI_GL_V3=0` lo quita (para comparar).
+
+> Un mismo objeto dibujado en dos pasadas, una por v3 y otra por la CPU, puede tener el Z distinto en el último bit (dos
+> aritméticas): si aparece «lucha de Z» en una pasada de detalle, es eso.
+
+### Estado por driver
+
+| Driver | v3 | Estado |
+| --- | --- | --- |
+| **simulado** (`gpu3d_sim.c`) | `G3D_V3_CPU_BITS3` (todo menos luces y niebla exponencial) | ✅ en QEMU (`tests/h457_gpu3d_v3.py`). «Registros» de prueba en `gpu3d-simulado.conf`: `inicio 1014 N` (N KB de memoria para búferes, en hexadecimal), `inicio 1018 1` (transforma mal: la autoprueba v3 lo nota), `inicio 101c 1` (sin v3) |
+| **Radeon R5xx** (`gpu3d_r500.c`, X1400 del Amilo) | `V3`, `NEBLINA`, `TEX_MAT`, `TIRAS`, `COR_FLOAT` (sin índices) | ✅ **probado en el Amilo** (2026-11-22, revisión de D457). Se anuncia solo y decide la autoprueba v3; `inicio 4ff0 4000` en `/sistema/conf/gpu3d-r500.conf` lo quita. Medidas abajo |
+| **Radeon R6xx/R7xx** (`gpu3d_r600.c`, HD 4500 del HP) | `V3`, `NEBLINA`, `TEX_MAT`, `INDICES`, `TIRAS`, `COR_FLOAT` | ✅ **probado en el HP** (RV710 `1002:9553`, 2026-11-22): autoprueba v3 con 0 píxeles distintos en las tres escenas. Solo se anuncia sola en esa tarjeta; en otra R6xx/R7xx, `inicio 28ffc 2` en `/sistema/conf/gpu3d-r600.conf` (y decide la autoprueba). Ver abajo |
+| **Intel Gen9** (`gpu3d_intel9.c`, UHD 620 del Dell) | `V3`, `NEBLINA`, `TEX_MAT`, `INDICES`, `TIRAS`, `COR_FLOAT` (`0x23b`) | ✅ **probado en el Dell** (2026-11-22): autoprueba v3 con 0 píxeles distintos en las tres escenas. Ver «Intel Gen9: cómo está hecho» abajo |
+| Evergreen, Intel Gen3 | — | sin hacer: siguen con v2 o v1 (la CPU transforma) |
+
+### Radeon R5xx: cómo está hecho y qué probar en el Amilo
+
+- Los búferes van en un **montón de la mitad de lo libre de la zona, hasta 64 MB** (en el Amilo, 58 MB) dentro de la zona de la VRAM
+  del 3D (se pide con el primer búfer y se devuelve cuando no queda ninguno, para no quitar sitio a las texturas de quien no usa VBO;
+  con los 4 MB de la primera versión el mundo de Brumacanto no cabía y cada dibujo expulsaba otro búfer). Se escriben por la ventana móvil, en
+  write-combining si se puede (como las texturas, D432), tras esperar a que la GPU termine lo pendiente.
+- El dibujo: `VAP_VF_MAX/MIN_VTX_INDX`, `3D_LOAD_VBPNTR` (un array por atributo, con la dirección en el mapa de la tarjeta, el
+  tamaño y el paso en palabras) y `3D_DRAW_VBUF_2`.
+- La etapa de vértices: `PROG_STREAM_CNTL` por array (floats de 2, 3 o 4; el color como 4 bytes normalizados), un **programa del
+  PVS generado** (`r5_vs_gerar`, `r500_pacotes.h`): 4 `DOT` con las filas de la MVP para la posición; para la niebla, 3 `DOT` con
+  la modelo-vista, `DOT`, `RSQ`, `MUL`, `MAD`, `MAX`, `MIN`; 2 `DOT` por juego con matriz de textura), `VAP_VTE_CNTL` con la w
+  de verdad y las escalas de la vista (`SE_VPORT_*`), `VAP_CLIP_CNTL` con el recorte encendido y `SU_CULL_MODE`. El
+  rasterizador y el programa de píxeles son los de v2. Valores comprobados contra `r300_reg.h`, `r300_emit.c`, `r300_render.c`,
+  `r300_state.c` y `compiler/r3xx_vertprog.c` de Mesa 23.3.6, incluida la regla de que una instrucción no lee dos entradas ni dos
+  constantes distintas.
+- Tras un dibujo v3, el siguiente de v1 o v2 **vuelve a poner** su etapa de vértices (sin recorte, sin vista, sin descarte) con
+  el vaciado y la espera de D451 delante. Cambiar de programa de vértices o de constantes lleva ese mismo vaciado.
+- En el PC: `tests/r500_v3_unidad.c` ejecuta el programa generado con un simulador del PVS y lo compara con la cuenta de ES 1.1
+  (240 combinaciones), y revisa las órdenes. **No puede saber si la X1400 entiende esas palabras igual**: eso es la autoprueba v3.
+
+**Probado en el Amilo** (X1400 `1002:7145`, 2026-11-22, kernel de prueba con `arranque probar`, sin confirmar; revisión de
+D457 por `depurador-drivers`). Primera vez: la GPU no se colgaba, pero la autoprueba v3 fallaba en la escena 0 (quads negros al
+azar, **también en la referencia por v2**: dibujada dos veces daba 1751 píxeles distintos) y en la escena 1 (pintaba la tira
+contraria). Causas y arreglos: `US_PIXSIZE` no cubría el registro que escribe el RS cuando no hay texturas (D457, revisión) y el
+convenio de `SU_CULL_MODE` era el contrario. Después: **autoprueba v3 BIEN, las tres escenas con 0 píxeles distintos**, en cuatro
+encendidos seguidos; `es11demo -g 5` con 1160 píxeles distintos del software (por v2, 1154: los bordes), 25 dibujos desde 25
+búferes, sin expulsiones.
+
+| Medida (vista 64 en Brumacanto, 300 cuadros) | sin v3 (`SAGUI_GL_V3=0`) | con v3 |
+| --- | --- | --- |
+| `es11demo -n 300`: lightmap / partículas / sombra / reflejo | 27 / 297 / 58 / 25 | 27 / 297 / 59 / 25 (no usan VBO) |
+| `es11demo -n 300`: **mundo** (61 488 vértices en 25 VBO) | 46 | **206** |
+| Brumacanto en ventana (1000x562), escala 100 / 50 | 8,4 / 9,4 | **9,7 / 21,3** |
+| Brumacanto a pantalla completa (1024x768), escala 100 / 50 | 8,5 / 10,9 | **13,4 / 26,2** |
+
+El peor cuadro de Brumacanto sigue en 410-470 ms con y sin v3 (al hacer la malla de un trozo nuevo: es de la CPU). Con la escala
+al 100 % el cuello pasa a ser rellenar los píxeles (y en ventana, traer el cuadro a la RAM); con la escala al 50 %, v3 da ×2,3-2,4.
+
+| Qué se ve | Qué quiere decir | Qué probar |
+| --- | --- | --- |
+| `[GPU3D] v3 ...: autoprueba BIEN` y `gpu3d` dice «vertices por la GPU (v3, D457): si» | funciona | — |
+| `v3: escena 1 (...): FALLO` y las escenas 0 y 2 bien | el descarte de caras está al revés en esa tarjeta | `inicio 4ff0 1000` (la otra convención) |
+| `v3: escena N: FALLO` | lo que sea: mirarlo | `gpu3d probar --detalle --guardar --ver 0`: en `dmesg` salen los **mapas** de las dos imágenes (`v3 mapa N`, CPU a la izquierda y GPU a la derecha) y si la referencia es estable (`leida otra vez`, `dibujada otra vez`) |
+| `apagado: la GPU no respondio a tiempo en la autoprueba de gpu3d v3` | el CP se quedó parado (como en D451) | `inicio 4ff0 2802` (vaciado y espera delante de cada dibujo v3, sincronizado) y `gpu3d encender` |
+
+`inicio 4ff0 4000` quita v3 (la CPU transforma, como antes de la D457). El antiguo `800` ya no hace falta y no hace nada.
+
+### Radeon R6xx/R7xx: cómo está hecho y qué probar en el HP
+
+- **Búferes:** un montón de hasta 64 MB (la mitad de lo libre) en la parte grande de la zona del 3D, sin ventana fija de la CPU;
+  se escribe por la ventana móvil, a trozos de 4 MB, en write-combining si hay PAT (`20` en las banderas lo quita), tras esperar a
+  que la GPU termine lo pendiente. Tras una subida, el siguiente dibujo vacía la caché de vértices (en la RV710 y la RV610, la de
+  texturas) sobre el montón (`SURFACE_SYNC`). En el HP: 57 MB, el mundo de Brumacanto (vista 64) ocupa 10 MB en 96 búferes, sin
+  expulsiones.
+- **El sombreador de vértices** se genera por formato (`r63d_vs3_gerar`, `r600_3d_pacotes.c`; caché de 8 en la página de
+  sombreadores, `0x9000`-`0xCFFF`): una cláusula de lecturas (un recurso por atributo, el `160 + k`, con el índice en `R0.x`) y el
+  ALU: 4 `DOT4` con las filas de la MVP; para la niebla, 3 `DOT4` con la modelo-vista, `DOT4` del ojo consigo mismo, `SQRT_IEEE`
+  (en la ranura t) y `MULADD` saturado; 4 `DOT4` por juego con matriz de textura; el color de floats saturado o el constante.
+  Las salidas son las del de v2 (`PARAM0` color, `PARAM1` especular con la niebla en el alfa, `PARAM2-5` los juegos), así que el
+  programa de píxeles de v2 no cambia. Las constantes (30) van al «constant file» del sombreador de vértices (`SET_ALU_CONST` desde
+  la 256; el estado base ya pone `SQ_CONFIG.DX9_CONSTS`) y solo se mandan cuando cambia la `TRANSF`.
+- **El rasterizador** (al pasar a v3; se deshace al volver a v1/v2 o al presentar): `PA_CL_CLIP_CNTL` con el recorte encendido
+  (espacio de GL, atributos interpolados en el espacio de recorte), `PA_CL_VTE_CNTL` con las seis escalas de la vista y la w de
+  verdad, `PA_CL_VPORT_*` de la `TRANSF` y `PA_SU_SC_MODE_CNTL` con `CULL_FRONT` para `G3D_DESC_POS` (cara de delante: la de las
+  agujas del reloj en la pantalla; `8` en las banderas, la otra convención). El dibujo: `DRAW_INDEX_AUTO` o, con índices,
+  `DRAW_INDEX` desde el búfer (16 bits); `VGT_PRIMITIVE_TYPE` 4/6/5.
+- Contrastado con Mesa 23.3.6 (`r600_sq.h`, `r600d.h`, `r600_isa.c`, `r600_asm.c`: las reglas de los puertos de lectura y del
+  «constant file», que en las R7xx son 2 parejas de canales por grupo; `r600_state.c`, `r600_state_common.c`, `r600_formats.h`) y
+  xf86-video-ati (`r600_shader.c`, `r600_exa.c`, `r600_reg_r6xx.h`: las constantes del sombreador de vértices desde la 256 y el
+  origen `ALU_SRC_CFILE_BASE`); todo MIT, solo valores y reglas.
+- En el PC: `tests/r600_v3_unidad.c` (en `h457 unidad`) genera 600 programas al azar (formatos, niebla, unidades, matrices; R6xx y
+  R7xx), los lee con un decodificador propio, los ejecuta con un simulador del ALU y los compara con la cuenta de ES 1.1; revisa
+  también los puertos, la ranura t y las órdenes.
+
+**Banderas** (`/sistema/conf/gpu3d-r600.conf`, `inicio 28ffc N`, se suman; `28ffc` no es un registro y no se escribe): `1` sin v3;
+`2` v3 en una tarjeta sin confirmar; `4` cada dibujo v3 se espera y se dice (`r600 v3 sinc`); `8` el descarte al revés; `10` sin
+índices; `20` los búferes sin write-combining. `gpu3d probar --detalle` añade la línea `r600 detalle (...): v3 (D457): ...`
+(dibujos, transformaciones, subidas, montón, sombreadores generados).
+
+**Medido en el HP dv7** (HD 4530, RV710; kernel de esta rama con `arranque probar`, 2026-11-22):
+
+| Prueba | Sin v3 (`SAGUI_GL_V3=0`) | Con v3 |
+| --- | --- | --- |
+| `es11demo -n 300`: lightmap, partículas, sombra, reflejo | 714, 526, 750, 25 fps | 714-731, 526-535, 731-750, 26 fps (no usan VBO: igual) |
+| `es11demo -n 300`: mundo (61 488 vértices en 25 VBO) | **45 fps** | **461-476 fps** |
+| `es11demo -g 5` (mundo, GPU frente a software) | — | 791 píxeles distintos de 76 800 (bordes) |
+| Brumacanto `--bench 300 --view 64`, en ventana | 9,3 y 9,3 fps | 35,5-38,0 fps con la CPU a 2100 MHz (P0); 19,2-22,6 a 1050 MHz (P1) |
+| Brumacanto `--bench 300 --view 64 --fullscreen` | 10,4 y 5,4 fps | 46,1-46,2 fps en P0; 24,1-31,4 si la CPU baja a P1 |
+
+**Por qué Brumacanto daba 19 o 37 fps** (revisión de `depurador-drivers`, 2026-11-22): no es el driver, es la temperatura del HP.
+Con v3 el cuadro lo limita la CPU (la espera de la valla es ~1,3 ms de ~26 ms por cuadro, `r600 detalle`), y el HP baja la CPU
+a P1 (1050 MHz) al pasar de 77 °C (`frecuencia`: «LIMITADA POR TEMPERATURA»; los `Notify(\_PR_.CPU0, 0x80)` del registro). Con
+`frecuencia` antes y después de cada medida: en P0 siempre 35,5-38 fps (ventana) y 46 (pantalla completa) con 96 subidas; en P1,
+19,2-22,6 con 102 subidas. Las 6 subidas de más son consecuencia, no causa: con cuadros más lentos el paseo del bench llega a
+generar más trozos del mundo; se suben una vez cada uno (ninguna subida repetida, 0 expulsiones, 0 peticiones no atendidas).
+**Para medir, mirar `frecuencia` antes y después y descartar las medidas en P1.**
+
+Con la GART apagada (`gpu3d encender sin-gtt`, 2026-11-22): autoprueba v3 BIEN, `es11demo -g 5` 791 píxeles distintos (lo mismo),
+`es11demo -n 300` «mundo» 46 fps (lo limita leer el cuadro de la VRAM sin caché, no v3), Brumacanto en ventana 15,8 fps (en P1).
+
+**Qué ejecutar en el HP** (o en otra R6xx/R7xx; ahí, antes, `echo 'inicio 28ffc 2' > /sistema/conf/gpu3d-r600.conf`):
+
+```
+volumen 10
+gpu3d probar --detalle; gpu3d                 # «vertices por la GPU (v3, D457): si (bits 0x23b)»
+dmesg | grep -E 'v3' > /home/v3.txt
+es11demo -g 5; es11demo -n 300; SAGUI_GL_V3=0 es11demo -n 300
+brumacanto --seed Prueba --size 160x160x48 --view 64 --bench 300     # BRUMA_BENCH en dmesg
+```
+
+| Qué se ve | Qué quiere decir | Qué probar |
+| --- | --- | --- |
+| `v3: escena 1 (...): FALLO` y las otras bien | el descarte de caras al revés en esa tarjeta | `inicio 28ffc 8` (con `2` si no está confirmada: `a`) |
+| `v3: escena 0: FALLO` con casi todos los píxeles distintos | no lee los arrays o no ejecuta el programa | `inicio 28ffc 4` (cada dibujo se espera y se dice) y mandar `dmesg` |
+| solo falla la escena 1 por los índices | `DRAW_INDEX` | `inicio 28ffc 10` |
+| `apagado: la GPU no respondio a tiempo en la autoprueba de gpu3d v3` | el CP se quedó parado | `inicio 28ffc 1` (sin v3) y mandar `dmesg` |
+
+### Intel Gen9: cómo está hecho y qué probar en el Dell
+
+- **Sombreador de vértices SIMD8 generado** (`i9_vs_gerar`, `intel9_3d_pacotes.c`) con el mismo ensamblador que los de
+  píxeles: cada canal es un vértice; entrada g0, g1 (asideros de la URB), las constantes empujadas desde g2 y detrás los
+  atributos del VF (4 registros cada uno); 4 filas de la MVP con MUL/ADD, la niebla con 3 filas de la modelo-vista, `MATH SQRT`
+  y `sat(neb_a - d·neb_b)` (en el alfa del especular o mezclada en el color), dos filas de la matriz de textura por unidad;
+  sale la misma VUE que escribía el VF en v1/v2 (cabecera, posición, color, especular, (s, t) de cuatro unidades) por
+  mensajes URB SIMD8 de dos ranuras, la cabecera copiada de g1 con NoMask y el último con EOT desde g112. Caché de 8
+  sombreadores de 4 KB en la zona (`Z_KV`). Hasta 149 instrucciones.
+- **Constantes** por el búfer 3 de `3DSTATE_CONSTANT_VS` (dirección entera; en Gen9 valen con el
+  `3DSTATE_BINDING_TABLE_POINTERS_VS` de detrás), solo cuando cambian. `DispatchGRFStartRegisterForURBData` = 2: las
+  constantes y los atributos van juntos («URB portion (Constant + Vertices)»); con 2 + nc no salía nada en el Dell.
+- **Recorte, división por w, vista y descarte de caras por la GPU**: `3DSTATE_CLIP` (ClipEnable, ViewportXYClipTest, sin banda
+  de guarda: lo que se sale de la vista se recorta), `3DSTATE_SF` (ViewportTransformEnable), `SF_CLIP_VIEWPORT` con la vista
+  de la `TRANSF`, `3DSTATE_RASTER` con el Z cercano y lejano y `CullMode` (área > 0 en la pantalla = sentido horario = FRONT
+  con FrontWinding CW, como anv). Al volver a un dibujo v1/v2 se apagan con una espera del cauce delante.
+- **Búferes residentes en RAM con caché**: un montón de 16 MB (o lo que haya seguido) mapeado en la PPGTT en `0x3C000000` con
+  el índice 4 del PAT (WB en la LLC, como el destino de D448); la CPU sube con `memcpy` y el VF lee con MOCS 1. Se crea con el
+  primer búfer y se queda hasta apagar el 3D. Un búfer por atributo en `3DSTATE_VERTEX_BUFFERS` (con su tamaño: el VF no lee
+  fuera), índices de 16 bits con `3DSTATE_INDEX_BUFFER`, tiras y abanicos con `3DSTATE_VF_TOPOLOGY`.
+- Banderas nuevas de `/sistema/conf/gpu3d-intel9.conf` (`inicio fff0 N`): `100000` no anuncia v3, `200000` descarte de caras al
+  revés (diagnóstico), `400000` cada dibujo v3 en su tanda esperada (las 8 primeras, al registro: `intel9 v3 sinc`); `200` también
+  vacía de la caché de la CPU cada subida. `gpu3d probar --detalle` da los dibujos v3, las subidas y el montón.
+
+**Qué ejecutar en el Dell** (kernel con `arranque probar`; el 3D arranca apagado: `gpu3d probar` primero; `volumen 10`):
+
+```
+gpu3d probar --detalle; dmesg | grep "v3" > /home/v3.txt
+es11demo -g 5; es11demo -n 300; SAGUI_GL_V3=0 es11demo -n 300
+brumacanto --seed Prueba --size 160x160x48 --bench 300 --view 64 [--fullscreen]   (y con SAGUI_GL_V3=0)
+```
+
+Medido el 2026-11-22 (kernel k457, programas de la rama en `/home/v3`): `es11demo` mundo 119 → 1666 fps (otra vez, más caliente:
+86 → 1153), `-g 5` 736 píxeles distintos de 76 800; Brumacanto vista 64 en ventana 28,9 → 84,9 fps, a pantalla completa 13,8 →
+30,6 (ahí manda presentar: leer el cuadro de 1920x1080 3 ms, copiarlo a la ventana 2 ms y el compositor; el driver no tiene
+`apresentar`). Ojo: el Dell se calienta (paquete a 98 °C) y baja la CPU a x4; con el 3D apagado todo va por software (3 fps).
+
+Revisión de `depurador-drivers` (2026-11-22, kernel `k457r1` = la rama con dos arreglos del 2D y del gobernador, nada de v3):
+los paquetes de `3DSTATE_VS`, `3DSTATE_CLIP`, `3DSTATE_SF`, `3DSTATE_RASTER`, `SF_CLIP_VIEWPORT` y `3DSTATE_CONSTANT_VS`
+coinciden campo a campo con `gen80.xml`/`gen90.xml` de Mesa; banda de guarda apagada; NoMask en la cabecera del mensaje URB
+como `emit_urb_writes`. Medido otra vez en frío: autoprueba v3 BIEN (`0x23b`), mundo 1875 fps (v2 116), `-g 5` 736 píxeles
+distintos (v2 733: es de la escena), Brumacanto 88,7 fps en ventana (v2 28,6) y 42,4 a pantalla completa (v2 22,7, ya
+caliente). La bandera `200` no hace falta. Detalle en D457, «Revisión de v3 en Intel».
+
+### Cambios en la interfaz
+
+| Fecha | Cambio |
+| --- | --- |
+| 2026-11-22 | Intel Gen9 anuncia v3 (D457, «v3 en Intel»): sin cambios en la interfaz |
+| 2026-11-22 | Primera versión de gpu3d v3 (D457): operaciones 15 a 18, `gpu3d_vbuf_t`, `gpu3d_atrib_t`, `gpu3d_transf_t`, `gpu3d_luz_t`, `gpu3d_luzes_t`, `gpu3d_desenho3_t`, `gpu3d_capas_t.bits3/vbufs/max_luzes` (de los reservados), `GPU3D_EXPULSO`, dos funciones al final de `gpu3d_driver_t` (`vbuf`, `desenhar3`), `G3D_BUF_VERTICES` y `g3d_vbmonte_t`. Nada de v1 ni de v2 cambia |
 
 ## Presentar sin volver a la RAM (D432)
 
@@ -591,6 +884,112 @@ secuencias; código propio (`docs/terceros.md`). Nada del driver i915 de Linux c
   por vértice): por eso los contextos en memoria (`sgl_criar_contexto_mem`), que usan las pruebas
   de píxeles, siguen por software salvo que se pida la GPU con `sgl_gpu_ligar()`.
 - Las líneas van como rectángulos de un píxel; los puntos no están.
+
+## Intel Gen9-12 (3D) — Skylake, Kaby Lake, Coffee/Whiskey/Comet Lake (D438)
+
+`kernel/dispositivos/gpu3d_intel9.c` + `intel9_3d_pacotes.c` / `kernel/inc/intel9_3d.h` (ensamblador mínimo de las EU, los dos
+sombreadores, las órdenes de una tanda y los workarounds: lógica pura, probada en el PC con `tests/intel9_3d_unidad.c`) + la imagen del
+contexto del RCS en `acel_intel_logica.h` (la de i915). **Probado en el Dell con UHD 620 (`8086:3ea0`, 2026-11-21): las 8 pruebas
+BIEN, 330.943 triángulos/s, 1951 puntos, `sgldemo -g` BIEN en las 7 escenas** (D438, «Resultado en hardware»). Solo arranca en **Gen9** (la lista exacta de D434: Skylake,
+Kaby Lake, Coffee, Whiskey, Amber y Comet Lake; la UHD 620 `8086:3ea0` del portátil de pruebas). Ice Lake (Gen11) y Tiger/Alder Lake (Gen12)
+contestan «todavía no»: el codificador ya sabe sus formatos, faltan sus workarounds (D438).
+
+- **No se enciende sola**, como las Radeon: `gpu3d` la muestra «apagado»; `gpu3d probar` o `gpu3d encender` la ponen en marcha con la
+  autoprueba; `--gpu3d=intel` al grabar la imagen la deja «sin probar» (se prueba con el primer programa que abra el motor).
+- **Cómo dibuja:** por el **motor de render (RCS)** con execlists (el mismo envío que el 2D de D434, que va por el BCS: motores distintos).
+  Por **lotes** (D448): cada tanda lleva el estado fijo una vez (`PIPELINE_SELECT`, `STATE_BASE_ADDRESS`, URB, L3, `3DSTATE_*`), tantos
+  dibujos como quepan (de cada uno solo el estado que cambia) y acaba con un PIPE_CONTROL que vacía color, Z y datos y escribe la marca.
+  Se manda al leer el cuadro, al esperar, al cambiar destino o textura o al llenarse; la CPU monta la siguiente mientras la GPU dibuja.
+  Al mandar trabajo pide al PCU la frecuencia máxima (RP0; sin esto la GPU se queda en 100 MHz) y vuelve a la del firmware tras 1 s
+  sin trabajo. El sombreador de vértices va apagado (los vértices llegan ya en píxeles, como blorp de Mesa) y los de
+  píxeles son dos, SIMD8, escritos a mano en la ISA de las EU: `color + especular` y `textura x color + especular`.
+- **Memoria:** de 4 a 16 MB de la memoria robada detrás de la pantalla y de las zonas del 2D. La CPU la ve por la apertura, en WC lo
+  que solo escribe (estado, anillo, vértices, texturas) y sin caché lo que lee. El **destino de color va en RAM del sistema con caché**
+  (hasta 8 MB, mapeado solo en la PPGTT con WB en la LLC, D448): leer el cuadro cuesta lo que copiar memoria. El Z va en mosaico Y (la
+  CPU no lo ve).
+- **Si algo falla:** `STOP_RING`, los registros del motor al log y todo sigue por software. Si una tanda no terminó, el 3D no se vuelve a
+  encender hasta reiniciar. Nunca se reinicia la GPU ni se toca la pantalla.
+
+### Encendido por etapas y cómo leer el log
+
+`[GPU3D] intel9: etapa N` es el paso que se está haciendo; si el encendido falla, `gpu3d probar` dice `etapa N (nombre): motivo`. Después
+vienen la autoprueba común (0 a 7) y la medida.
+
+| Etapa / línea | Qué significa | Qué mirar |
+| --- | --- | --- |
+| `etapa 0 (sonda de solo lectura)`: `el modelo ... no esta en la lista` / `Gen11/12 todavia no` | no es una Gen9 de la lista | el id PCI |
+| `etapa 0`: `GTT de la pantalla: ...`, `no caben 4 MB de zona 3D en la memoria robada` | el GOP no dejó la pantalla en páginas seguidas, o la memoria robada (DVMT) es pequeña | las líneas `memoria robada ... MB`, `reservada`; subir la DVMT en la BIOS |
+| `etapa 0`: `el plano N del pipe X ... usa la memoria de la zona 3D` | otra superficie del firmware está donde iría la zona | la línea del motivo |
+| `etapa 1 (zona y GTT)`: `no quedo mapeada` / `no guarda lo escrito` | las entradas del GTT nuevas no valen o la apertura no llega a esa memoria | `zona 3D de N KB en la grafica ... (fisica ...)` |
+| `etapa 2 (forcewake)`: `forcewake ... sin respuesta` | la GPU no despierta el dominio de render o el del GT | los acuses |
+| `etapa 3 (RCS sin uso)`: `el RCS ya esta en uso` | alguien (firmware, otro sistema) dejó el RCS en marcha | `EXECLIST_STATUS`, `RING_CTL` |
+| `etapa 4`: líneas `wa REG: antes -> despues` | los workarounds de Gen9; `MOCS 0 ... L3CC 0 ...` | si se cuelga aquí o después, probar las banderas 1, 2 y 20 |
+| `etapa 5 (contexto y tanda vacia)`: `la tanda ... no termina` | el RCS no acepta el contexto (imagen, PPGTT, ELSP) o no escribe la marca | las líneas `tras el plazo` (HEAD, ACTHD, EXECLIST, CSB) |
+| `etapa 6 (estado 3D sin dibujo)`: `no termina la tanda del estado 3D` | una orden del estado 3D cuelga el RCS | `IPEHR` (la orden), `INSTDONE`, `EIR` |
+| `el motor marco un error (EIR ..., RING_FAULT ...)` | orden no válida o fallo de página (dirección fuera de la PPGTT) | `TLB` (las dos palabras del fallo) |
+| autoprueba, prueba 0 o 1 | no salen píxeles: el VF, el SBE o el sombreador de píxeles | `--ver` (D390): ¿la sentinela `a1b2c3` sigue intacta? |
+| prueba 2 o 7 (Z) | el Z en mosaico Y (`3DSTATE_DEPTH_BUFFER`) | |
+| prueba 3 (mezcla) | `BLEND_STATE` y `3DSTATE_PS_BLEND` | |
+| prueba 4 (textura) | la superficie de la textura o el muestreador; o la coherencia de lo que escribe la CPU | bandera 20 (MOCS) |
+| prueba 5 o 6 (interpolado, especular) | las baricéntricas o los datos de los atributos (g4-g9) | |
+
+Ajustes (D390) en `/sistema/conf/gpu3d-intel9.conf`: `inicio REG VALOR` para los registros 0x7000-0x73FC, 0xB000-0xB1FC y 0xE000-0xE8FC
+(por LRI en cada tanda) y `inicio fff0 N` con banderas (no es un registro): `1` sin los workarounds del RCS, `2` sin los del GT, `4` sin los
+de contexto, `8` sin el inhibidor de la carga del contexto, `10` las primeras 16 tandas al log, `20` sin tocar el MOCS 0 y 1. D448: `40` un
+lote por dibujo, `80` la zona sin caché, `100` el destino en la zona, `200` vaciar la caché de la CPU antes de leer el destino en RAM,
+`400` sin guardar el contexto, `800` marcas de tiempo de la GPU en cada tanda (`[GPU3D] intel9 perfil: ...`), `1000` sin pedir RP0,
+`2000`/`4000`/`8000` pruebas (R_PWR_CLK_STATE, L3 con caché, L3CNTLREG una vez). `11c0` = el comportamiento de D438, para comparar.
+
+Medidas (D448): cada 600 cuadros, `[GPU3D] intel9 cada 600 cuadros: ...` dice por cuadro las tandas, los dibujos y los microsegundos
+esperando a la GPU, copiando el cuadro y montando; `gpu3d probar --detalle` añade la frecuencia (`frecuencia N MHz ... en RP0`), el PAT,
+el MOCS y los totales. Si el cuadro sale con píxeles viejos o mezclados, probar `inicio fff0 200` (y después `100`).
+
+### Qué probar en el portátil UHD 620 (Whiskey Lake, `8086:3ea0`, UEFI)
+
+Con un kernel de esta rama **que lleve también if_ure** (D433: si no, se pierde la red por la Ethernet USB y el SSH). El 2D (D434) y el 3D
+son independientes: el 3D se prueba aunque el 2D esté en la CPU. Por SSH o en una terminal, como administrador:
+
+```
+acel2d
+gpu3d                      (debe decir «apagado» y «Intel Gen9 8086:3ea0»)
+gpu3d probar --detalle     (las 7 etapas y las 8 pruebas)
+dmesg > /home/intel9.txt
+```
+
+Si dice **BIEN**: `sgldemo -g` (SaguiGL por software contra la GPU, escena a escena), `sgldemo -n 600 -s` (fps por la GPU),
+`sgldemo -p 300 --mem --gpu` (el paisaje) y `gpu3d apagar; sgldemo -n 600 -s; sgldemo -p 300 --mem` (por software), para comparar con
+lo de D448 (4285 y 70-75 fps por la GPU, 2857 y 25 por software); con `inicio fff0 11c0` se vuelve a D438; `infopc --bench-gpu`, `gpu3d encender` (tiene que volver a encender sin reiniciar) y otro
+`dmesg > /home/intel9-2.txt`. Mover ventanas mientras gira el cubo de `sgldemo` (con el escritorio). Al final, reiniciar con normalidad.
+
+Si **falla**: la línea `etapa N` o `prueba N` y el `dmesg` (se trae con `scp`). Si se cuelga en una etapa, probar una vez con
+`/sistema/conf/gpu3d-intel9.conf` = `inicio fff0 23` (sin los workarounds por MMIO ni el MOCS) y otra con `inicio fff0 8`, reiniciando
+entre una y otra (tras un cuelgue el 3D no se vuelve a encender hasta reiniciar). Si la máquina deja de responder (no debería: solo se usa el
+RCS), reiniciar: nada queda grabado.
+
+### gpu3d v2 en Gen9 (D453)
+
+`desenhar2`, `textura2`, `limpar2` y `capacidades` (sin `destino`). El sombreador de píxeles se **genera de la combinación** de las
+unidades (`i9_ps2_gerar`: hasta 4 unidades con todas las `G3D_CB_*`, DOT3, escalas 1/2/4, constantes como inmediatos, especular y niebla)
+y se guarda en una caché de 32 huecos de 4 KB en la zona (un hueco que usa el lote abierto no se pisa; si lo usa la tanda en la GPU, se
+espera). El resto es estado de función fija de Gen9: prueba alfa (`BLEND_STATE` + `COLOR_CALC_STATE`, con `PixelShaderKillsPixel`),
+esténcil de 8 bits aparte del Z (mosaico W, `3DSTATE_STENCIL_BUFFER`), las 8 funciones del Z, tijera (`SCISSOR_RECT`, siempre encendida
+con el destino entero si no se pide), máscara de canales, mezcla con factores ampliados, aparte para el alfa y con resta, operación
+lógica, espejo, NPOT y **mipmaps** (la disposición «2D» de Gen4-9, en mosaico Y o lineal con la bandera `20000`, `MIP Count`,
+`Mip Tail Start LOD` 15 como isl, filtro de mipmaps y `Max LOD`). El sombreador va con **Vector Mask Enable** (`3DSTATE_PS`, como
+Mesa antes de XeHP): sin él los píxeles «ayudantes» de cada 2x2 no calculan sus coordenadas y el LOD de los 2x2 a medio cubrir sale de
+basura (en el Dell se leía otro nivel). El esténcil en mosaico W se programa con el paso al doble del ancho (como isl).
+Un lote puede mezclar dibujos de v1 (32 bytes por vértice) y de v2 (88): al cambiar de formato se pone otro búfer de vértices.
+
+Se anuncia solo lo que pasa las pruebas comunes en la máquina (`g3d_v2_provas.c`, al encender): en el Dell UHD 620, todo lo candidato
+(`gpu3d probar` y `dmesg | grep "intel9 v2"`: «se anuncian ... de ...»). La bandera `10000` de `gpu3d-intel9.conf` no anuncia v2; `40000` baja el LOD un nivel y `80000` (diagnóstico) llena las texturas con mipmaps
+de un patrón con su (x, y) de la disposición, para ver en el log de la prueba 15 dónde lee la GPU.
+No hace todavía: cubos, anisótropo, DXT, coordenadas proyectivas ni dibujar en una textura (SaguiGL los hace por software).
+
+### Qué no hace todavía
+
+Cubos, anisótropo, DXT, coordenadas proyectivas y destino en textura de gpu3d v2 (D453); Gen11 y Gen12; destinos y
+texturas de más de 2048x2048; filtro de mipmaps; el destino en mosaico Y (más relleno, pero habría que deshacer el mosaico al leer); un
+gobernador de frecuencia común con el 2D y RC6.
 
 ## Radeon R6xx y R7xx (HD 2000-4000: R600, RV610-RV670; RV710, RV730, RV740, RV770) — D284, D357
 
@@ -1077,7 +1476,7 @@ para comparar, y `sgldemo -p 300 --texturas 16`, `--texturas 64` para ver cuánd
 - D432: probar `APRESENTAR` en las tres Radeon; doble búfer con cambio de base del CRTC (sin desgarro); presentar en
   ventana (hoy solo a pantalla completa); que SaguiGL/EGL la use; subida parcial de texturas para los programas que
   pintan en la superficie de la ventana; que la captura de pantalla vea el cuadro de la GPU.
-- Gen4 en adelante (X3100, GM45, HD Graphics): otra tubería.
+- Gen4 a Gen8 (X3100, GM45, HD Graphics hasta Broadwell): otra tubería. Gen9: D438 (`gpu3d_intel9`); Gen11 y Gen12, después.
 
 
 ## 2D por la GPU sin ser administrador (D346)

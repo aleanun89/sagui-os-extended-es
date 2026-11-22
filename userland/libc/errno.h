@@ -41,9 +41,17 @@ extern int errno;
 #define EPIPE   32
 #define EDOM    33
 #define ERANGE  34
+#define EDEADLK 35
 #define ENAMETOOLONG 36
+#define ENOLCK  37
 #define ENOSYS  38
 #define ENOTEMPTY 39
+#define ELOOP   40
+#define ENODATA 61
+#define ETIME   62
+#define EPROTO  71
+#define EBADMSG 74
+#define EOVERFLOW 75
 #define EILSEQ  84
 #define ENOTSUP 95
 #define EOPNOTSUPP ENOTSUP
@@ -65,6 +73,7 @@ extern int errno;
 #define EISCONN 106
 #define ENOTCONN 107
 #define EALREADY 114
+#define ECANCELED 125
 /* Pasa un código de error del SaguiOS (ERRO_*, negativo) a uno de POSIX. */
 int __ns_errno_de(int erro_sagui);
 #endif

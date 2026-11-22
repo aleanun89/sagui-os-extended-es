@@ -135,6 +135,7 @@ void mp_thread_finish(void) { eu()->estado = HILO_ACABADO; }
 /* Donde empieza el hilo: la pila trae un retorno falso (0) y el registro. */
 static void inicio_hilo(hilo_py_t *h)
 {
+    sagui_hilo_sin_sinais();   /* los tratadores de signal solo corren en el hilo principal (D419) */
     h->entrada(h->arg);
     hilo_sair(0);
 }
@@ -254,6 +255,18 @@ void mp_thread_mutex_unlock(mp_thread_mutex_t *m)
 {
     if (hilos && e_o_gil(m)) fotografar(&eu()->ao_soltar);
     soltar(m);
+}
+
+/* Tras un fork (os.fork, D419) el hijo tiene un solo hilo: los otros hilos de Python
+ * no existen en su espacio. Se olvidan (sus pilas quedan sin liberar: el hijo suele
+ * hacer exec o salir enseguida) y el GIL se deja como cogido solo por quien llama,
+ * sin turnos para nadie más. */
+void sagui_hilos_pos_fork(void)
+{
+    hilos = NULL;
+    mp_thread_mutex_t *g = &MP_STATE_VM(gil_mutex);
+    g->proximo = g->servindo + 1;
+    g->esperando = 0;
 }
 
 /* El hilo principal acaba el programa: desde aquí, con el GIL en la mano, se

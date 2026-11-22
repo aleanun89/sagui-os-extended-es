@@ -76,6 +76,18 @@ int   opcao_socket(int fd, int opcao, unsigned valor);
 int   tempo_limite(int fd, unsigned ms);
 int   resolver(const char *nome, uint32_t *ip);
 int   config_rede(int op, config_rede_t *c);
+/* procesos POSIX y señales (D401), ficheros no bloqueantes */
+int   bifurcar(void);
+int   substituir(const char *caminho, char *const argv[], char *const envp[]);
+int   esperar_pid(int pid, int *estado, int opcoes);
+int   sinal_op(int op, unsigned a, unsigned b, unsigned c);
+int   descritor_op(int fd, int op, unsigned arg);
+int   criar_pipe(int fds[2]);
+int   duplicar(int antigo, int novo);
+int   meu_pid(void);
+int   usuario_op(int op, int a, int b);
+int   info_sistema(int tipo, void *buf, unsigned n);
+int   sondar(sondagem_t *v, unsigned n, int ms);
 
 /* ---- texto: o terminal e os arquivos do SaguiOS são Latin-1; o str do
  * MicroPython é UTF-8 (D068) ---- */
@@ -111,6 +123,13 @@ void sagui_iniciar_padrao(void);   /* olha o que é a entrada padrão (antes de 
 
 /* Um objeto de arquivo sobre um descritor que não é nosso (socket.makefile). */
 mp_obj_t sagui_arquivo_de_fd(int fd, bool texto);
+
+/* ---- señales (sinais_sagui.c, D419) ---- */
+extern volatile int sagui_sinais_pend;      /* 1 = hay un tratador de Python por llamar */
+void sagui_rodar_tratadores(void);          /* llama a los tratadores pendientes (puede levantar una excepción) */
+void sagui_hilo_sin_sinais(void);           /* un hilo secundario bloquea todas: los tratadores solo corren en el principal */
+void sagui_hilos_pos_fork(void);            /* mpthreadport.c: el hijo de un fork deja solo su hilo */
+int  sagui_abrir_nulo(bool escrita);        /* os_sagui.c: «/dev/null» (no existe en el SGFS): pipe vacío o archivo temporal borrado */
 
 /* ---- rede (rede_sagui.c) ---- */
 extern const mp_obj_type_t sagui_tipo_timeout;   /* socket.timeout */

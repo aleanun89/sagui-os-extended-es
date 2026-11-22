@@ -1,0 +1,42 @@
+# Traducción de SaguiOS: catálogo «snake», idioma pt_BR (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/snake.c:194
+msgid "PUNTOS"
+msgstr "PONTOS"
+
+#: userland/programas/snake.c:195
+msgid "RECORD"
+msgstr "RECORDE"
+
+#: userland/programas/snake.c:196
+msgid "NIVEL"
+msgstr "NÍVEL"
+
+#: userland/programas/snake.c:205
+msgid "Flechas / WASD  Mover     Espacio / P  Pausa     Esc  Salir"
+msgstr "Setas / WASD  Mover     Espaço / P  Pausa     Esc  Sair"
+
+#: userland/programas/snake.c:208
+msgid "Pulsa Espacio para empezar"
+msgstr "Pressione Espaço para começar"
+
+#: userland/programas/snake.c:210
+msgid "Pausa. Espacio para seguir"
+msgstr "Pausa. Espaço para continuar"
+
+#: userland/programas/snake.c:212
+msgid "Fin de partida. Espacio para repetir"
+msgstr "Fim de jogo. Espaço para repetir"
+
+#: userland/programas/snake.c:214
+msgid "Tablero completo. Espacio para repetir"
+msgstr "Tabuleiro completo. Espaço para repetir"
+

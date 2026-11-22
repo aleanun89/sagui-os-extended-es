@@ -3,6 +3,8 @@
 /* AoEN - aplicación: ventana, bucle del juego, partidas guardadas y escenas de desarrollo y de prueba.
  * La interfaz está en ui_comun.c (controles), ui_menu.c (menús), ui_hud.c (partida) y ui_paneles.c (paneles). */
 #include "interfaz.h"
+#include "red.h"
+#include "ordenes.h"
 #include "config.h"
 #include "efectos.h"
 #include "hilos.h"
@@ -668,6 +670,7 @@ int main(int argc, char **argv) {
 			case SDL_MOUSEWHEEL: in.wheel += ev.wheel.y; break;
 			case SDL_KEYDOWN:
 				if (app.screen == SC_SETUP && setup_tecla(ev.key.keysym.sym)) break;
+				if ((app.screen == SC_MP || app.screen == SC_SALA || app.screen == SC_GAME) && ui_red_tecla(ev.key.keysym.sym)) break;   /* D461 */
 				if (!ev.key.repeat && ev.key.keysym.scancode < 512) in.key[ev.key.keysym.scancode] = 1;
 				if (ev.key.keysym.sym == SDLK_f && (ev.key.keysym.mod & KMOD_CTRL) && !ev.key.repeat) { hud_rend_alternar(); break; }   /* D436 */
 				if (ev.key.keysym.sym == SDLK_F11 || (ev.key.keysym.sym == SDLK_RETURN && (ev.key.keysym.mod & KMOD_ALT))) {
@@ -677,6 +680,7 @@ int main(int argc, char **argv) {
 				break;
 			case SDL_TEXTINPUT:
 				if (app.screen == SC_SETUP) setup_tecla_texto(ev.text.text);
+				else if (app.screen == SC_MP || app.screen == SC_SALA || app.screen == SC_GAME) ui_red_texto(ev.text.text);   /* D461 */
 				break;
 			}
 		}
@@ -686,6 +690,7 @@ int main(int argc, char **argv) {
 		in.foco = (SDL_GetWindowFlags(win) & SDL_WINDOW_MOUSE_FOCUS) != 0;
 		app.us = fx_escala_ui(gfx_real_w(), gfx_real_h());
 		prueba_paso(frame);
+		ui_red_auto(frame);   /* D461 */
 		{
 			static int last_w, last_h, last_s;
 			if (gfx_real_w() != last_w || gfx_real_h() != last_h || app.us != last_s) {
@@ -699,7 +704,17 @@ int main(int argc, char **argv) {
 		last = now;
 		if (paso_fijo) dt = 1.0f / 30;   /* D393: también las partículas y los avisos, para que el cuadro no dependa del reloj */
 
-		if (app.screen == SC_GAME && W.nents) {
+		if (red_abierta()) red_tick();   /* D461: sala y partida en red */
+		if (app.screen == SC_GAME && W.nents && ord_red) {
+			/* D461: en red el juego avanza por turnos (red.c): no se acumula tiempo aquí ni la pausa del menú lo detiene */
+			PERF_INI();
+			red_avanzar(dt);
+			PERF_FIN(PERF_SIM);
+			app.game_speed = red_velocidad();
+			audio_ambience_tick(dt);
+			fx_actualizar(dt);
+			avisos_actualizar(dt);
+		} else if (app.screen == SC_GAME && W.nents) {
 			if (!app.paused && !W.over) {
 				accum += dt * app.game_speed;
 				int steps = 0;
@@ -711,7 +726,7 @@ int main(int argc, char **argv) {
 				audio_ambience_tick(dt);
 				fx_actualizar(dt);
 				avisos_actualizar(dt);
-				if (W.time - app.last_autosave >= 300.0f && !W.over) { app.last_autosave = W.time; do_save(0); }
+				if (W.time - app.last_autosave >= 300.0f && !W.over && !ord_red) { app.last_autosave = W.time; do_save(0); }
 			}
 		}
 
@@ -744,9 +759,11 @@ int main(int argc, char **argv) {
 		case SC_SETUP: gfx_ui_begin(app.us); draw_setup(); break;
 		case SC_OPTIONS: gfx_ui_begin(app.us); draw_options(); break;
 		case SC_SAVES: gfx_ui_begin(app.us); draw_saves(); break;
+		case SC_MP: gfx_ui_begin(app.us); draw_mp(); break;     /* D461 */
+		case SC_SALA: gfx_ui_begin(app.us); draw_sala(); break;
 		case SC_GAME:
 			if (!W.nents) { app.screen = SC_MENU; gfx_ui_begin(app.us); break; }
-			if (!app.paused && !W.over) game_input(dt);
+			if (!app.paused && !W.over && !ui_red_chat_activo()) game_input(dt);
 			if (!W.nents || app.screen != SC_GAME) { gfx_ui_begin(app.us); break; }
 			render_world(top_h * app.us, bottom_h * app.us);
 			if (gpu_ativo) { gpu_capa_empezar(); capa_gpu = 1; }   /* D436: la interfaz, en la capa que se pone encima */
@@ -760,6 +777,7 @@ int main(int argc, char **argv) {
 			gfx_ui_begin(app.us);
 			if (app.paused || W.over) { int c = in.mclick, d = in.mdown; in.mclick = 0; in.mdown = 0; paneles_cerrar(); draw_hud(); tip_cancelar(); in.mclick = c; in.mdown = d; }
 			else { draw_hud(); draw_panel_abierto(); }
+			if (ord_red || red_estado() != RED_NADA) ui_red_hud();   /* D461 */
 			if (W.over) draw_endscreen();
 			else if (app.paused) draw_pause();
 			break;
@@ -883,6 +901,7 @@ int main(int argc, char **argv) {
 	}
 
 	hilos_parar();
+	red_cerrar();   /* D461 */
 	world_free();
 	audio_shutdown();
 	assets_free();

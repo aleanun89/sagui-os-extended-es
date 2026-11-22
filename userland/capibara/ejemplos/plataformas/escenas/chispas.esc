@@ -1,0 +1,17 @@
+# Una ráfaga de partículas que se borra sola (chispas.lua).
+[Particulas Chispas]
+una_vez = si
+emitiendo = si
+cantidad = 14
+vida = 0.5
+vida_azar = 0.4
+velocidad = 40 110
+angulo = -90
+dispersion = 200
+gravedad = 260
+tamano_part = 3 1
+color_inicial = "#ffe060"
+color_final = "#ff6020"
+aditivo = no
+z = 5
+guion = "guiones/chispas.lua"

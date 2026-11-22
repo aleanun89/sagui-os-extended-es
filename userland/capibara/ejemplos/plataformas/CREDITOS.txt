@@ -1,0 +1,8 @@
+Capibara: plataformas - ejemplo del motor Capibara (licencia MIT del código y de los guiones).
+
+Gráficos: «Pixel Platformer» (1.2) de Kenney (www.kenney.nl), licencia Creative Commons Zero (CC0 1.0):
+  img/tilemap.png     = Tilemap/tilemap_packed.png
+  img/personajes.png  = Tilemap/tilemap-characters_packed.png
+El texto de la licencia de Kenney está en LICENCIA-Kenney.txt. Los gráficos se usan sin cambios.
+
+Sonidos y músicas (audio/*.wav): sintetizados por tools/generar_sonidos.py (obra propia, MIT/CC0).

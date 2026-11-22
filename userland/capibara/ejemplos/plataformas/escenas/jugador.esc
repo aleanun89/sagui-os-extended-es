@@ -1,0 +1,15 @@
+# El personaje: un cuerpo cinemático (se mueve con mover_y_deslizar) con su dibujo.
+[Cuerpo Jugador]
+forma = "caja" 12 18
+desplazamiento_forma = 0 3
+capa = 2
+mascara = 1
+grupo = "jugador"
+guion = "guiones/jugador.lua"
+[Sprite Dibujo padre=.]
+textura = "img/personajes.png"
+cuadricula = 9 3
+animacion = "quieto" 2 si 0
+animacion = "andar" 9 si 0 1
+animar = "quieto"
+z = 2

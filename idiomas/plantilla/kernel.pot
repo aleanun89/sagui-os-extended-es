@@ -8,140 +8,140 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: kernel/dispositivos/acpi.c:340
+#: kernel/dispositivos/acpi.c:372
 msgid "Botón de encendido: apagando el ordenador..."
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:44 kernel/gui/area_trabalho.c:1165 kernel/gui/barra.c:1201
+#: kernel/gui/area_trabalho.c:45 kernel/gui/area_trabalho.c:1189 kernel/gui/barra.c:1201
 msgid "Archivos"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:45 kernel/gui/area_trabalho.c:1164 kernel/gui/barra.c:1260
+#: kernel/gui/area_trabalho.c:46 kernel/gui/area_trabalho.c:1188 kernel/gui/barra.c:1267
 msgid "Terminal"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:46 kernel/gui/area_trabalho.c:1166
+#: kernel/gui/area_trabalho.c:47 kernel/gui/area_trabalho.c:1190
 msgid "Editor"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:47 kernel/gui/area_trabalho.c:1167 kernel/gui/barra.c:1202
+#: kernel/gui/area_trabalho.c:48 kernel/gui/area_trabalho.c:1191 kernel/gui/barra.c:1202
 msgid "Calculadora"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:48
+#: kernel/gui/area_trabalho.c:49
 msgid "Banana"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:49 kernel/gui/barra.c:1257
+#: kernel/gui/area_trabalho.c:50 kernel/gui/barra.c:1264
 msgid "Sagui 3D"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:50 kernel/gui/barra.c:1569
+#: kernel/gui/area_trabalho.c:51 kernel/gui/barra.c:1576
 msgid "Acerca de"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:51 kernel/gui/area_trabalho.c:210
+#: kernel/gui/area_trabalho.c:52 kernel/gui/area_trabalho.c:211
 msgid "Pendrive"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:52
+#: kernel/gui/area_trabalho.c:53
 msgid "Tareas"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:53
+#: kernel/gui/area_trabalho.c:54
 msgid "Visor"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:54 kernel/gui/barra.c:1218
+#: kernel/gui/area_trabalho.c:55 kernel/gui/barra.c:1220
 msgid "Paint"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:55 kernel/gui/barra.c:1258
+#: kernel/gui/area_trabalho.c:56 kernel/gui/barra.c:1265
 msgid "CHIP-8"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:56 kernel/gui/barra.c:1265
+#: kernel/gui/area_trabalho.c:57 kernel/gui/barra.c:1272
 msgid "Configuración"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:57 kernel/gui/barra.c:1266
+#: kernel/gui/area_trabalho.c:58 kernel/gui/barra.c:1273
 msgid "Discos"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:60 kernel/gui/barra.c:1268
+#: kernel/gui/area_trabalho.c:61 kernel/gui/barra.c:1275
 msgid "Instalar SaguiOS"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1037
+#: kernel/gui/area_trabalho.c:1061
 msgid "El pendrive no está montado: puedes retirarlo."
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1056 kernel/gui/area_trabalho.c:1057
+#: kernel/gui/area_trabalho.c:1080 kernel/gui/area_trabalho.c:1081
 msgid "Abrir"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1056
+#: kernel/gui/area_trabalho.c:1080
 msgid "Quitar con seguridad"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1096
+#: kernel/gui/area_trabalho.c:1120
 msgid "Resolución"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1117
+#: kernel/gui/area_trabalho.c:1141
 msgid "No se pudo cambiar la resolución."
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1169 kernel/gui/barra.c:1261
+#: kernel/gui/area_trabalho.c:1193 kernel/gui/barra.c:1268
 msgid "Administrador de tareas"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1170
+#: kernel/gui/area_trabalho.c:1194
 msgid "Configuración de pantalla..."
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1171
+#: kernel/gui/area_trabalho.c:1195
 msgid "Añadir widgets..."
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1173 kernel/gui/janelas.c:470
+#: kernel/gui/area_trabalho.c:1197 kernel/gui/janelas.c:480
 msgid "Editar widgets"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1177
+#: kernel/gui/area_trabalho.c:1201
 msgid "Ordenar iconos"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1179
+#: kernel/gui/area_trabalho.c:1203
 msgid "Por nombre"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1181
+#: kernel/gui/area_trabalho.c:1205
 msgid "Por tipo"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1183
+#: kernel/gui/area_trabalho.c:1207
 msgid "Por fecha"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1185
+#: kernel/gui/area_trabalho.c:1209
 msgid "Alinear a la rejilla"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1186
+#: kernel/gui/area_trabalho.c:1210
 msgid "Organización automática"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1190 kernel/gui/barra.c:1513
+#: kernel/gui/area_trabalho.c:1214 kernel/gui/barra.c:1520
 #, c-format
 msgid "Acerca de %s"
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1203
+#: kernel/gui/area_trabalho.c:1227
 msgid "Este pendrive no está en FAT32, exFAT ni ext2/ext4: formato no soportado."
 msgstr ""
 
-#: kernel/gui/area_trabalho.c:1204
+#: kernel/gui/area_trabalho.c:1228
 msgid "No se pudo montar el pendrive."
 msgstr ""
 
@@ -451,6 +451,10 @@ msgid "Educación"
 msgstr ""
 
 #: kernel/gui/barra.c:1191
+msgid "Programación"
+msgstr ""
+
+#: kernel/gui/barra.c:1191
 msgid "Juegos"
 msgstr ""
 
@@ -487,347 +491,375 @@ msgid "Markdown"
 msgstr ""
 
 #: kernel/gui/barra.c:1210
-msgid "Mico (editor de código)"
+msgid "Visor de registros"
 msgstr ""
 
 #: kernel/gui/barra.c:1211
-msgid "VisualPythonS (diseñador)"
+msgid "Ayuda"
 msgstr ""
 
 #: kernel/gui/barra.c:1212
-msgid "Explorador SQLite"
+msgid "Mico (editor de código)"
 msgstr ""
 
 #: kernel/gui/barra.c:1213
-msgid "Explorador lite-monkey"
+msgid "VisualPythonS (diseñador)"
 msgstr ""
 
 #: kernel/gui/barra.c:1214
-msgid "Pluma (procesador de textos)"
+msgid "Explorador SQLite"
 msgstr ""
 
 #: kernel/gui/barra.c:1215
-msgid "Traductor"
+msgid "Explorador lite-monkey"
 msgstr ""
 
 #: kernel/gui/barra.c:1216
-msgid "Macaco (hoja de cálculo)"
+msgid "Pluma (procesador de textos)"
 msgstr ""
 
 #: kernel/gui/barra.c:1217
-msgid "Tucán (presentaciones)"
+msgid "Traductor"
+msgstr ""
+
+#: kernel/gui/barra.c:1218
+msgid "Macaco (hoja de cálculo)"
 msgstr ""
 
 #: kernel/gui/barra.c:1219
-msgid "Visor de imágenes"
-msgstr ""
-
-#: kernel/gui/barra.c:1220
-msgid "PlanoMini (CAD 2D)"
+msgid "Tucán (presentaciones)"
 msgstr ""
 
 #: kernel/gui/barra.c:1221
-msgid "Visor de PDF"
+msgid "Visor de imágenes"
 msgstr ""
 
 #: kernel/gui/barra.c:1222
-msgid "Reproductor de vídeo"
+msgid "PlanoMini (CAD 2D)"
 msgstr ""
 
 #: kernel/gui/barra.c:1223
-msgid "Grabadora de sonido"
+msgid "Visor de PDF"
 msgstr ""
 
 #: kernel/gui/barra.c:1224
-msgid "Conversor de audio"
+msgid "Reproductor de vídeo"
 msgstr ""
 
 #: kernel/gui/barra.c:1225
-msgid "Cámara"
+msgid "Grabadora de sonido"
 msgstr ""
 
 #: kernel/gui/barra.c:1226
-msgid "Cipó (navegador)"
+msgid "Conversor de audio"
 msgstr ""
 
 #: kernel/gui/barra.c:1227
-msgid "GebraMini (geometría dinámica)"
+msgid "Cámara"
 msgstr ""
 
 #: kernel/gui/barra.c:1228
-msgid "Jabuti (programar jugando)"
+msgid "Cipó (navegador)"
 msgstr ""
 
 #: kernel/gui/barra.c:1229
-msgid "Laboratorio de C"
+msgid "GebraMini (geometría dinámica)"
 msgstr ""
 
 #: kernel/gui/barra.c:1230
-msgid "Actividades JClic"
+msgid "Jabuti (programar jugando)"
 msgstr ""
 
 #: kernel/gui/barra.c:1231
-msgid "Actividades JClic (bajar)"
+msgid "Laboratorio de C"
+msgstr ""
+
+#: kernel/gui/barra.c:1232
+msgid "Actividades JClic"
 msgstr ""
 
 #: kernel/gui/barra.c:1233
-msgid "NetSurf (navegador)"
+msgid "Actividades JClic (bajar)"
 msgstr ""
 
 #: kernel/gui/barra.c:1235
-msgid "Sagui Atrapa Bananas"
-msgstr ""
-
-#: kernel/gui/barra.c:1236
-msgid "Solitario Spider"
+msgid "NetSurf (navegador)"
 msgstr ""
 
 #: kernel/gui/barra.c:1237
-msgid "Buscaminas"
+msgid "Sagui Atrapa Bananas"
 msgstr ""
 
 #: kernel/gui/barra.c:1238
-msgid "AoEN"
+msgid "Solitario Spider"
+msgstr ""
+
+#: kernel/gui/barra.c:1239
+msgid "Buscaminas"
 msgstr ""
 
 #: kernel/gui/barra.c:1240
-msgid "OpenTyrian"
+msgid "Snake"
 msgstr ""
 
 #: kernel/gui/barra.c:1241
-msgid "OpenTyrian (pantalla completa)"
+msgid "AoEN"
 msgstr ""
 
 #: kernel/gui/barra.c:1242
-msgid "Freeciv"
+msgid "Brumacanto"
 msgstr ""
 
 #: kernel/gui/barra.c:1243
-msgid "OpenTTD"
+msgid "Capibara: editor"
 msgstr ""
 
 #: kernel/gui/barra.c:1244
-msgid "OpenJazz"
+msgid "Capibara: plataformas"
 msgstr ""
 
 #: kernel/gui/barra.c:1245
-msgid "OpenJazz (pantalla completa)"
-msgstr ""
-
-#: kernel/gui/barra.c:1246
-msgid "Command & Conquer"
+msgid "Capibara: escuadrón"
 msgstr ""
 
 #: kernel/gui/barra.c:1247
-msgid "Quake"
+msgid "OpenTyrian"
 msgstr ""
 
 #: kernel/gui/barra.c:1248
-msgid "Quake (pantalla completa)"
+msgid "OpenTyrian (pantalla completa)"
 msgstr ""
 
 #: kernel/gui/barra.c:1249
-msgid "DOOM"
+msgid "Freeciv"
 msgstr ""
 
 #: kernel/gui/barra.c:1250
-msgid "Freedoom"
+msgid "OpenTTD"
 msgstr ""
 
 #: kernel/gui/barra.c:1251
-msgid "Tzar"
+msgid "OpenJazz"
 msgstr ""
 
 #: kernel/gui/barra.c:1252
-msgid "Game Boy (GNUBoy)"
+msgid "OpenJazz (pantalla completa)"
 msgstr ""
 
 #: kernel/gui/barra.c:1253
-msgid "Recreativa (juegos y consolas)"
+msgid "Command & Conquer"
 msgstr ""
 
 #: kernel/gui/barra.c:1254
-msgid "DOSBox"
+msgid "Quake"
 msgstr ""
 
 #: kernel/gui/barra.c:1255
-msgid "DOSBox (pantalla completa)"
+msgid "Quake (pantalla completa)"
+msgstr ""
+
+#: kernel/gui/barra.c:1256
+msgid "DOOM"
+msgstr ""
+
+#: kernel/gui/barra.c:1257
+msgid "Freedoom"
+msgstr ""
+
+#: kernel/gui/barra.c:1258
+msgid "Tzar"
 msgstr ""
 
 #: kernel/gui/barra.c:1259
-msgid "ROM de CHIP-8 (bajar)"
+msgid "Game Boy (GNUBoy)"
+msgstr ""
+
+#: kernel/gui/barra.c:1260
+msgid "Recreativa (juegos y consolas)"
+msgstr ""
+
+#: kernel/gui/barra.c:1261
+msgid "DOSBox"
 msgstr ""
 
 #: kernel/gui/barra.c:1262
-msgid "Información del PC"
+msgid "DOSBox (pantalla completa)"
 msgstr ""
 
-#: kernel/gui/barra.c:1263
-msgid "Pantalla"
-msgstr ""
-
-#: kernel/gui/barra.c:1264
-msgid "Fecha y hora"
-msgstr ""
-
-#: kernel/gui/barra.c:1267
-msgid "Bluetooth"
+#: kernel/gui/barra.c:1266
+msgid "ROM de CHIP-8 (bajar)"
 msgstr ""
 
 #: kernel/gui/barra.c:1269
-msgid "DEBUG-APP (depuración remota)"
+msgid "Información del PC"
 msgstr ""
 
 #: kernel/gui/barra.c:1270
-msgid "IA (chat)"
+msgid "Pantalla"
 msgstr ""
 
 #: kernel/gui/barra.c:1271
+msgid "Fecha y hora"
+msgstr ""
+
+#: kernel/gui/barra.c:1274
+msgid "Bluetooth"
+msgstr ""
+
+#: kernel/gui/barra.c:1276
+msgid "DEBUG-APP (depuración remota)"
+msgstr ""
+
+#: kernel/gui/barra.c:1277
+msgid "IA (chat)"
+msgstr ""
+
+#: kernel/gui/barra.c:1278
 msgid "Chat IA"
 msgstr ""
 
-#: kernel/gui/barra.c:1272
+#: kernel/gui/barra.c:1279
 msgid "Correo"
 msgstr ""
 
-#: kernel/gui/barra.c:1273
+#: kernel/gui/barra.c:1280
 msgid "Escritorio remoto (VNC)"
 msgstr ""
 
-#: kernel/gui/barra.c:1389
+#: kernel/gui/barra.c:1396
 msgid "No se pudo abrir la aplicación."
 msgstr ""
 
-#: kernel/gui/barra.c:1399
+#: kernel/gui/barra.c:1406
 msgid "No se pudo abrir el programa."
 msgstr ""
 
-#: kernel/gui/barra.c:1480
+#: kernel/gui/barra.c:1487
 msgid "Programas"
 msgstr ""
 
-#: kernel/gui/barra.c:1495 kernel/gui/barra.c:1585
+#: kernel/gui/barra.c:1502 kernel/gui/barra.c:1592
 msgid "Mis aplicaciones"
 msgstr ""
 
-#: kernel/gui/barra.c:1502
+#: kernel/gui/barra.c:1509
 msgid "Frecuentes"
 msgstr ""
 
-#: kernel/gui/barra.c:1511 kernel/gui/barra.c:1565
+#: kernel/gui/barra.c:1518 kernel/gui/barra.c:1572
 msgid "Ejecutar..."
 msgstr ""
 
-#: kernel/gui/barra.c:1512 kernel/gui/barra.c:1566
+#: kernel/gui/barra.c:1519 kernel/gui/barra.c:1573
 msgid "Configuración de pantalla"
 msgstr ""
 
-#: kernel/gui/barra.c:1518 kernel/gui/barra.c:1572
+#: kernel/gui/barra.c:1525 kernel/gui/barra.c:1579
 msgid "Apagar..."
 msgstr ""
 
-#: kernel/gui/barra.c:1519 kernel/gui/barra.c:1574
+#: kernel/gui/barra.c:1526 kernel/gui/barra.c:1581
 msgid "Reiniciar..."
 msgstr ""
 
-#: kernel/gui/barra.c:1522 kernel/gui/barra.c:1571
+#: kernel/gui/barra.c:1529 kernel/gui/barra.c:1578
 msgid "Bloquear"
 msgstr ""
 
-#: kernel/gui/barra.c:1523 kernel/gui/barra.c:1577
+#: kernel/gui/barra.c:1530 kernel/gui/barra.c:1584
 msgid "Cerrar sesión..."
 msgstr ""
 
-#: kernel/gui/barra.c:1524 kernel/gui/barra.c:1570
+#: kernel/gui/barra.c:1531 kernel/gui/barra.c:1577
 msgid "Cambiar de usuario..."
 msgstr ""
 
-#: kernel/gui/barra.c:1634
+#: kernel/gui/barra.c:1641
 msgid "domingo"
 msgstr ""
 
-#: kernel/gui/barra.c:1634
+#: kernel/gui/barra.c:1641
 msgid "lunes"
 msgstr ""
 
-#: kernel/gui/barra.c:1634
+#: kernel/gui/barra.c:1641
 msgid "martes"
 msgstr ""
 
-#: kernel/gui/barra.c:1634
+#: kernel/gui/barra.c:1641
 msgid "miércoles"
 msgstr ""
 
-#: kernel/gui/barra.c:1634
+#: kernel/gui/barra.c:1641
 msgid "jueves"
 msgstr ""
 
-#: kernel/gui/barra.c:1634
+#: kernel/gui/barra.c:1641
 msgid "viernes"
 msgstr ""
 
-#: kernel/gui/barra.c:1634
+#: kernel/gui/barra.c:1641
 msgid "sábado"
 msgstr ""
 
-#: kernel/gui/barra.c:1635
+#: kernel/gui/barra.c:1642
 msgid "enero"
 msgstr ""
 
-#: kernel/gui/barra.c:1635
+#: kernel/gui/barra.c:1642
 msgid "febrero"
 msgstr ""
 
-#: kernel/gui/barra.c:1635
+#: kernel/gui/barra.c:1642
 msgid "marzo"
 msgstr ""
 
-#: kernel/gui/barra.c:1635
+#: kernel/gui/barra.c:1642
 msgid "abril"
 msgstr ""
 
-#: kernel/gui/barra.c:1635
+#: kernel/gui/barra.c:1642
 msgid "mayo"
 msgstr ""
 
-#: kernel/gui/barra.c:1635
+#: kernel/gui/barra.c:1642
 msgid "junio"
 msgstr ""
 
-#: kernel/gui/barra.c:1635
+#: kernel/gui/barra.c:1642
 msgid "julio"
 msgstr ""
 
-#: kernel/gui/barra.c:1636
+#: kernel/gui/barra.c:1643
 msgid "agosto"
 msgstr ""
 
-#: kernel/gui/barra.c:1636
+#: kernel/gui/barra.c:1643
 msgid "septiembre"
 msgstr ""
 
-#: kernel/gui/barra.c:1636
+#: kernel/gui/barra.c:1643
 msgid "octubre"
 msgstr ""
 
-#: kernel/gui/barra.c:1636
+#: kernel/gui/barra.c:1643
 msgid "noviembre"
 msgstr ""
 
-#: kernel/gui/barra.c:1636
+#: kernel/gui/barra.c:1643
 msgid "diciembre"
 msgstr ""
 
-#: kernel/gui/barra.c:1643
+#: kernel/gui/barra.c:1650
 #, c-format
 msgid "%s, %u de %s de %u, %s %s"
 msgstr ""
 
-#: kernel/gui/barra.c:1692
+#: kernel/gui/barra.c:1699
 msgid "Ajustar fecha y hora..."
 msgstr ""
 
-#: kernel/gui/barra.c:1700
+#: kernel/gui/barra.c:1707
 msgid "Administrador de tareas\tCtrl+Mayús+Esc"
 msgstr ""
 
@@ -847,35 +879,35 @@ msgstr ""
 msgid "Buscar programas"
 msgstr ""
 
-#: kernel/gui/janelas.c:470
+#: kernel/gui/janelas.c:480
 msgid "Mover widget"
 msgstr ""
 
-#: kernel/gui/janelas.c:470
+#: kernel/gui/janelas.c:480
 msgid "Quitar widget"
 msgstr ""
 
-#: kernel/gui/janelas.c:784
+#: kernel/gui/janelas.c:800
 msgid "No se encontró la partición de aplicaciones (/apps): este PC no ve bien el disco de arranque. Algunas aplicaciones no estarán. Usa saguios-completo.img (más información: docs/imagenes.md)."
 msgstr ""
 
-#: kernel/gui/janelas.c:1663
+#: kernel/gui/janelas.c:1781
 msgid "Restaurar"
 msgstr ""
 
-#: kernel/gui/janelas.c:1663
+#: kernel/gui/janelas.c:1781
 msgid "Minimizar"
 msgstr ""
 
-#: kernel/gui/janelas.c:1664
+#: kernel/gui/janelas.c:1782
 msgid "Maximizar"
 msgstr ""
 
-#: kernel/gui/janelas.c:1665
+#: kernel/gui/janelas.c:1783
 msgid "Pantalla completa"
 msgstr ""
 
-#: kernel/gui/janelas.c:1665
+#: kernel/gui/janelas.c:1783
 msgid "Cerrar"
 msgstr ""
 
@@ -1066,7 +1098,7 @@ msgstr ""
 msgid "Reiniciar"
 msgstr ""
 
-#: kernel/nucleo/energia.c:40
+#: kernel/nucleo/energia.c:230
 msgid "Ya puedes apagar el ordenador."
 msgstr ""
 

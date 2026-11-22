@@ -1,0 +1,188 @@
+# Traducción de SaguiOS: catálogo «visorlogs», idioma en (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/visorlogs.c:74
+msgid "Todas"
+msgstr "All"
+
+#: userland/programas/visorlogs.c:74
+msgid "Incidencias"
+msgstr "Issues"
+
+#: userland/programas/visorlogs.c:74
+msgid "GPU"
+msgstr "GPU"
+
+#: userland/programas/visorlogs.c:74
+msgid "USB"
+msgstr "USB"
+
+#: userland/programas/visorlogs.c:74
+msgid "Disco"
+msgstr "Disk"
+
+#: userland/programas/visorlogs.c:74
+msgid "Red"
+msgstr "Network"
+
+#: userland/programas/visorlogs.c:74
+msgid "Energía"
+msgstr "Power"
+
+#: userland/programas/visorlogs.c:74
+msgid "Audio"
+msgstr "Audio"
+
+#: userland/programas/visorlogs.c:75
+msgid "Aplicaciones"
+msgstr "Applications"
+
+#: userland/programas/visorlogs.c:75
+msgid "Sistema"
+msgstr "System"
+
+#: userland/programas/visorlogs.c:356
+msgid "No hay memoria para abrir el registro."
+msgstr "Not enough memory to open the log."
+
+#: userland/programas/visorlogs.c:371
+msgid "No se pudo leer el archivo seleccionado."
+msgstr "The selected file could not be read."
+
+#: userland/programas/visorlogs.c:372
+msgid "No se pudo leer el registro del kernel."
+msgstr "The kernel log could not be read."
+
+#: userland/programas/visorlogs.c:444
+msgid "Elige una línea para copiar."
+msgstr "Pick a line to copy."
+
+#: userland/programas/visorlogs.c:459
+#, c-format
+msgid "Copiadas %d líneas al portapapeles."
+msgstr "Copied %d lines to the clipboard."
+
+#: userland/programas/visorlogs.c:467
+msgid "No hay líneas que exportar."
+msgstr "There are no lines to export."
+
+#: userland/programas/visorlogs.c:470
+msgid "Exportar registro"
+msgstr "Export log"
+
+#: userland/programas/visorlogs.c:470
+msgid "Texto (*.txt)|*.txt|Registros (*.log)|*.log"
+msgstr "Text (*.txt)|*.txt|Logs (*.log)|*.log"
+
+#: userland/programas/visorlogs.c:475
+msgid "No se pudo escribir el archivo."
+msgstr "The file could not be written."
+
+#: userland/programas/visorlogs.c:477
+#, c-format
+msgid "Exportadas %d líneas."
+msgstr "Exported %d lines."
+
+#: userland/programas/visorlogs.c:545
+msgid "Exportar"
+msgstr "Export"
+
+#: userland/programas/visorlogs.c:546
+msgid "Recargar"
+msgstr "Reload"
+
+#: userland/programas/visorlogs.c:548
+msgid "Kernel"
+msgstr "Kernel"
+
+#: userland/programas/visorlogs.c:549
+msgid "Abrir"
+msgstr "Open"
+
+#: userland/programas/visorlogs.c:551
+msgid "Pausa"
+msgstr "Pause"
+
+#: userland/programas/visorlogs.c:551
+msgid "Seguir"
+msgstr "Follow"
+
+#: userland/programas/visorlogs.c:552
+msgid "Copiar"
+msgstr "Copy"
+
+#: userland/programas/visorlogs.c:554
+msgid "todos"
+msgstr "all"
+
+#: userland/programas/visorlogs.c:555
+msgid "Proceso"
+msgstr "Process"
+
+#: userland/programas/visorlogs.c:559
+msgid "Borrar"
+msgstr "Clear"
+
+#: userland/programas/visorlogs.c:580
+msgid "VISOR DE REGISTROS"
+msgstr "LOG VIEWER"
+
+#: userland/programas/visorlogs.c:583
+msgid "CATEGORÍA"
+msgstr "CATEGORY"
+
+#: userland/programas/visorlogs.c:596
+msgid "Buscar"
+msgstr "Search"
+
+#: userland/programas/visorlogs.c:598
+msgid "Registro del kernel"
+msgstr "Kernel log"
+
+#: userland/programas/visorlogs.c:636
+msgid "No hay coincidencias."
+msgstr "No matches."
+
+#: userland/programas/visorlogs.c:636
+msgid "El registro está vacío."
+msgstr "The log is empty."
+
+#: userland/programas/visorlogs.c:656
+msgid "Col"
+msgstr "Col"
+
+#: userland/programas/visorlogs.c:656
+msgid "Siguiendo"
+msgstr "Following"
+
+#: userland/programas/visorlogs.c:656
+msgid "En pausa"
+msgstr "Paused"
+
+#: userland/programas/visorlogs.c:657
+msgid "  |  Registro recortado"
+msgstr "  |  Log truncated"
+
+#: userland/programas/visorlogs.c:685
+msgid "Abrir registro"
+msgstr "Open log"
+
+#: userland/programas/visorlogs.c:685
+msgid "Registros (*.log;*.txt)|*.log;*.txt|Todos|*"
+msgstr "Logs (*.log;*.txt)|*.log;*.txt|All|*"
+
+#: userland/programas/visorlogs.c:698
+msgid "Todos los procesos"
+msgstr "All processes"
+
+#: userland/programas/visorlogs.c:919
+msgid "Visor de registros"
+msgstr "Log viewer"
+

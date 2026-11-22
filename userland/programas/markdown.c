@@ -25,6 +25,7 @@
  * UTF-8 se convierte a Latin-1 (D027) y, al guardar, el archivo se graba en UTF-8. */
 #include "sagui.h"
 #include "gui.h"
+#include "imagem.h"
 
 extern const unsigned char fonte_sagui[256][16];
 
@@ -98,7 +99,7 @@ static void *crescer(void *p, int *cap, int precisa, int tam_item)
 
 /* ------------------------------------------------------------ elementos maquetados */
 
-enum { T_TEXTO, T_RET, T_LINHA };
+enum { T_TEXTO, T_RET, T_LINHA, T_IMG };   /* T_IMG: una imagen; "off" es su índice en imgc */
 
 typedef struct {
     int      y;          /* en el documento (píxeles, o líneas en el modo texto) */
@@ -121,6 +122,15 @@ static enlace_t *enls;  static int nenls, cap_enls;
 static char     *tmp;   static int ntmp, cap_tmp;
 static char     *fonte; static int cap_fonte;   /* copia del texto con tabulaciones expandidas */
 static lin_t    *linhas; static int cap_linhas;
+
+/* Títulos y bloques de código del documento maquetado (modo gráfico): la Ayuda (D455) los usa para
+ * saltar a #anclas y para el botón «Copiar» de cada bloque de código. */
+typedef struct { int y, nivel, off, n; } tit_t;       /* posición y texto plano de un título */
+typedef struct { int y, a, off, n, x, l; } bcod_t;   /* un bloque de código: rectángulo y texto entero */
+static tit_t  *tits;  static int ntits, cap_tits;
+static char   *tit_pool; static int ntit_pool, cap_tit_pool;
+static bcod_t *bcods; static int nbcods, cap_bcods;
+static char   *cod_pool; static int ncod_pool, cap_cod_pool;
 
 /* Estado de la maquetación. */
 static bool     mt;            /* modo texto: las unidades son columnas y líneas */
@@ -181,6 +191,86 @@ static void el_texto_s(int x, int y, const char *s, uint16_t est, int esc, uint3
 {
     int n = (int)tam_texto(s);
     el_texto(x, y, pool_add(s, n), n, est, -1, esc, cor);
+}
+
+/* ------------------------------------------------------------ imágenes (D455)
+ * Un párrafo que es solo "![texto](ruta)" se dibuja como imagen (PNG, JPEG, BMP, GIF, PNM: los lectores
+ * de la libsagui), con la ruta relativa al .md, reducida al ancho de la columna si es más ancha (nunca
+ * se agranda) y con el texto alternativo debajo. Las imágenes ya leídas se guardan mientras el documento
+ * es el mismo; si no se puede leer, el texto queda como "[imagen: ...]". En el modo texto no hay imágenes. */
+#define IMGC_MAX 48
+typedef struct { char cam[200]; imagem_t im; bool ok; } imgc_t;
+static imgc_t     imgc[IMGC_MAX];
+static int        nimgc;
+static char       imgc_dono[160];
+static const char *ruta_doc;   /* el documento que se maqueta (lo fija quien llama), para las rutas relativas */
+
+static void imgc_vaciar(void)
+{
+    for (int k = 0; k < nimgc; k++) if (imgc[k].ok) imagem_liberar(&imgc[k].im);
+    nimgc = 0;
+}
+
+/* Ruta absoluta de "url" (n bytes) respecto al directorio del documento; resuelve "./" y "../". */
+static bool imgc_ruta(const char *url, int n, char *sai, int max)
+{
+    if (n <= 0 || n >= 190) return false;
+    for (int k = 0; k + 2 < n; k++) if (url[k] == ':' && url[k + 1] == '/' && url[k + 2] == '/') return false;
+    char bruto[400];
+    int m = 0;
+    if (url[0] != '/') {
+        const char *d = ruta_doc ? ruta_doc : "";
+        int ult = -1, dn = (int)tam_texto(d);
+        for (int k = 0; k < dn; k++) if (d[k] == '/') ult = k;
+        if (ult >= 0 && ult < 190) { memcpy(bruto, d, (size_t)ult + 1); m = ult + 1; }
+    }
+    memcpy(bruto + m, url, (size_t)n);
+    m += n;
+    bruto[m] = 0;
+    /* normaliza por componentes */
+    int comp[40], nc = 0, o = 0;
+    char out[400];
+    int i = 0;
+    bool abs_ = bruto[0] == '/';
+    while (i < m) {
+        while (i < m && bruto[i] == '/') i++;
+        int a = i;
+        while (i < m && bruto[i] != '/') i++;
+        int ln = i - a;
+        if (ln == 0 || (ln == 1 && bruto[a] == '.')) continue;
+        if (ln == 2 && bruto[a] == '.' && bruto[a + 1] == '.') { if (nc > 0) { nc--; o = comp[nc]; } continue; }
+        if (nc >= 40 || o + ln + 2 >= (int)sizeof out) return false;
+        comp[nc++] = o;
+        out[o++] = '/';
+        memcpy(out + o, bruto + a, (size_t)ln);
+        o += ln;
+    }
+    if (!abs_ && o == 0) return false;
+    out[o] = 0;
+    if (o >= max) return false;
+    memcpy(sai, out, (size_t)o + 1);
+    return true;
+}
+
+/* Índice de la imagen en imgc, o -1 si no se puede mostrar. */
+static int img_obter(const char *url, int n)
+{
+    if (mt) return -1;
+    const char *dono = ruta_doc ? ruta_doc : "";
+    if (compara_texto(dono, imgc_dono) != 0) { imgc_vaciar(); copia_texto(imgc_dono, dono, sizeof imgc_dono); }
+    char cam[200];
+    if (!imgc_ruta(url, n, cam, sizeof cam)) { registrar("markdown: imagen con ruta no valida\n"); return -1; }
+    for (int k = 0; k < nimgc; k++)
+        if (compara_texto(imgc[k].cam, cam) == 0) return imgc[k].ok ? k : -1;
+    if (nimgc >= IMGC_MAX) return -1;
+    imgc_t *c = &imgc[nimgc];
+    memset(c, 0, sizeof *c);
+    copia_texto(c->cam, cam, sizeof c->cam);
+    int er = imagem_ler(cam, &c->im);
+    c->ok = er == 0 && c->im.larg > 0 && c->im.alt > 0;
+    if (!c->ok) registrar("markdown: imagen no legible %s (%s)\n", cam, imagem_erro(er));
+    nimgc++;
+    return c->ok ? nimgc - 1 : -1;
 }
 
 /* ------------------------------------------------------------ texto en línea */
@@ -634,6 +724,15 @@ static void titulo(int nivel, const char *s, int n, int x0, int xmax, bool prime
         registrar("markdown: h%d %s\n", nivel, t);
     }
     n_titulos++;
+    if (!mt) {   /* D455: dónde está el título y su texto, para las #anclas */
+        tits = crescer(tits, &cap_tits, ntits + 1, sizeof(tit_t));
+        tit_pool = crescer(tit_pool, &cap_tit_pool, ntit_pool + 130, 1);
+        int off = ntit_pool, k = 0;
+        for (int i = s0; i < s1 && k < 120; i++)
+            for (int q = 0; q < segs[i].n && k < 120; q++) tit_pool[off + k++] = pool[segs[i].off + q];
+        ntit_pool += k;
+        tits[ntits++] = (tit_t){ y_cur + (!primeiro && nivel <= 2 ? 6 : 0), nivel, off, k };
+    }
     if (mt) {
         y_cur = fluir(s0, s1, x0, xmax, y_cur, 1, cor_base, 0);
         if (y_cur > 0 && fluir_xfim > x0) {
@@ -670,6 +769,17 @@ static void bloco_codigo(lin_t *L, int a, int b, int corte, int x0, int xmax)
         return;
     }
     int y0 = y_cur;
+    bcods = crescer(bcods, &cap_bcods, nbcods + 1, sizeof(bcod_t));
+    int cod_off = ncod_pool;
+    for (int k = a; k < b; k++) {   /* el texto entero (también lo que la línea larga corta al dibujar) */
+        lin_t l = L[k];
+        int c = recuo(l);
+        l = cortar(l, c < corte ? c : corte);
+        cod_pool = crescer(cod_pool, &cap_cod_pool, ncod_pool + l.n + 2, 1);
+        memcpy(cod_pool + ncod_pool, l.s, (size_t)l.n);
+        ncod_pool += l.n;
+        cod_pool[ncod_pool++] = '\n';
+    }
     int fundo = el_ret(x0, y0, xmax - x0, 0, COR_BLOCO);
     int borda = el_ret(x0, y0, 3, 0, COR_BLOCO_BORDA);
     y_cur += 6;
@@ -690,6 +800,38 @@ static void bloco_codigo(lin_t *L, int a, int b, int corte, int x0, int xmax)
     y_cur += 6;
     els[fundo].a = (int16_t)(y_cur - y0);
     els[borda].a = (int16_t)(y_cur - y0);
+    bcods[nbcods++] = (bcod_t){ y0, y_cur - y0, cod_off, ncod_pool - cod_off, x0, xmax - x0 };
+}
+
+/* Párrafo que es solo una imagen: la imagen centrada y, debajo, su texto alternativo como pie. */
+static bool bloco_imagem(const char *s, int n, int x0, int xmax)
+{
+    while (n > 0 && (s[n - 1] == ' ' || s[n - 1] == '\n')) n--;
+    if (mt || n < 5 || s[0] != '!' || s[1] != '[') return false;
+    int f = fecha_colchete(s, n, 1), u0 = 0, un = 0;
+    if (f < 0) return false;
+    int fim = destino(s, n, f + 1, &u0, &un);
+    if (fim != n) return false;
+    int idx = img_obter(s + u0, un);
+    if (idx < 0) return false;
+    const imagem_t *im = &imgc[idx].im;
+    int col = xmax - x0, l = im->larg, a = im->alt;
+    if (l > col) { a = (int)((long long)a * col / l); l = col; }
+    if (a < 1) a = 1;
+    if (a > 30000) a = 30000;
+    int k = novo_el(T_IMG);
+    els[k].x = (int16_t)(x0 + (col - l) / 2); els[k].y = y_cur; els[k].l = (int16_t)l; els[k].a = (int16_t)a;
+    els[k].off = idx;
+    registrar("markdown: imagen %s %dx%d dibujada a %dx%d en %d,%d\n", imgc[idx].cam, im->larg, im->alt, l, a, els[k].x, y_cur);
+    y_cur += a;
+    if (f > 2) {
+        y_cur += 4;
+        int s0 = nsegs;
+        seg_base = nsegs;
+        inline_rec(s + 2, f - 2, E_IMAGEM, -1, 1);
+        y_cur = fluir(s0, nsegs, x0, xmax, y_cur, 1, COR_IMAGEM, 1);
+    }
+    return true;
 }
 
 static void blocos(lin_t *L, int nl, int x0, int xmax, int prof, bool apertado);
@@ -1014,6 +1156,11 @@ static void blocos(lin_t *L, int nl, int x0, int xmax, int prof, bool apertado)
         }
         ESPACO();
         juntar(L, i, j);
+        if (!setext && bloco_imagem(tmp, ntmp, x0, xmax)) {
+            i = j;
+            primeiro = false;
+            continue;
+        }
         if (setext) {
             titulo(setext, tmp, ntmp, x0, xmax, primeiro);
             i = j + 1;
@@ -1034,6 +1181,7 @@ static void maquetar_nucleo(const char *texto, int tam, int x0, int xmax)
 {
     nels = npool = nsegs = seg_base = nenls = 0;
     n_blocos = n_linhas = n_titulos = 0;
+    ntits = ntit_pool = nbcods = ncod_pool = 0;
     cor_base = COR_TEXTO;
     /* copia con tabulaciones expandidas (de 4 en 4) y sin \r */
     int n = 0, col = 0;
@@ -1054,8 +1202,13 @@ static void maquetar_nucleo(const char *texto, int tam, int x0, int xmax)
             nl++;
             ini = i + 1;
         }
+    /* D455: las líneas de comentario HTML del principio (<!-- categoria: ...; orden: ... -->, la cabecera que
+     * lee la Ayuda) no se muestran. */
+    int l0 = 0;
+    while (l0 < nl && linhas[l0].n >= 7 && memcmp(linhas[l0].s, "<!--", 4) == 0 &&
+           memcmp(linhas[l0].s + linhas[l0].n - 3, "-->", 3) == 0) l0++;
     y_cur = mt ? 0 : TOPO_DOC;
-    blocos(linhas, nl, x0, xmax, 0, false);
+    blocos(linhas + l0, nl - l0, x0, xmax, 0, false);
     doc_alt = y_cur + (mt ? 0 : TOPO_DOC + 10);
 }
 
@@ -1406,6 +1559,7 @@ static void maquetar(int largura)
 {
     if (versao_maq == versao && larg_maq == largura) return;
     mt = false; CW = LETRA_L; GAP = 8;
+    ruta_doc = caminho;
     maquetar_nucleo(txt, tam, MARGEM, largura - MARGEM);
     if (reg_titulos) {
         registrar("markdown: maquetado %d bloques, %d lineas, %d elementos, alto %d px, ancho %d\n",
@@ -1450,6 +1604,7 @@ static void desenhar_visor(void)
             if (e->y + yb < desl || e->y + ya > desl + p.a) continue;
             int x = p.x + e->x, y = oy + e->y;
             if (e->tipo == T_RET) ret_clip(x, y, e->l, e->a, e->cor);
+            else if (e->tipo == T_IMG) imagem_desenhar(j->px, j->larg, clip.x, clip.y, clip.l, clip.a, &imgc[e->off].im, x, y, e->l, e->a, true);
             else if (e->tipo == T_LINHA) linha_clip(x, y, e->l, e->a, e->cor);
             else {
                 int cw = LETRA_L * e->escala;

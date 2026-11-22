@@ -71,7 +71,8 @@ GP_LIBS := $(GP_B)/libbips_pl.a $(GP_B)/libengine_pl.a
 GP_HDR := $(wildcard $(GP_F)/EnginePl/*.h $(GP_F)/BipsPl/*.h $(GP_DIR)/gerado/EnginePl/*.h \
           $(GP_DIR)/plataforma/*.h) $(GP_F)/EnginePl/wam_archi.def $(LIBC_HDR)
 
-GP_BASE := -m32 -march=pentiumpro -fno-strict-aliasing -fcommon \
+# D464: GNU Prolog es C de antes de C23 (punteros a funcion sin prototipo): GCC 15 usa gnu23 por defecto.
+GP_BASE := -m32 -march=pentiumpro -std=gnu17 -fno-strict-aliasing -fcommon \
   -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables \
   -ffunction-sections -fdata-sections -mfpmath=387 -D__saguios__ \
   -nostdinc -isystem $(shell $(CC) -print-file-name=include) \

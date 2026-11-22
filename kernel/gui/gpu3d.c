@@ -66,6 +66,22 @@ static uint16_t vaga_l[GPU3D_TEXTURAS], vaga_a[GPU3D_TEXTURAS];
 _Static_assert(sizeof(gpu3d_capas_t) == 64 && sizeof(gpu3d_vert2_t) == 88 && sizeof(gpu3d_unidade_t) == 28 &&
                sizeof(gpu3d_estado2_t) == 168 && sizeof(gpu3d_textura2_t) == 48 && sizeof(gpu3d_limpar2_t) == 36,
                "gpu3d v2: tamaño de la ABI");
+/* gpu3d v3 (D457): los búferes residentes de la GPU (contabilidad: la capa sabe qué hay, cuánto ocupa, cuánto
+ * se subió y cuándo se usó por última vez, y expulsa el menos usado si uno nuevo no cabe), la transformación y
+ * las luces del próximo DESENHAR3, y el resultado de la autoprueba v3. */
+typedef struct { uint32_t bytes, cheio, seq; uint16_t max_idx; uint8_t uso; bool presente; } vb_t;
+static vb_t vb[GPU3D_VBUFS];
+static uint32_t vb_seq, vb_n, vb_bytes, n_vb_expulsos, n_vb_subidas, vb_kb_subidos, n_des3, n_vert3;
+static gpu3d_transf_t transf_atual;
+static gpu3d_luzes_t luzes_atuais;
+static bool transf_valida, luzes_validas;
+static uint32_t bits3_driver;             /* lo que anunció el driver (capas.bits3 queda a 0 si su autoprueba falla) */
+static uint32_t prova3;                   /* 0 sin hacer, 1 bien, 2 | escena << 8: falló esa escena */
+#define GPU3D_VBUF_MAX_BYTES (16u << 20)  /* un búfer */
+#define GPU3D_VBUF_TROZO     (64u << 10)  /* lo que se copia de una vez (entre trozos, gpu3d_respirar) */
+_Static_assert(sizeof(gpu3d_vbuf_t) == 32 && sizeof(gpu3d_atrib_t) == 8 && sizeof(gpu3d_transf_t) == 580 &&
+               sizeof(gpu3d_luz_t) == 96 && sizeof(gpu3d_luzes_t) == 880 && sizeof(gpu3d_desenho3_t) == 80,
+               "gpu3d v3: tamaño de la ABI");
 static uint32_t n_tri, n_lotes, n_quadros, n_falhas, n_recusas, us_autoprova, n_desenhos_prova;
 static uint32_t pontos, tri_s, kpix_s;
 static bool desligando;
@@ -115,6 +131,7 @@ static void soltar_driver(void)
     if (drv && drv->desligar) drv->desligar();
     desligando = false;
     dono = 0; alvo_l = alvo_a = 0;
+    memset(vb, 0, sizeof vb); vb_n = vb_bytes = 0; transf_valida = luzes_validas = false;   /* D457: el driver ya soltó sus búferes */
 }
 
 static void diag_destino(const char *fase);
@@ -533,6 +550,19 @@ void gpu3d_iniciar(void)
             snformatar(placa_nome, sizeof placa_nome, "Intel Gen3 %04x:%04x", disp.fabricante, disp.modelo);
             estado = GPU3D_SIN_PROBAR;
             snformatar(motivo, sizeof motivo, "%s: 3D sin probar todavia (se prueba con el primer uso o con «gpu3d probar»)", placa_nome);
+        } else if (d2 == &acel_intel_exec && geracao == 9) {
+            /* D438: Intel Gen9 (Skylake ... Comet Lake; la UHD 620 8086:3ea0) por el RCS con execlists.
+             * Sin probar en hardware: como las Radeon, NO se enciende con el primer uso salvo con
+             * --gpu3d=intel; «gpu3d probar» / «gpu3d encender» lo prueban. Gen11 y Gen12 aún no. */
+            drv = &gpu3d_intel9;
+            snformatar(placa_nome, sizeof placa_nome, "Intel Gen9 %04x:%04x", disp.fabricante, disp.modelo);
+            if (pedido == GPU3D_CAB_INTEL) {
+                estado = GPU3D_SIN_PROBAR;
+                snformatar(motivo, sizeof motivo, "%s: 3D sin probar todavia (--gpu3d=intel: se prueba con el primer uso)", placa_nome);
+            } else {
+                estado = GPU3D_APAGADO;
+                snformatar(motivo, sizeof motivo, "%s: 3D apagado; no se enciende solo («gpu3d probar» lo comprueba y lo activa; --gpu3d=intel al grabar)", placa_nome);
+            }
         } else if (d2 == &acel_r600 && (geracao == 7 || geracao == 6)) {
             /* D284: Radeon R7xx; D357: también R6xx. Sin probar en hardware y el inicio carga microcódigo y
              * reinicia el procesador de órdenes: NO se enciende con el primer uso, solo a mano (o con
@@ -603,6 +633,7 @@ static void capas_calcular(void)
     memset(&capas, 0, sizeof capas);
     capas.versao = 2; capas.unidades = 1; capas.max_lado = GPU3D_MAX_LADO; capas.max_aniso = 1;
     capas.formatos = 1u << G3D_FMT_ARGB8888; capas.zbits = 3;
+    bits3_driver = 0; prova3 = 0;
     if (!drv) return;
     /* D432: presentar no depende de v2; el driver dice si puede escribir en la pantalla de ahora. */
     bool apres = drv->apresentar && drv->apresentar(NULL) == G3D_OK;
@@ -631,9 +662,340 @@ static void capas_calcular(void)
     if (!drv->destino) capas.bits &= ~G3D_CAP_DESTINO_TEX;
     if (!drv->limpar2) capas.bits &= ~(G3D_CAP_LIMPAR2 | G3D_CAP_ESTENCIL);
     if (!(capas.bits & G3D_CAP_TEX_ANISO)) capas.max_aniso = 1;
+    /* D457: v3 pide v2 (la parte de los píxeles es la de v2) y las dos funciones. */
+    if (!drv->vbuf || !drv->desenhar3 || !(capas.bits & G3D_CAP_V2)) capas.bits3 = 0;
+    if (!(capas.bits3 & G3D_C3_V3)) capas.bits3 = 0;
+    if (!(capas.bits3 & G3D_C3_NEBLINA)) capas.bits3 &= ~G3D_C3_NEB_EXP;
+    if (!(capas.bits3 & G3D_C3_LUZ)) { capas.bits3 &= ~(G3D_C3_LUZ_ESPEC | G3D_C3_LUZ_FOCO); capas.max_luzes = 0; }
+    else if (capas.max_luzes < 1 || capas.max_luzes > 8) capas.max_luzes = capas.max_luzes < 1 ? 1 : 8;
+    capas.bits3 &= 0x3FFu;
+    capas.vbufs = capas.bits3 ? GPU3D_VBUFS : 0;
+    memset(capas.reservado, 0, sizeof capas.reservado);
+    bits3_driver = capas.bits3; prova3 = 0;
     klog("[GPU3D] v2: capacidades 0x%x, %u unidades, formatos 0x%x; presentar sin volver a la RAM (D432): %s\n", capas.bits,
          capas.unidades, capas.formatos, capas.bits & G3D_CAP_APRESENTAR ? "si" : "no");
 }
+
+/* ------------------------------------------------------------ gpu3d v3: la autoprueba (D457)
+ *
+ * Tres escenas pequeñas en el destino de 128x96. Cada una se dibuja dos veces: por el desenhar3 del driver (la
+ * GPU lee los búferes, transforma, recorta y proyecta) y por g3d_v3_cpu + desenhar2 (la CPU hace eso mismo con
+ * enteros y la GPU solo pinta, que es lo que ya pasó la autoprueba de v2 del driver). Las dos imágenes se
+ * comparan píxel a píxel: se toleran diferencias pequeñas de color y unos pocos píxeles de borde.
+ * Si no cuadran, v3 se queda apagado (capas.bits3 = 0: SaguiGL sigue transformando con la CPU, como antes) y el
+ * log dice qué escena y qué píxel; el 3D sigue encendido. Solo si la GPU deja de responder se apaga todo. */
+#define P3_ESCENAS   3
+#define P3_TOL       28      /* diferencia por canal que no cuenta */
+#define P3_MAX_MAL   370     /* píxeles distintos tolerados (3 % de 128x96: los bordes) */
+#define P3_MIN_CHEIO 600     /* píxeles que la referencia debe pintar (si no, la escena no prueba nada) */
+#define Q(x) ((int32_t)((x) * 65536))
+static uint32_t fx(int32_t q16) { return g3d_float_de_fixo(q16, 16); }
+
+static const char *const nomes_prova3[P3_ESCENAS] = {
+    "perspectiva, recorte, color por vertice y Z", "indices, tira y descarte de caras", "textura con matriz y niebla",
+};
+
+/* c = a x b (matrices por columnas) */
+static void mat_mul(uint32_t c[16], const uint32_t a[16], const uint32_t b[16])
+{
+    for (int col = 0; col < 4; col++)
+        for (int l = 0; l < 4; l++) {
+            uint32_t v = 0;
+            for (int k = 0; k < 4; k++) v = g3d_fl_soma(v, g3d_fl_mul(a[k * 4 + l], b[col * 4 + k]));
+            c[col * 4 + l] = v;
+        }
+}
+static void mat_q16(uint32_t m[16], const int32_t q[16]) { for (int i = 0; i < 16; i++) m[i] = fx(q[i]); }
+
+typedef struct { uint32_t x, y, z; uint8_t cor[4]; uint32_t s, t; } p3_vert_t;   /* 24 bytes */
+static void p3_v(p3_vert_t *v, int32_t x, int32_t y, int32_t z, uint32_t rgba, int32_t s, int32_t t)
+{
+    v->x = fx(x); v->y = fx(y); v->z = fx(z);
+    v->cor[0] = (uint8_t)(rgba >> 24); v->cor[1] = (uint8_t)(rgba >> 16); v->cor[2] = (uint8_t)(rgba >> 8); v->cor[3] = (uint8_t)rgba;
+    v->s = fx(s); v->t = fx(t);
+}
+
+static struct { const uint8_t *v; uint32_t nv; const uint8_t *i; uint32_t ni; } p3_mem;
+static g3d_v3_mem_t p3_ler(void *ctx, int vaga)
+{
+    (void)ctx;
+    if (vaga == 0) return (g3d_v3_mem_t){ p3_mem.v, p3_mem.nv };
+    if (vaga == 1) return (g3d_v3_mem_t){ p3_mem.i, p3_mem.ni };
+    return (g3d_v3_mem_t){ NULL, 0 };
+}
+static int p3_sair(void *ctx, const gpu3d_estado2_t *e, const gpu3d_vert2_t *v, int n)
+{
+    (void)ctx;
+    return drv->desenhar2(e, v, n, NULL);
+}
+
+/* Las dos imágenes de una escena: cuántos píxeles difieren (y el peor). */
+static int p3_comparar(const uint32_t *gpu, const uint32_t *cpu, int *px, int *py, int *cheio)
+{
+    int mal = 0, pior = 0;
+    *px = *py = -1; *cheio = 0;
+    for (int i = 0; i < AP_L * AP_A; i++) {
+        uint32_t a = gpu[i] & 0x00FFFFFFu, b = cpu[i] & 0x00FFFFFFu;
+        if (b != AP_FUNDO) (*cheio)++;
+        if (perto(a, b, P3_TOL)) continue;
+        mal++;
+        int d = 0;
+        for (int k = 0; k < 24; k += 8) { int x = (int)((a >> k) & 0xFF) - (int)((b >> k) & 0xFF); d += x < 0 ? -x : x; }
+        /* el peor que no sea de borde: sus cuatro vecinos de la referencia son como él */
+        bool dentro = i >= AP_L && i < AP_L * (AP_A - 1) && i % AP_L && i % AP_L != AP_L - 1 &&
+                      perto(cpu[i - 1], b, 8) && perto(cpu[i + 1], b, 8) && perto(cpu[i - AP_L], b, 8) && perto(cpu[i + AP_L], b, 8);
+        if (dentro) d += 1000;
+        if (d > pior) { pior = d; *px = i % AP_L; *py = i / AP_L; }
+    }
+    return mal;
+}
+
+/* Diagnóstico (revisión de D457): las dos imágenes de una escena en el registro, a la mitad (64x48), una al lado
+ * de la otra: la CPU a la izquierda y la GPU a la derecha. Un carácter por color: '.' fondo, 'k' negro, 'W'
+ * blanco, 'g' gris, 'R' 'G' 'B' 'Y' 'C' 'M' el canal o los dos canales que dominan, '?' lo demás. */
+static char p3_letra(uint32_t c)
+{
+    c &= 0xFFFFFFu;
+    if (perto(c, AP_FUNDO, 8)) return '.';
+    int r = (int)(c >> 16) & 0xFF, g = (int)(c >> 8) & 0xFF, b = (int)c & 0xFF;
+    int mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    if (mx < 40) return 'k';
+    if (mn > 200) return 'W';
+    if (mx - mn < 40) return 'g';
+    bool R = r > mx - 50, G = g > mx - 50, B = b > mx - 50;
+    if (R && G && !B) return 'Y';
+    if (G && B && !R) return 'C';
+    if (R && B && !G) return 'M';
+    if (R && !G && !B) return 'R';
+    if (G && !R && !B) return 'G';
+    if (B && !R && !G) return 'B';
+    return '?';
+}
+static void p3_mapa(int escena, const uint32_t *gpu, const uint32_t *cpu)
+{
+    char l[2 * (AP_L / 2) + 4];
+    for (int y = 0; y < AP_A; y += 2) {
+        int k = 0;
+        for (int x = 0; x < AP_L; x += 2) l[k++] = p3_letra(cpu[y * AP_L + x]);
+        l[k++] = ' '; l[k++] = '|'; l[k++] = ' ';
+        for (int x = 0; x < AP_L; x += 2) l[k++] = p3_letra(gpu[y * AP_L + x]);
+        l[k] = 0;
+        klog("[GPU3D] v3 mapa %d y%02d %s\n", escena, y, l);
+    }
+}
+
+/* true salvo que la GPU deje de responder. El resultado queda en prova3 y en capas.bits3. */
+static bool autoprova3(void)
+{
+    uint64_t t0 = tsc();
+    uint32_t *img = kmalloc(AP_L * AP_A * 4 * 2);
+    gpu3d_vert2_t *lote = kmalloc(sizeof(gpu3d_vert2_t) * 96);
+    p3_vert_t *vs = kmalloc(sizeof(p3_vert_t) * 16);
+    gpu3d_transf_t *t = kmalloc(sizeof *t);
+    capas.bits3 = 0;
+    prova3 = 2;
+    if (!img || !lote || !vs || !t) {
+        klog("[GPU3D] v3: sin memoria para la autoprueba: la transformacion sigue por la CPU\n");
+        if (img) kfree(img);
+        if (lote) kfree(lote);
+        if (vs) kfree(vs);
+        if (t) kfree(t);
+        return true;
+    }
+    uint32_t b3 = bits3_driver;
+    bool viva = true, bien = true;
+    static const int32_t proj_q[16] = {   /* perspectiva de 60 grados, 4:3, cerca 1, lejos 50 */
+        Q(1.299038), 0, 0, 0,   0, Q(1.732051), 0, 0,   0, 0, Q(-1.040816), Q(-1),   0, 0, Q(-2.040816), 0 };
+    uint32_t proj[16];
+    mat_q16(proj, proj_q);
+    static uint16_t idx[16];
+    int escena = 0;
+    #define P3_FALHA_GPU() do { viva = false; goto fim; } while (0)
+    if (drv->alvo(AP_L, AP_A, 24) != G3D_OK) { klog("[GPU3D] v3: no se pudo crear el destino de la autoprueba\n"); bien = false; goto fim; }
+    for (escena = 0; escena < P3_ESCENAS; escena++) {
+        gpu3d_estado2_t e;
+        gpu3d_desenho3_t d[2];
+        int nd = 1, nv = 0, ni = 0;
+        memset(&e, 0, sizeof e); memset(t, 0, sizeof *t); memset(d, 0, sizeof d);
+        e.versao = 2; e.flags = G3D2_Z_TESTE | G3D2_Z_ESCRITA; e.func_z = G3D_CMP_MENOR_IGUAL; e.mascara_cor = 15;
+        t->versao = 3;
+        t->vp_escala[0] = fx(Q(AP_L / 2)); t->vp_desloc[0] = fx(Q(AP_L / 2));
+        t->vp_escala[1] = fx(-Q(AP_A / 2)); t->vp_desloc[1] = fx(Q(AP_A / 2));
+        t->vp_escala[2] = fx(Q(0.5)); t->vp_desloc[2] = fx(Q(0.5));
+        t->cor = 0xFFFFFFFFu;
+        for (int u = 0; u < 4; u++) t->tc_const[u][3] = 0x3F800000u;
+        d[0].pos = d[1].pos = (gpu3d_atrib_t){ 0, G3D_AT_FLOAT3, sizeof(p3_vert_t), 0 };
+        d[0].indices = d[1].indices = GPU3D_SEM_INDICES;
+        uint32_t mv[16];
+        if (escena == 0) {
+            /* un rectángulo grande girado 36,87 grados (coseno 0,8 y seno 0,6) que se sale por la izquierda, por la
+             * derecha y por el plano cercano, con un color en cada esquina, y otro pequeño que lo atraviesa */
+            static const int32_t mv_q[16] = { Q(0.8), 0, Q(-0.6), 0,   0, Q(1), 0, 0,   Q(0.6), 0, Q(0.8), 0,   0, 0, Q(-2.5), Q(1) };
+            mat_q16(mv, mv_q);
+            p3_v(&vs[0], Q(-4), Q(-1.5), 0, 0xFF2020FFu, 0, 0); p3_v(&vs[1], Q(4), Q(-1.5), 0, 0x20FF20FFu, 0, 0);
+            p3_v(&vs[2], Q(4), Q(1.5), 0, 0x2020FFFFu, 0, 0);   p3_v(&vs[3], Q(-4), Q(-1.5), 0, 0xFF2020FFu, 0, 0);
+            p3_v(&vs[4], Q(4), Q(1.5), 0, 0x2020FFFFu, 0, 0);   p3_v(&vs[5], Q(-4), Q(1.5), 0, 0xF0F020FFu, 0, 0);
+            p3_v(&vs[6], Q(-0.5), Q(-0.9), Q(-1.2), 0xFFFFFFFFu, 0, 0); p3_v(&vs[7], Q(-0.5), Q(-0.9), Q(1.2), 0xFFFFFFFFu, 0, 0);
+            p3_v(&vs[8], Q(-0.5), Q(0.9), Q(1.2), 0x808080FFu, 0, 0);   p3_v(&vs[9], Q(-0.5), Q(-0.9), Q(-1.2), 0xFFFFFFFFu, 0, 0);
+            p3_v(&vs[10], Q(-0.5), Q(0.9), Q(1.2), 0x808080FFu, 0, 0);  p3_v(&vs[11], Q(-0.5), Q(0.9), Q(-1.2), 0x808080FFu, 0, 0);
+            nv = 12;
+            mat_mul(t->mvp, proj, mv);
+            d[0].cor_a = (gpu3d_atrib_t){ 0, G3D_AT_UBYTE4N, sizeof(p3_vert_t), 12 };
+            d[0].modo = G3D_PRIM_TRIANGULOS; d[0].primeiro = 0; d[0].n = 12;
+        } else if (escena == 1) {
+            /* sin perspectiva: una tira de cuatro triángulos a la izquierda y la misma, con el orden al revés, a la
+             * derecha: con el descarte de caras solo debe verse una */
+            static const int32_t mv_q[16] = { Q(0.9), 0, 0, 0,   0, Q(0.9), 0, 0,   0, 0, Q(1), 0,   Q(-0.1), Q(0.05), 0, Q(1) };
+            mat_q16(t->mvp, mv_q);
+            for (int k = 0; k < 6; k++) {
+                p3_v(&vs[k], Q(-0.9) + k * Q(0.15), k & 1 ? Q(0.7) : Q(-0.7), Q(0.2), 0, 0, 0);
+                p3_v(&vs[6 + k], Q(0.2) + k * Q(0.15), k & 1 ? Q(0.7) : Q(-0.7), Q(-0.3), 0, 0, 0);
+            }
+            nv = 12;
+            t->cor = 0xFF30C0E0u;
+            t->descarte = G3D_DESC_POS;
+            if (b3 & G3D_C3_TIRAS) {
+                d[0].modo = d[1].modo = G3D_PRIM_TIRA; d[0].n = d[1].n = 6;
+                for (int k = 0; k < 6; k++) { idx[k] = (uint16_t)k; idx[6 + k] = (uint16_t)(6 + (k ^ 1)); }
+                ni = 12;
+            } else {
+                d[0].modo = d[1].modo = G3D_PRIM_TRIANGULOS; d[0].n = d[1].n = 6;
+                static const uint16_t tri[12] = { 0, 1, 2, 2, 1, 3,   7, 6, 8, 8, 6, 9 };
+                for (int k = 0; k < 12; k++) idx[k] = tri[k];
+                ni = 12;
+            }
+            nd = 2; d[1].primeiro = 6;
+            if (b3 & G3D_C3_INDICES) d[0].indices = d[1].indices = 1;
+            else {
+                /* sin índices: los mismos vértices, ya en orden */
+                p3_vert_t tmp[12];
+                for (int k = 0; k < 12; k++) tmp[k] = vs[idx[k]];
+                for (int k = 0; k < 12; k++) vs[k] = tmp[k];
+                ni = 0;
+            }
+        } else {
+            /* un suelo con textura que se aleja: la coordenada pasa por una matriz y la niebla crece con la distancia */
+            static const int32_t mv_q[16] = { Q(1), 0, 0, 0,   0, Q(0.47), Q(-0.8829), 0,   0, Q(0.8829), Q(0.47), 0,   0, Q(-0.4), Q(-3.2), Q(1) };
+            static const int32_t tx_q[16] = { Q(2), 0, 0, 0,   0, Q(1.5), 0, 0,   0, 0, Q(1), 0,   Q(0.25), 0, 0, Q(1) };
+            mat_q16(mv, mv_q);
+            mat_mul(t->mvp, proj, mv);
+            for (int k = 0; k < 16; k++) t->mv[k] = mv[k];
+            p3_v(&vs[0], Q(-2), Q(-2.5), 0, 0, 0, 0);     p3_v(&vs[1], Q(2), Q(-2.5), 0, 0, Q(1), 0);
+            p3_v(&vs[2], Q(2), Q(2.5), 0, 0, Q(1), Q(1)); p3_v(&vs[3], Q(-2), Q(-2.5), 0, 0, 0, 0);
+            p3_v(&vs[4], Q(2), Q(2.5), 0, 0, Q(1), Q(1)); p3_v(&vs[5], Q(-2), Q(2.5), 0, 0, 0, Q(1));
+            nv = 6;
+            d[0].modo = G3D_PRIM_TRIANGULOS; d[0].n = 6;
+            t->cor = 0xFFFFFFFFu;
+            d[0].tc[0] = (gpu3d_atrib_t){ 0, G3D_AT_FLOAT2, sizeof(p3_vert_t), 16 };
+            if (b3 & G3D_C3_TEX_MAT) { t->flags |= G3D3_TEX_MAT(0); mat_q16(t->tex[0], tx_q); }
+            if (b3 & G3D_C3_NEBLINA) {
+                /* lineal de 1,5 a 6 */
+                t->flags |= G3D3_NEBLINA; t->neb_modo = G3D_NEB_LINEAR;
+                t->neb_a = fx(Q(6.0 / 4.5)); t->neb_b = fx(Q(1.0 / 4.5));
+                if (capas.bits & G3D_CAP_NEBLINA) { e.flags |= G3D2_NEBLINA; e.cor_neblina = 0x00C0A040u; }
+                else { t->flags |= G3D3_NEB_MEZCLADA; t->neb_cor = 0x00C0A040u; }
+            }
+            uint32_t tx[16];
+            for (int j = 0; j < 4; j++)
+                for (int i = 0; i < 4; i++)
+                    tx[j * 4 + i] = 0xFF000000u | ((uint32_t)(40 + i * 60) << 16) | ((uint32_t)(30 + j * 70) << 8) | (uint32_t)((i ^ j) * 80 + 15);
+            if (drv->textura(0, 4, 4, tx) != G3D_OK) { klog("[GPU3D] v3: no se pudo cargar la textura de la autoprueba\n"); bien = false; break; }
+            e.unidades = 1;
+            gpu3d_unidade_t *u = &e.u[0];
+            u->ativa = 1; u->vaga = 0; u->tipo = G3D_TEX_2D; u->filtro = G3D_FIL_LINEAR_MAG | G3D_FIL_LINEAR_MIN;
+            u->env_s = u->env_t = G3D_ENV_REPETIR; u->aniso = 1; u->coord = 0;
+            u->rgb_func = u->alfa_func = G3D_CB_MODULAR; u->rgb_escala = u->alfa_escala = 1;
+            u->rgb_fonte[0] = u->alfa_fonte[0] = G3D_FT_TEXTURA; u->rgb_fonte[1] = u->alfa_fonte[1] = G3D_FT_ANTERIOR;
+            u->rgb_fonte[2] = u->alfa_fonte[2] = G3D_FT_CONSTANTE;
+            for (int k = 0; k < 3; k++) { u->rgb_opd[k] = G3D_OPD_COR; u->alfa_opd[k] = G3D_OPD_ALFA; }
+        }
+        p3_mem.v = (const uint8_t *)vs; p3_mem.nv = (uint32_t)nv * sizeof(p3_vert_t);
+        p3_mem.i = (const uint8_t *)idx; p3_mem.ni = (uint32_t)ni * 2;
+        /* la referencia: la CPU transforma y la GPU pinta (v2) */
+        int r = drv->limpar(3, AP_FUNDO);
+        g3d_v3_cpu_t c = { p3_ler, p3_sair, NULL, lote, 96 };
+        for (int k = 0; k < nd && r == G3D_OK; k++) {
+            g3d_desenho3_t g = { &e, t, NULL, d[k], 0, p3_mem.ni };
+            r = g3d_v3_cpu(&g, &c);
+        }
+        if (r == G3D_OK) r = drv->ler(img + AP_L * AP_A, AP_L);
+        if (r == G3D_OK && (diag & GPU3D_PROVA_VER)) {
+            /* Diagnóstico: ¿la imagen es estable? La misma lectura otra vez y el mismo dibujo otra vez. */
+            uint32_t *otra = kmalloc(AP_L * AP_A * 4);
+            if (otra) {
+                int dl = 0, dd = 0;
+                if (drv->ler(otra, AP_L) == G3D_OK)
+                    for (int i = 0; i < AP_L * AP_A; i++) dl += (otra[i] ^ img[AP_L * AP_A + i]) & 0xFFFFFFu ? 1 : 0;
+                int r2 = drv->limpar(3, AP_FUNDO);
+                for (int k = 0; k < nd && r2 == G3D_OK; k++) {
+                    g3d_desenho3_t g = { &e, t, NULL, d[k], 0, p3_mem.ni };
+                    r2 = g3d_v3_cpu(&g, &c);
+                }
+                if (r2 == G3D_OK && drv->ler(otra, AP_L) == G3D_OK)
+                    for (int i = 0; i < AP_L * AP_A; i++) dd += (otra[i] ^ img[AP_L * AP_A + i]) & 0xFFFFFFu ? 1 : 0;
+                int negros = 0, nz = -1;
+                for (int i = 0; i < AP_L * AP_A; i++) negros += (img[AP_L * AP_A + i] & 0xFFFFFFu) == 0;
+                /* y sin la prueba de Z */
+                gpu3d_estado2_t ez = e;
+                ez.flags &= ~(uint32_t)(G3D2_Z_TESTE | G3D2_Z_ESCRITA);
+                r2 = drv->limpar(3, AP_FUNDO);
+                for (int k = 0; k < nd && r2 == G3D_OK; k++) {
+                    g3d_desenho3_t g = { &ez, t, NULL, d[k], 0, p3_mem.ni };
+                    r2 = g3d_v3_cpu(&g, &c);
+                }
+                if (r2 == G3D_OK && drv->ler(otra, AP_L) == G3D_OK) {
+                    nz = 0;
+                    for (int i = 0; i < AP_L * AP_A; i++) nz += (otra[i] & 0xFFFFFFu) == 0;
+                }
+                klog("[GPU3D] v3: escena %d: referencia con %d pixeles negros; leida otra vez: %d distintos; dibujada otra vez: %d distintos; "
+                     "sin Z: %d negros\n", escena, negros, dl, dd, nz);
+                kfree(otra);
+            }
+        }
+        if (r == G3D_FALHA) P3_FALHA_GPU();
+        if (r != G3D_OK) { klog("[GPU3D] v3: escena %d (%s): el driver no dibujo la referencia por v2\n", escena, nomes_prova3[escena]); bien = false; break; }
+        /* la GPU entera: búferes residentes y desenhar3 */
+        r = drv->limpar(3, AP_FUNDO);
+        if (r == G3D_OK) r = drv->vbuf(0, p3_mem.nv, 0, NULL, 0);
+        if (r == G3D_OK) r = drv->vbuf(0, p3_mem.nv, 0, vs, p3_mem.nv);
+        if (r == G3D_OK && ni) r = drv->vbuf(1, p3_mem.ni, 0, NULL, 0);
+        if (r == G3D_OK && ni) r = drv->vbuf(1, p3_mem.ni, 0, idx, p3_mem.ni);
+        for (int k = 0; k < nd && r == G3D_OK; k++) {
+            g3d_desenho3_t g = { &e, t, NULL, d[k], 0, p3_mem.ni };
+            g.max_vert = (uint32_t)nv - 1;
+            r = drv->desenhar3(&g, NULL);
+        }
+        if (r == G3D_OK) r = drv->ler(img, AP_L);
+        drv->vbuf(0, 0, 0, NULL, 0);
+        if (ni) drv->vbuf(1, 0, 0, NULL, 0);
+        if (escena == 2) drv->textura(0, 0, 0, NULL);
+        if (r == G3D_FALHA) P3_FALHA_GPU();
+        if (r != G3D_OK) { klog("[GPU3D] v3: escena %d (%s): el driver no acepto el dibujo desde los buferes\n", escena, nomes_prova3[escena]); bien = false; break; }
+        int px, py, cheio;
+        int mal = p3_comparar(img, img + AP_L * AP_A, &px, &py, &cheio);
+        bool ok = mal <= P3_MAX_MAL && cheio >= P3_MIN_CHEIO;
+        if (!ok || (diag & GPU3D_PROVA_DETALLE))
+            klog("[GPU3D] v3: escena %d (%s): %s; %d pixeles distintos de %d (se toleran %d), la referencia pinta %d%s\n", escena,
+                 nomes_prova3[escena], ok ? "bien" : "FALLO", mal, AP_L * AP_A, P3_MAX_MAL, cheio, cheio < P3_MIN_CHEIO ? " (demasiado pocos)" : "");
+        if (px >= 0 && (!ok || (diag & GPU3D_PROVA_DETALLE)))
+            klog("[GPU3D] v3:   el peor, %d,%d: la GPU da %06x y la CPU %06x\n", px, py, img[py * AP_L + px] & 0xFFFFFFu,
+                 img[AP_L * AP_A + py * AP_L + px] & 0xFFFFFFu);
+        if (!ok || (diag & GPU3D_PROVA_VER)) p3_mapa(escena, img, img + AP_L * AP_A);
+        if (!ok) { bien = false; if (!(diag & GPU3D_PROVA_VER)) break; }   /* con --ver, las tres escenas */
+    }
+fim:
+    #undef P3_FALHA_GPU
+    kfree(img); kfree(lote); kfree(vs); kfree(t);
+    if (!viva) { prova3 = 2u | ((uint32_t)escena << 8); return false; }
+    if (bien) { capas.bits3 = b3; prova3 = 1; }
+    else prova3 = 2u | ((uint32_t)escena << 8);
+    klog("[GPU3D] v3 (la GPU transforma y guarda los vertices, D457): autoprueba %s en %u us; bits 0x%x%s\n", bien ? "BIEN" : "FALLO",
+         us_desde(t0), capas.bits3, bien ? "" : ": la transformacion sigue por la CPU (v2), el 3D sigue encendido");
+    if (!bien) capas.vbufs = capas.max_luzes = 0;
+    else capas.vbufs = GPU3D_VBUFS;
+    return true;
+}
+#undef Q
 
 static bool ligar(info_gpu3d_prova_t *r)
 {
@@ -681,6 +1043,18 @@ static bool ligar(info_gpu3d_prova_t *r)
             return false;
         }
     }
+    if (drv == &gpu3d_intel9) {
+        /* D438: el 3D va por el RCS y el 2D (D434) por el BCS: motores distintos, así que un 2D
+         * fallido no lo impide (el driver vuelve a mirar pantalla, GTT y memoria robada). */
+        const acel_driver_t *d2 = NULL;
+        bool suspeito = false;
+        if (!acel2d_placa(&disp, &geracao, &d2, &tela, &suspeito) || d2 != &acel_intel_exec || !hw_tsc_khz()) {
+            estado = GPU3D_FALHOU;
+            snformatar(motivo, sizeof motivo, "%s: la capa 2D ya no conoce la tarjeta o no hay TSC medido para los plazos", placa_nome);
+            return false;
+        }
+        if (suspeito) klog("[GPU3D] aviso: el 2D por execlists de esta tarjeta no esta activo (%s); el 3D usa otro motor y se prueba igual\n", acel2d_motivo());
+    }
     if (drv == &gpu3d_r600 || drv == &gpu3d_evergreen) {   /* D427: las Evergreen/NI, con las mismas reglas */
         const acel_driver_t *d2 = NULL;
         bool suspeito = false;
@@ -714,6 +1088,11 @@ static bool ligar(info_gpu3d_prova_t *r)
     }
     us_autoprova = r->us_autoprova;
     capas_calcular();
+    if (bits3_driver && !autoprova3()) {
+        /* autoprova3 solo devuelve false si la GPU dejó de responder: lo demás (píxeles distintos) apaga v3, no el 3D */
+        falha("la GPU no respondio a tiempo en la autoprueba de gpu3d v3");
+        return false;
+    }
     alvo_l = alvo_a = 0; dono = 0;
     uint32_t ram_kb, vr = variante_real(&ram_kb);
     char gtt[48] = "";
@@ -883,6 +1262,86 @@ static bool vertices_ok(const gpu3d_vert_t *v, int n)
     return true;
 }
 
+/* ---- gpu3d v3 (D457): búferes residentes ---- */
+
+static void vb_soltar(int i)
+{
+    if (!vb[i].presente) return;
+    if (drv && drv->vbuf) drv->vbuf(i, 0, 0, NULL, 0);
+    vb_bytes -= vb[i].bytes; vb_n--;
+    memset(&vb[i], 0, sizeof vb[i]);
+}
+
+static void vb_soltar_todos(void)
+{
+    for (int i = 0; i < GPU3D_VBUFS; i++) vb_soltar(i);
+    transf_valida = luzes_validas = false;
+}
+
+/* Expulsa el búfer que lleva más tiempo sin usarse (salvo «exceto»). false: no queda ninguno. */
+static bool vb_expulsar(int exceto)
+{
+    int m = -1;
+    for (int i = 0; i < GPU3D_VBUFS; i++)
+        if (vb[i].presente && i != exceto && (m < 0 || vb[i].seq < vb[m].seq)) m = i;
+    if (m < 0) return false;
+    if (!n_vb_expulsos) klog("[GPU3D] v3: la memoria de la GPU para vertices esta llena (%u buferes, %u KB): se expulsa el menos usado (el programa lo vuelve a subir si lo dibuja)\n", vb_n, vb_bytes >> 10);
+    vb_soltar(m);
+    n_vb_expulsos++;
+    return true;
+}
+
+static bool floats_ok(const uint32_t *f, int n)
+{
+    for (int i = 0; i < n; i++) if (((f[i] >> 23) & 0xFF) == 0xFF) return false;
+    return true;
+}
+
+static uint32_t atrib_bytes(const gpu3d_atrib_t *a) { return a->formato == G3D_AT_UBYTE4N ? 4u : (uint32_t)a->formato * 4u; }
+static bool atrib_ok(const gpu3d_atrib_t *a, uint32_t formatos)
+{
+    if (a->formato > G3D_AT_UBYTE4N || !(formatos & (1u << a->formato))) return false;
+    if (a->formato == G3D_AT_NADA) return true;
+    return a->vaga < GPU3D_VBUFS && a->passo >= 4 && !(a->passo & 3) && !(a->desloc & 3) && a->desloc < GPU3D_VBUF_MAX_BYTES;
+}
+
+/* Una transformación con valores conocidos, la vista dentro del destino y nada que el driver no anunciara. */
+static bool transf_ok(const gpu3d_transf_t *t, bool *sem_suporte)
+{
+    *sem_suporte = false;
+    uint32_t b = capas.bits3;
+    if (t->versao != 3 || (t->flags & ~0x1F7u) || t->neb_modo > G3D_NEB_EXP2 || t->descarte > G3D_DESC_NEG) return false;
+    if (!floats_ok(t->mvp, 16) || !floats_ok(t->mv, 16) || !floats_ok(&t->tex[0][0], 64) || !floats_ok(t->normal, 9) ||
+        !floats_ok(t->vp_escala, 3) || !floats_ok(t->vp_desloc, 3) || !floats_ok(t->normal_const, 3) ||
+        !floats_ok(&t->tc_const[0][0], 16) || !floats_ok(&t->neb_a, 2)) return false;
+    /* la vista, en 1/16 de píxel: desloc +- |escala| dentro del destino (la GPU recorta a la vista) */
+    int32_t ex = g3d_fixo_de_float(t->vp_escala[0] & 0x7FFFFFFFu, 4), ox = g3d_fixo_de_float(t->vp_desloc[0], 4);
+    int32_t ey = g3d_fixo_de_float(t->vp_escala[1] & 0x7FFFFFFFu, 4), oy = g3d_fixo_de_float(t->vp_desloc[1], 4);
+    if (ex < 8 || ey < 8 || ox - ex < -1 || oy - ey < -1 || ox + ex > dest_l * 16 + 1 || oy + ey > dest_a * 16 + 1) return false;
+    int32_t ez = g3d_fixo_de_float(t->vp_escala[2] & 0x7FFFFFFFu, 16), oz = g3d_fixo_de_float(t->vp_desloc[2], 16);
+    if (oz - ez < -1 || oz + ez > 65537) return false;
+    bool falta = !(b & G3D_C3_V3);
+    if ((t->flags & G3D3_NEBLINA) && !(b & G3D_C3_NEBLINA)) falta = true;
+    if ((t->flags & G3D3_NEBLINA) && t->neb_modo != G3D_NEB_LINEAR && !(b & G3D_C3_NEB_EXP)) falta = true;
+    if ((t->flags & G3D3_LUZ) && !(b & G3D_C3_LUZ)) falta = true;
+    if ((t->flags & 0xF0u) && !(b & G3D_C3_TEX_MAT)) falta = true;
+    *sem_suporte = falta;
+    return true;
+}
+
+/* El atributo cabe en lo subido a su búfer para los vértices 0..max_vert. 0 bien, GPU3D_EXPULSO o un error. */
+static int32_t atrib_cabe(const gpu3d_atrib_t *a, uint32_t max_vert)
+{
+    if (a->formato == G3D_AT_NADA) return 0;
+    vb_t *k = &vb[a->vaga];
+    if (!k->presente) return GPU3D_EXPULSO;
+    if (k->uso != G3D_VB_VERTICES) return ERRO_INVALIDO;
+    uint64_t fim = (uint64_t)a->desloc + (uint64_t)max_vert * a->passo + atrib_bytes(a);
+    if (fim > k->cheio) return ERRO_INVALIDO;
+    k->seq = vb_seq;
+    return 0;
+}
+
 static int32_t op_dentro(uint32_t ptr, uint32_t n);
 
 int32_t gpu3d_op(uint32_t ptr, uint32_t n)
@@ -923,6 +1382,8 @@ static int32_t op_dentro(uint32_t ptr, uint32_t n)
         if (p.a < 8 || p.b < 8 || p.a > GPU3D_MAX_LADO || p.b > GPU3D_MAX_LADO) return GPU3D_SEM_SUPORTE;
         if (estado == GPU3D_SIN_PROBAR && !ligar(NULL)) return GPU3D_SEM_SUPORTE;
         for (int i = 0; i < GPU3D_TEXTURAS; i++) drv->textura(i, 0, 0, NULL);
+        vb_soltar_todos();   /* D457 */
+        n_vb_expulsos = n_vb_subidas = vb_kb_subidos = n_des3 = n_vert3 = 0;
         /* D425: c = bits de Z | bits de esténcil << 8. El esténcil va con un Z de 24 (Z24S8): un driver
          * v1 recibe solo los bits de Z, como siempre. */
         int zb_ped = (int)(p.c & 0xFF), est_ped = (int)((p.c >> 8) & 0xFF);
@@ -939,6 +1400,7 @@ static int32_t op_dentro(uint32_t ptr, uint32_t n)
         dono = pid; alvo_l = (int)p.a; alvo_a = (int)p.b; alvo_z = (int)p.c;
         est_atual = (gpu3d_estado_t){ 0, G3D_Z_MENOR, G3D_F_UM, G3D_F_ZERO, 0 };
         est2_valido = false; dest_vaga = -1; dest_l = alvo_l; dest_a = alvo_a;
+        transf_valida = luzes_validas = false;
         memset(vaga_l, 0, sizeof vaga_l); memset(vaga_a, 0, sizeof vaga_a);
         return 0;
     }
@@ -946,7 +1408,12 @@ static int32_t op_dentro(uint32_t ptr, uint32_t n)
         /* D425: lo puede preguntar cualquiera; antes del primer uso, un driver sin probar dice lo de v1. */
         if (!usuario_ok((void *)p.ptr, sizeof(gpu3d_capas_t), true)) return ERRO_ENDERECO;
         gpu3d_capas_t c;
-        if (estado == GPU3D_ATIVO) c = capas;
+        if (estado == GPU3D_ATIVO) {
+            c = capas;
+            /* D457: para «gpu3d» e infopc: la autoprueba v3 y la contabilidad de los búferes */
+            c.reservado[0] = prova3 | (bits3_driver << 16); c.reservado[1] = vb_n; c.reservado[2] = vb_bytes >> 10;
+            c.reservado[3] = n_vb_expulsos; c.reservado[4] = n_des3;
+        }
         else { memset(&c, 0, sizeof c); c.versao = 2; c.unidades = 1; c.max_lado = GPU3D_MAX_LADO; c.max_aniso = 1;
                c.formatos = 1u << G3D_FMT_ARGB8888; c.zbits = 3; }
         *(gpu3d_capas_t *)p.ptr = c;
@@ -963,6 +1430,10 @@ static int32_t op_dentro(uint32_t ptr, uint32_t n)
         if (dest_vaga >= 0 && drv->destino) drv->destino(-1, alvo_z, 0);
         dest_vaga = -1;
         for (int i = 0; i < GPU3D_TEXTURAS; i++) drv->textura(i, 0, 0, NULL);
+        if (n_des3 || n_vb_subidas)
+            klog("[GPU3D] v3 (D457): %u dibujos desde buferes (%u vertices), %u subidas (%u KB), %u buferes (%u KB) al soltar, %u expulsiones\n",
+                 n_des3, n_vert3, n_vb_subidas, vb_kb_subidos, vb_n, vb_bytes >> 10, n_vb_expulsos);
+        vb_soltar_todos();
         dono = 0; alvo_l = alvo_a = 0;
         return 0;
     case GPU3D_OP_LIMPAR:
@@ -1064,13 +1535,13 @@ static int32_t op_dentro(uint32_t ptr, uint32_t n)
         if ((p.b != 0 && p.b != 16 && p.b != 24) || (p.c != 0 && p.c != 8)) return ERRO_INVALIDO;
         if (p.a == GPU3D_DESTINO_PRINCIPAL) {
             r = drv->destino(-1, alvo_z, 0); que = "volver al destino principal";
-            if (r == G3D_OK) { dest_vaga = -1; dest_l = alvo_l; dest_a = alvo_a; est2_valido = false; }
+            if (r == G3D_OK) { dest_vaga = -1; dest_l = alvo_l; dest_a = alvo_a; est2_valido = false; transf_valida = false; }
             break;
         }
         if (p.a >= GPU3D_TEXTURAS || !vaga_l[p.a] || vaga_l[p.a] < 8 || vaga_a[p.a] < 8) return ERRO_INVALIDO;
         if (p.c && !(capas.bits & G3D_CAP_ESTENCIL)) return GPU3D_SEM_SUPORTE;
         r = drv->destino((int)p.a, (int)p.b, (int)p.c); que = "dibujar en una textura";
-        if (r == G3D_OK) { dest_vaga = (int)p.a; dest_l = vaga_l[p.a]; dest_a = vaga_a[p.a]; est2_valido = false; }
+        if (r == G3D_OK) { dest_vaga = (int)p.a; dest_l = vaga_l[p.a]; dest_a = vaga_a[p.a]; est2_valido = false; transf_valida = false; }
         break;
     }
     /* ---- D432: presentar sin volver a la RAM ---- */
@@ -1125,6 +1596,107 @@ static int32_t op_dentro(uint32_t ptr, uint32_t n)
             gui_exclusiva_soltar(pid, "el driver no puede presentar eso");
             n_apres_nao++;
         }
+        break;
+    }
+    /* ---- gpu3d v3 (D457): la GPU guarda y transforma los vértices ---- */
+    case GPU3D_OP_VBUF: {
+        if (!usuario_ok((void *)p.ptr, sizeof(gpu3d_vbuf_t), false)) return ERRO_ENDERECO;
+        gpu3d_vbuf_t b = *(const gpu3d_vbuf_t *)p.ptr;
+        if (!(capas.bits3 & G3D_C3_V3)) return GPU3D_SEM_SUPORTE;
+        if (b.vaga >= GPU3D_VBUFS || b.uso > G3D_VB_INDICES16 || (b.flags & ~G3D_VB_NOVO)) return ERRO_INVALIDO;
+        vb_t *k = &vb[b.vaga];
+        if (!b.bytes) { vb_soltar((int)b.vaga); return 0; }
+        if (b.uso == G3D_VB_INDICES16 && !(capas.bits3 & G3D_C3_INDICES)) return GPU3D_SEM_SUPORTE;
+        if (b.flags & G3D_VB_NOVO) {
+            if (b.bytes > GPU3D_VBUF_MAX_BYTES) return GPU3D_SEM_SUPORTE;
+            vb_soltar((int)b.vaga);
+            r = drv->vbuf((int)b.vaga, b.bytes, 0, NULL, 0); que = "crear un bufer de vertices";
+            while (r == G3D_NAO && vb_expulsar((int)b.vaga)) r = drv->vbuf((int)b.vaga, b.bytes, 0, NULL, 0);
+            if (r != G3D_OK) break;
+            k->presente = true; k->bytes = b.bytes; k->cheio = 0; k->uso = (uint8_t)b.uso; k->max_idx = 0; k->seq = ++vb_seq;
+            vb_bytes += b.bytes; vb_n++;
+        } else if (!k->presente) return GPU3D_EXPULSO;
+        else if (k->uso != b.uso || k->bytes != b.bytes) return ERRO_INVALIDO;
+        if (!b.n) return 0;
+        if (b.desloc > k->cheio || b.n > k->bytes || b.desloc > k->bytes - b.n) return ERRO_INVALIDO;
+        if (!usuario_ok((void *)b.dados, b.n, false)) return ERRO_ENDERECO;
+        if (b.uso == G3D_VB_INDICES16) {
+            if ((b.desloc | b.n) & 1) return ERRO_INVALIDO;
+            const uint16_t *ix = (const uint16_t *)b.dados;
+            for (uint32_t i = 0; i < b.n / 2; i++) if (ix[i] > k->max_idx) k->max_idx = ix[i];
+        }
+        que = "subir vertices";
+        for (uint32_t o = 0; o < b.n && r == G3D_OK; o += GPU3D_VBUF_TROZO) {
+            uint32_t m = b.n - o < GPU3D_VBUF_TROZO ? b.n - o : GPU3D_VBUF_TROZO;
+            if (o) gpu3d_respirar();   /* D436: una subida grande no deja sin sonido */
+            r = drv->vbuf((int)b.vaga, k->bytes, b.desloc + o, (const uint8_t *)b.dados + o, m);
+        }
+        if (r == G3D_OK) {
+            if (b.desloc + b.n > k->cheio) k->cheio = b.desloc + b.n;
+            n_vb_subidas++; vb_kb_subidos += (b.n + 1023) >> 10;
+        }
+        break;
+    }
+    case GPU3D_OP_TRANSF: {
+        if (!usuario_ok((void *)p.ptr, sizeof(gpu3d_transf_t), false)) return ERRO_ENDERECO;
+        if (!(capas.bits3 & G3D_C3_V3)) return GPU3D_SEM_SUPORTE;
+        transf_valida = false;
+        transf_atual = *(const gpu3d_transf_t *)p.ptr;
+        bool falta;
+        if (!transf_ok(&transf_atual, &falta)) return ERRO_INVALIDO;
+        if (falta) { n_recusas++; return GPU3D_SEM_SUPORTE; }
+        transf_valida = true;
+        return 0;
+    }
+    case GPU3D_OP_LUZES: {
+        if (!usuario_ok((void *)p.ptr, sizeof(gpu3d_luzes_t), false)) return ERRO_ENDERECO;
+        if (!(capas.bits3 & G3D_C3_LUZ)) return GPU3D_SEM_SUPORTE;
+        luzes_validas = false;
+        luzes_atuais = *(const gpu3d_luzes_t *)p.ptr;
+        const gpu3d_luzes_t *l = &luzes_atuais;
+        if (l->versao != 3 || (l->flags & ~G3D_LUZ_COR_MATERIAL) || (l->luzes & ~0xFFu) ||
+            !floats_ok(l->ambiente_global, 21) || !floats_ok((const uint32_t *)l->luz, 8 * 24)) return ERRO_INVALIDO;
+        int nl = 0;
+        for (int i = 0; i < 8; i++) if (l->luzes & (1u << i)) nl++;
+        if ((uint32_t)nl > capas.max_luzes) { n_recusas++; return GPU3D_SEM_SUPORTE; }
+        luzes_validas = true;
+        return 0;
+    }
+    case GPU3D_OP_DESENHAR3: {
+        if (!usuario_ok((void *)p.ptr, sizeof(gpu3d_desenho3_t), false)) return ERRO_ENDERECO;
+        g3d_desenho3_t g;
+        g.d = *(const gpu3d_desenho3_t *)p.ptr;
+        if (!(capas.bits3 & G3D_C3_V3) || !est2_valido || !transf_valida) return GPU3D_SEM_SUPORTE;
+        if (g.d.modo > G3D_PRIM_ABANICO || g.d.n > GPU3D_MAX_VERT3 || g.d.primeiro > 0x00FFFFFFu ||
+            (g.d.modo == G3D_PRIM_TRIANGULOS && g.d.n % 3)) return ERRO_INVALIDO;
+        if (g.d.modo != G3D_PRIM_TRIANGULOS && !(capas.bits3 & G3D_C3_TIRAS)) return GPU3D_SEM_SUPORTE;
+        if (g.d.n < 3) return 0;
+        if ((transf_atual.flags & G3D3_LUZ) && !luzes_validas) return ERRO_INVALIDO;
+        if (!atrib_ok(&g.d.pos, 1u << G3D_AT_FLOAT2 | 1u << G3D_AT_FLOAT3 | 1u << G3D_AT_FLOAT4) ||
+            !atrib_ok(&g.d.cor_a, 1u << G3D_AT_NADA | 1u << G3D_AT_UBYTE4N | 1u << G3D_AT_FLOAT4) ||
+            !atrib_ok(&g.d.normal_a, 1u << G3D_AT_NADA | 1u << G3D_AT_FLOAT3)) return ERRO_INVALIDO;
+        for (int u = 0; u < 4; u++)
+            if (!atrib_ok(&g.d.tc[u], 1u << G3D_AT_NADA | 1u << G3D_AT_FLOAT2 | 1u << G3D_AT_FLOAT3 | 1u << G3D_AT_FLOAT4)) return ERRO_INVALIDO;
+        if (g.d.cor_a.formato == G3D_AT_FLOAT4 && !(capas.bits3 & G3D_C3_COR_FLOAT)) return GPU3D_SEM_SUPORTE;
+        vb_seq++;
+        g.bytes_indices = 0;
+        if (g.d.indices != GPU3D_SEM_INDICES) {
+            if (g.d.indices >= GPU3D_VBUFS) return ERRO_INVALIDO;
+            vb_t *k = &vb[g.d.indices];
+            if (!k->presente) return GPU3D_EXPULSO;
+            if (k->uso != G3D_VB_INDICES16 || (uint64_t)(g.d.primeiro + g.d.n) * 2 > k->cheio) return ERRO_INVALIDO;
+            k->seq = vb_seq;
+            g.max_vert = k->max_idx; g.bytes_indices = k->cheio;
+        } else g.max_vert = g.d.primeiro + g.d.n - 1;
+        int32_t c = atrib_cabe(&g.d.pos, g.max_vert);
+        if (!c) c = atrib_cabe(&g.d.cor_a, g.max_vert);
+        if (!c && (transf_atual.flags & G3D3_LUZ)) c = atrib_cabe(&g.d.normal_a, g.max_vert);
+        for (int u = 0; u < est2_atual.unidades && !c; u++) c = atrib_cabe(&g.d.tc[u], g.max_vert);
+        if (c) return c;
+        if ((cab & GPU3D_CAB_P_TEMPO) && ++n_desenhos_prova > 2) { falha("tiempo agotado esperando a la GPU (simulado)"); return ERRO_TEMPO; }
+        g.e = &est2_atual; g.t = &transf_atual; g.luz = transf_atual.flags & G3D3_LUZ ? &luzes_atuais : NULL;
+        r = drv->desenhar3(&g, NULL); que = "dibujar desde los buferes (v3)";
+        if (r == G3D_OK) { n_tri += g.d.modo == G3D_PRIM_TRIANGULOS ? g.d.n / 3 : g.d.n - 2; n_lotes++; n_des3++; n_vert3 += g.d.n; }
         break;
     }
     default:
@@ -1257,6 +1829,7 @@ int32_t gpu3d_prova(uint32_t ptr, uint32_t n)
     } else {
         ok = autoprova(r, m, sizeof m);
         if (!ok) { char mm[140]; snformatar(mm, sizeof mm, "autoprueba fallida: %s", m); falha(mm); }
+        if (ok && bits3_driver && !autoprova3()) { ok = false; snformatar(m, sizeof m, "la GPU no respondio en la autoprueba de gpu3d v3"); falha(m); }
     }
     diag = 0;
     if (ok && !medir(r)) { ok = false; snformatar(m, sizeof m, "la medida no termino"); falha("la GPU no termino la medida"); }

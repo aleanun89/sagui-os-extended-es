@@ -1,0 +1,12 @@
+# La nave del jugador: un cuerpo cinemático sin colisión con el mapa (mascara = 0).
+[Cuerpo Nave]
+forma = "circulo" 6
+capa = 2
+mascara = 0
+z = 2
+grupo = "jugador"
+guion = "guiones/nave.lua"
+[Sprite Dibujo padre=.]
+textura = "img/naves.png"
+cuadricula = 4 6
+fotograma = 4

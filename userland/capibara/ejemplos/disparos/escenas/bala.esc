@@ -1,0 +1,11 @@
+# Disparo del jugador: un área que sube y avisa si toca un enemigo (cuerpos de la capa 4).
+[Area Bala]
+forma = "caja" 4 12
+capa = 16
+mascara = 4
+z = 1
+guion = "guiones/bala.lua"
+[Sprite Dibujo padre=.]
+textura = "img/tiles.png"
+cuadricula = 12 10
+fotograma = 0

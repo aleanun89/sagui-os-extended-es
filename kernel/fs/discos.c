@@ -22,6 +22,7 @@
 #include "console.h"
 #include "fat32.h"
 #include "exfat.h"
+#include "xfs.h"
 #include "iso9660.h"
 #include "udf.h"
 #include "memoria.h"
@@ -211,6 +212,20 @@ static bool reconhecer_volume(disco_t *d, const uint8_t *s0, uint8_t *buf)
         /* La etiqueta de verdad queda en una entrada especial en la carpeta raíz. */
         char r[12];
         if (fat_rotulo_raiz(d, r)) txt_copia_n(d->rotulo, r, sizeof d->rotulo);
+        return true;
+    }
+    /* D446: XFS (superbloque en el sector 0, magia XFSB), solo lectura. Con funciones que no
+     * se conocen no se monta: se dice por qué en el formato. */
+    char motivo[48];
+    int x = xfs_reconhecer(s0, motivo, sizeof motivo, d->rotulo, sizeof d->rotulo);
+    if (x == XFS_SIM) {
+        txt_copia_n(d->tipo_fs, "xfs", sizeof d->tipo_fs);
+        txt_copia_n(d->formato, "XFS (solo lectura)", sizeof d->formato);
+        return true;
+    }
+    if (x == XFS_RECUSADO) {   /* el montaje lo rechaza con el motivo (y un aviso) */
+        txt_copia_n(d->tipo_fs, "xfs", sizeof d->tipo_fs);
+        txt_copia_n(d->formato, motivo, sizeof d->formato);
         return true;
     }
     if (d->setores > 4 && disco_ler(d, 2, 2, buf) == 0 && reconhecer_ext(d, buf)) return true;
@@ -971,9 +986,9 @@ int32_t sis_montar(uint32_t pnome, uint32_t pponto, uint32_t opcoes, uint32_t dd
     }
     disco_t *v = d->pai || d->volume == d ? d : d->volume;
     if (!v || !v->tipo_fs[0]) return ERRO_FORMATO;
-    static const char *const tipos[] = { "auto", "fat32", "ext2", "ext3", "ext4", "iso9660", "udf", "exfat" };
+    static const char *const tipos[] = { "auto", "fat32", "ext2", "ext3", "ext4", "iso9660", "udf", "exfat", "xfs" };
     uint32_t t = MONTAR_TIPO(opcoes);
-    if (t > 7) return ERRO_INVALIDO;
+    if (t >= sizeof tipos / sizeof tipos[0]) return ERRO_INVALIDO;
     return montagem_montar_dono(v, ponto, tipos[t],
                                 opcoes & (MONTAR_SO_LEITURA | MONTAR_LEITURA_ESCRITA | MONTAR_DONO | MONTAR_COM_UMASK | 0777u << 16),
                                 dd);

@@ -13,4 +13,8 @@ struct flock { short l_type, l_whence; off_t l_start, l_len; pid_t l_pid; };
 #define F_UNLCK 2
 #define F_SETLKW 7
 #define fcntl_bloqueo(fd, op, fl) (0)
+/* GCC 14 y 15: declarar una función sin prototipo es un error (D464). compat.c las implementa. */
+#include <stddef.h>
+void *mempcpy(void *d, const void *s, size_t n);
+char *getlogin(void);
 #endif

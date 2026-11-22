@@ -260,6 +260,7 @@ struct sgl_ctx {
     /* GPU: cuadros por software cuando un dibujo no cabe en lo que sabe el driver */
     int       gpu_sw, gpu_sw_prox, gpu_coube, gpu_capas_ok;
     uint32_t  gpu_bits, gpu_unid, gpu_formatos;
+    uint32_t  gpu_bits3;       /* D457: G3D_C3_* (gpu3d v3: la GPU guarda y transforma los vértices) */
 #endif
 };
 
@@ -282,6 +283,7 @@ static void  tex_es_iniciar(textura_t *t);
 static const void *vbo_resolver(const void *p, GLuint vbo);
 #ifdef SGL_TEM_GPU
 static void  es_gpu_quadro_novo(GLbitfield m);
+static int   es_v3_desenhar(GLenum modo, int primeiro, int n, const void *idx, GLenum tipo);   /* D457 */
 static int   es_gpu_limpar2(GLbitfield m);
 #endif
 #endif
@@ -366,7 +368,9 @@ static sgl_ctx_t *gpu_ctx;        /* el contexto que tiene el motor (uno por pro
 /* D451: ajustes para medir y para aislar fallos de un driver, por variables de entorno (se leen al ligar):
  *   SAGUI_GL_LOTE=N        vértices por entrega al kernel (por defecto GPU3D_MAX_VERT; antes 1020 en v1 y 504 en v2)
  *   SAGUI_GL_NEBLINA_CPU=0 sin mezclar la niebla en el vértice para v2 (ese dibujo va por software si el driver no la tiene)
- *   SAGUI_GL_PRESENTAR=0   sin presentar directo en la pantalla (cada cuadro vuelve a la RAM) */
+ *   SAGUI_GL_PRESENTAR=0   sin presentar directo en la pantalla (cada cuadro vuelve a la RAM)
+ *   SAGUI_GL_V3=0          D457: sin gpu3d v3 (la CPU transforma los vértices aunque el driver sepa hacerlo) */
+static int gpu_v3 = 1;
 static int gpu_lote = GV_MAX, gpu_neb_cpu = 1, gpu_pres = 1, gpu_diag = 0;   /* gpu_diag: SAGUI_GL_DIAG (1 forzar v2, 2 sin prueba alfa en la GPU) */
 
 static int env_int(const char *nome, int def)
@@ -429,6 +433,7 @@ int sgl_gpu_ligar(sgl_ctx_t *c)
     gpu_neb_cpu = env_int("SAGUI_GL_NEBLINA_CPU", 1);
     gpu_pres = env_int("SAGUI_GL_PRESENTAR", 1);
     gpu_diag = env_int("SAGUI_GL_DIAG", 0);
+    gpu_v3 = env_int("SAGUI_GL_V3", 1);
     c->gpu_v = SGL_ALOCAR(GV_MAX * sizeof(gvert_t));
     if (!c->gpu_v) return 0;
 #ifdef SGL_ES
@@ -2279,6 +2284,10 @@ static void linha_prim(const vert_t *a, const vert_t *b)
 /* idx = NULL: índices consecutivos desde primeiro. */
 static void desenhar(GLenum modo, int primeiro, int n, const void *idx, GLenum tipo, const fonte_t *f)
 {
+#if defined(SGL_ES) && defined(SGL_TEM_GPU)
+    /* D457 (gpu3d v3): con los arrays en búferes (VBO) y un driver que transforma, la GPU lo hace todo */
+    if (C->gpu && es_v3_desenhar(modo, primeiro, n, idx, tipo)) return;
+#endif
 #ifdef SGL_ES
     /* D425: lo que las rutas de siempre no saben va entero por la tubería completa */
     if (precisa_es(modo, f)) {

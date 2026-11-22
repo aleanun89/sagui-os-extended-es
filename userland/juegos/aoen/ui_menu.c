@@ -271,10 +271,11 @@ static int fila_opcion(int x, int y, int w, const char *etiqueta, const char *va
 }
 
 /* «mapa explorado» y «espectador»: en pantalla ancha van bajo la columna de jugadores (en la de mapa no caben a 800x600) */
-static int extra_a_la_izquierda;
+static int extra_a_la_izquierda, en_sala_red;   /* en_sala_red: la pantalla es la sala del multijugador (D461) */
 static void casillas_extra(int x, int y, int w) {
 	checkbox(x, y, "Mapa explorado desde el principio", &su.revelado);
 	y += 28;
+	if (en_sala_red) return;
 	checkbox(x, y, "Espectador: la máquina juega por ti", &su.espectador);
 	if (hit(x, y, w, 22)) tip_simple((Rect){ x, y, w, 22 }, "Modo espectador", "Partida de demostración: tu civilización también la lleva la máquina (difícil) a velocidad x2. Puedes mirar, usar el minimapa y el marcador.");
 }
@@ -454,25 +455,26 @@ void draw_menu(void) {
 	draw_background(0);
 	foco_inicio();
 	int bw = 320, bh = 50, gap = 14, x = (fb.w - bw) / 2, y = fb.h * 44 / 100;
-	if (y + 4 * (bh + gap) + 40 > fb.h) y = fb.h - 4 * (bh + gap) - 40;
+	if (y + 5 * (bh + gap) + 40 > fb.h) y = fb.h - 5 * (bh + gap) - 40;
 	/* el rótulo arriba, sin pisar los botones: en pantallas bajas se encoge el margen */
 	int ry = MAX(10, fb.h * 9 / 100);
 	int fin_rotulo = rotulo(ry);
 	if (fin_rotulo + 24 > y) y = fin_rotulo + 24;
 	solape_registrar(fb.w / 2 - gfx_t_w("AoEN", 3) / 2, ry, gfx_t_w("AoEN", 3), fin_rotulo - ry, "rótulo");
 	/* fondo translúcido detrás de los botones: se leen sobre cualquier paisaje */
-	gfx_fill_a(x - 18, y - 16, bw + 36, 4 * (bh + gap) - gap + 32, gfx_rgb(16, 10, 6), 120);
-	bevel(x - 18, y - 16, bw + 36, 4 * (bh + gap) - gap + 32, gfx_rgb(120, 92, 52));
+	gfx_fill_a(x - 18, y - 16, bw + 36, 5 * (bh + gap) - gap + 32, gfx_rgb(16, 10, 6), 120);
+	bevel(x - 18, y - 16, bw + 36, 5 * (bh + gap) - gap + 32, gfx_rgb(120, 92, 52));
 	/* los botones entran uno tras otro desde abajo */
-	int off[4];
-	for (int k = 0; k < 4; ++k) off[k] = (int)((1.0f - suavizar((t_pantalla() - 0.06f * k) / 0.35f)) * 24);
+	int off[5];
+	for (int k = 0; k < 5; ++k) off[k] = (int)((1.0f - suavizar((t_pantalla() - 0.06f * k) / 0.35f)) * 24);
 	if (button(x, y + off[0], bw, bh, "Un jugador", 1, 3)) app.screen = SC_SETUP;
+	if (button(x, y + (bh + gap) + off[1], bw, bh, "Multijugador (red local)", 1, 3)) mp_abrir();
 	static int has_saves = -1;
 	if (has_saves < 0 || (SDL_GetTicks() / 1000) % 2 == 0) has_saves = any_save();
-	if (button(x, y + (bh + gap) + off[1], bw, bh, "Cargar partida", has_saves, 3)) { refresh_slots(); saves_msg[0] = 0; app.saves_mode = 0; app.saves_back = SC_MENU; app.screen = SC_SAVES; }
-	if (!has_saves && hit(x, y + (bh + gap), bw, bh)) tip_simple((Rect){ x, y + (bh + gap), bw, bh }, "Cargar partida", "Aún no hay partidas guardadas: guarda con F5 o desde la pausa.");
-	if (button(x, y + 2 * (bh + gap) + off[2], bw, bh, "Opciones", 1, 3)) { app.options_back = SC_MENU; app.screen = SC_OPTIONS; }
-	if (button(x, y + 3 * (bh + gap) + off[3], bw, bh, "Salir", 1, 3)) app.running = 0;
+	if (button(x, y + 2 * (bh + gap) + off[2], bw, bh, "Cargar partida", has_saves, 3)) { refresh_slots(); saves_msg[0] = 0; app.saves_mode = 0; app.saves_back = SC_MENU; app.screen = SC_SAVES; }
+	if (!has_saves && hit(x, y + 2 * (bh + gap), bw, bh)) tip_simple((Rect){ x, y + 2 * (bh + gap), bw, bh }, "Cargar partida", "Aún no hay partidas guardadas: guarda con F5 o desde la pausa.");
+	if (button(x, y + 3 * (bh + gap) + off[3], bw, bh, "Opciones", 1, 3)) { app.options_back = SC_MENU; app.screen = SC_OPTIONS; }
+	if (button(x, y + 4 * (bh + gap) + off[4], bw, bh, "Salir", 1, 3)) app.running = 0;
 	const char *pie = "AoEN - motor nuevo en C. Age of Empires (c) Microsoft. Se necesita una copia legítima del juego.";
 	gfx_fill_a(0, fb.h - 26, fb.w, 26, gfx_rgb(0, 0, 0), 140);
 	gfx_ts(fb.w / 2 - gfx_t_w(pie, 1) / 2, fb.h - 21, pie, gfx_rgb(220, 210, 190), 1);
@@ -646,4 +648,33 @@ void draw_saves(void) {
 	if (saves_msg[0]) gfx_ts(fb.w / 2 - gfx_t_w(saves_msg, 1) / 2, py + ph - 78, saves_msg, COL_AVISO, 1);
 	gfx_text(fb.w / 2 - gfx_text_w(dir, 1) / 2, py + ph - 14, dir, COL_DIM, 1);
 	if (button(px + (pw - 200) / 2, py + ph - 56, 200, 34, "Volver", 1, 2) || tecla(SDL_SCANCODE_ESCAPE)) app.screen = app.saves_back;
+}
+
+/* ---------- la sala del multijugador (D461): el anfitrión edita el mapa y las reglas con los mismos controles ---------- */
+void sala_columna_mapa(int x, int y, int w, int h) {
+	en_sala_red = 1; extra_a_la_izquierda = 0;
+	columna_mapa(x, y, w, h);
+	en_sala_red = 0;
+}
+
+/* lo que ve quien no es anfitrión: el mapa y las reglas que eligió el anfitrión */
+void sala_resumen_mapa(int x, int y, int w, int h, const Setup *s) {
+	(void)h;
+	char b[160];
+	gfx_ts(x, y + 4, "Mapa y reglas (las elige el anfitrión)", COL_GOLD, 1);
+	y += 34;
+	int pw = MIN(w - 8, 240);
+	(void)pw;
+	snprintf(b, sizeof b, "Tipo: %s", map_names[CLAMP(s->map_kind + 1, 0, 5)]); gfx_ts(x, y, b, COL_CREAM, 1); y += 24;
+	snprintf(b, sizeof b, "Tamaño: %dx%d", s->width, s->height); gfx_ts(x, y, b, COL_CREAM, 1); y += 24;
+	snprintf(b, sizeof b, "Semilla: %d", s->seed); gfx_ts(x, y, b, COL_CREAM, 1); y += 24;
+	snprintf(b, sizeof b, "Victoria: %s", vic_names[CLAMP(s->victory, 0, VIC_COUNT - 1)]); gfx_ts(x, y, b, COL_CREAM, 1); y += 24;
+	snprintf(b, sizeof b, "Población máxima: %d", s->popcap); gfx_ts(x, y, b, COL_CREAM, 1); y += 24;
+	snprintf(b, sizeof b, "Recursos iniciales: %d madera, %d comida, %d oro, %d piedra", s->start_res[0], s->start_res[1], s->start_res[2], s->start_res[3]); gfx_ts(x, y, b, COL_CREAM, 1); y += 24;
+	static const char *rm[] = { "Normales", "Escasos", "Abundantes" };
+	snprintf(b, sizeof b, "Riqueza del mapa: %s", rm[CLAMP(s->recursos_mapa, 0, 2)]); gfx_ts(x, y, b, COL_CREAM, 1); y += 24;
+	snprintf(b, sizeof b, "Mapa explorado: %s", s->explored ? "sí" : "no"); gfx_ts(x, y, b, COL_CREAM, 1); y += 24;
+	snprintf(b, sizeof b, "Comercio mejorado: %s", s->comercio_mejorado ? "sí" : "no"); gfx_ts(x, y, b, COL_CREAM, 1); y += 24;
+	snprintf(b, sizeof b, "Victoria compartida: %s", s->victoria_compartida ? "sí" : "no"); gfx_ts(x, y, b, COL_CREAM, 1); y += 24;
+	snprintf(b, sizeof b, "Fuego amigo: %s", s->fuego_amigo ? "sí" : "no"); gfx_ts(x, y, b, COL_CREAM, 1);
 }

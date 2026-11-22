@@ -132,6 +132,13 @@ VARIANTE_DEFS += -DSAGUI_PUBLICABLE
 NETSURF := 0
 GNUBOY  := 0
 endif
+# D433: URE_PREFERIR=1 es solo para probar el Ethernet USB Realtek (kernel/rede/ure.c) en un equipo con red
+# PCI: si al arrancar hay un adaptador enchufado, no se buscan tarjetas PCI ni ISA y el USB queda de eth0.
+# Al cambiarlo, recompilar kernel/rede/rede.c (touch kernel/rede/rede.c): la dependencia no lo ve.
+URE_PREFERIR ?= 0
+ifeq ($(URE_PREFERIR),1)
+VARIANTE_DEFS += -DSAGUI_URE_PREFERIR
+endif
 CFLAGS  += $(VARIANTE_DEFS)
 
 # uACPI (D192): intérprete de AML de terceros (MIT) en kernel/terceros/uacpi/,
@@ -175,10 +182,30 @@ LIBSAGUI_OBJ := $(B)/userland/fonte8x16.o $(B)/userland/libsagui/sse2.o $(B)/use
 # depende de la otra; «medios» es el resto (sonido y vídeo, documentos, particiones, saguimark...). Los programas
 # estáticos siguen enlazando LIBSAGUI_OBJ entero, como siempre.
 LIBSAGUI_BASE_NOMES := ambiente catalogo chamadas compressao conf_maquina contas div64 empacotar entrada formatar fuso gui \
-  gui_arquivos gui_barras gui_explorador gui_moderno gui_revisar hilos hora http icones idioma imagem imagem_gif imagem_idct imagem_jpeg \
-  inicio.asm mandos memoria rapido rede regex servicos sincronia sonidos sse1 sse2 sse3 ssse3 texto utilitarios zonas
+  gui_arquivos gui_barras gui_explorador gui_moderno gui_revisar gui_paineis gui_inspetor gui_selcor gui_vista gui_paleta gui_codigo gui_desfazer gui_consola hilos hora http icones idioma imagem imagem_gif imagem_idct imagem_jpeg \
+  inicio.asm mandos memoria rapido rede regex servicos sincronia sonidos sse1 sse2 sse3 ssse3 texto utilitarios zonas \
+  widget cron raiz_live planificador sensores regional gui_componentes pdf_escribir des casa_migrar
+# D462: widget, cron, raiz_live, planificador, sensores, regional, gui_componentes, pdf_escribir, des y casa_migrar
+# pasan a la base (pequeños y sin BSS grande): los usan programas siempre abiertos o muy usados (los widgets, cron,
+# Archivos, el Administrador de tareas, el Editor, vnc...) que, si no, cargaban libsagui_medios.so.1 entera
+# (unos 350 KB de BSS propia por proceso).
 LIBSAGUI_BASE_OBJ := $(B)/userland/fonte8x16.o $(addprefix $(B)/userland/libsagui/,$(addsuffix .o,$(LIBSAGUI_BASE_NOMES)))
 LIBSAGUI_MEDIOS_OBJ := $(filter-out $(LIBSAGUI_BASE_OBJ),$(LIBSAGUI_OBJ))
+# D378/D462: dónde quedan las bibliotecas compartidas del sistema (definido aquí, antes de los .mk y de la
+# regla común de los programas, que las usan como requisitos). Desde la fase 3b (D462) libsagui.so.1, libc.so.1
+# y libsagui_medios.so.1 van a /lib junto al intérprete (en build/lib): los programas de /bin las necesitan y
+# /lib está en la raíz (SAGUI-RAIZ) y en el ramdisk de siempre. /apps/lib (build/lib-apps) se queda para las
+# bibliotecas de las aplicaciones (liblua.so.5.4). El intérprete busca en /lib y después en /apps/lib, así que
+# los programas de /apps ya compilados las siguen encontrando.
+PIC_B    := $(B)/pic
+SO_DIR   := $(B)/lib
+SO_APPS_DIR := $(B)/lib-apps
+LIBSAGUI_SO := $(SO_DIR)/libsagui.so.1
+LIBC_SO  := $(SO_DIR)/libc.so.1
+LD_SAGUI := $(SO_DIR)/ld-sagui.so.1
+MEDIOS_SO := $(SO_DIR)/libsagui_medios.so.1
+SO_SISTEMA := $(LD_SAGUI) $(LIBSAGUI_SO) $(LIBC_SO) $(MEDIOS_SO)
+SO_APPS :=   # las .so de /apps/lib (las añade cada .mk; D462: lo nombrado, nunca lo que quede en build/lib-apps)
 USER_HDR  := $(wildcard userland/inc/*.h) kernel/inc/abi.h kernel/inc/sha256.h kernel/inc/fuso.h kernel/inc/versao.h
 
 # La libc común (D210, mejora 094 A): stdio con búfer, printf completo, strtod,
@@ -298,7 +325,7 @@ MP_DIR := userland/micropython
 # A biblioteca padrão (D067-D069): módulos do extmod copiados sem mudança e
 # o pegamento próprio (*_sagui.c): arquivos, os, socket, ssl e hashlib. A
 # ponte_sagui.c liga o ssl e o hashlib à libtls (compilada como programa).
-MP_PROPRIOS := mp_sagui mpthreadport arquivos_sagui os_sagui rede_sagui ssl_sagui hashlib_sagui janela_sagui sqlite_sagui
+MP_PROPRIOS := mp_sagui mpthreadport arquivos_sagui os_sagui sinais_sagui rede_sagui ssl_sagui hashlib_sagui janela_sagui sqlite_sagui
 MP_SRC := $(wildcard $(MP_DIR)/micropython_embed/py/*.c) $(MP_DIR)/micropython_embed/shared/runtime/gchelper_generic.c \
           $(wildcard $(MP_DIR)/micropython_embed/extmod/*.c) $(MP_DIR)/micropython_embed/shared/timeutils/timeutils.c \
           $(wildcard $(MP_DIR)/libm_dbl/*.c) $(MP_DIR)/libm_sagui.c $(patsubst %,$(MP_DIR)/%.c,$(MP_PROPRIOS))
@@ -445,7 +472,7 @@ APPS_MB ?= 0
 # RAM al arrancar). APPS_MOVER acumula, ademas, lo que solo existe segun la configuracion
 # (opentyrian, python). La lista y los MB de cada cosa estan en docs/decisoes.md (D324).
 APPS_MOVER_FIJO := cipo pluma macaco tucan mico correo planomini gebramini visorpdf chatia ia \
-  reproductor musica camara grabadora paint pascal cc spider sagui3d buscaminas banana sgldemo es11demo \
+  reproductor musica camara grabadora paint pascal cc spider sagui3d buscaminas snake banana sgldemo es11demo \
   chip8 chip8asm jclic jclicbajar traductor convertir-audio jabuti llm
 APPS_PROGRAMAS := sqlite3 qjs sintonia $(GP_APPS) $(APPS_MOVER_FIJO) $(APPS_MOVER)
 APPS_BINS := $(addprefix $(B)/userland/bin/,$(APPS_PROGRAMAS))
@@ -636,6 +663,13 @@ endif
 endif
 endif
 
+# FFmpeg (D458): /apps/bin/ffmpeg y ffprobe; sus fuentes las baja tools/ffmpeg_fuentes.sh. Es LGPL-2.1+ y el programa enlaza la
+# libsagui (GPL-3.0-only): como shine, queda fuera de la variante SEM_GPL=1. FFMPEG=0 lo deja fuera.
+FFMPEG ?= 1
+ifneq ($(SEM_GPL),1)
+include userland/terceros/ffmpeg/ffmpeg.mk
+endif
+
 # Programa sintético de la SDL 2 para la prueba h246 (D247).
 include userland/libsdl2/teste.mk
 # AoEN (D382): RTS propio estilo Age of Empires (GPL-3.0-or-later); los datos del juego original no se distribuyen.
@@ -654,6 +688,8 @@ endif
 include userland/terceros/awk/awk.mk
 # Lua 5.4 (D440): /apps/bin/lua y luac y liblua.a; sus fuentes las baja tools/lua_fuentes.sh. MIT: entra también con SEM_GPL=1.
 include userland/terceros/lua/lua.mk
+# Capibara (D452): motor de juegos 2D con guiones en Lua (MIT). Va después de lua.mk (usa su liblua.a). CAPIBARA=0 lo deja fuera.
+include userland/capibara/capibara.mk
 
 # TCC (D384): el compilador de C dentro de SaguiOS (/apps/bin/tcc) y los fuentes de AoEN para recompilarlo dentro.
 # Solo si se bajaron sus fuentes (tools/tcc_fuentes.sh); TCC=0 lo deja fuera.
@@ -927,9 +963,43 @@ $(B)/userland/libsagui/%.asm.o: userland/libsagui/%.asm
 	@mkdir -p $(dir $@)
 	$(AS) -f elf32 -o $@ $<
 
-$(B)/userland/bin/%: $(B)/userland/programas/%.o $(LIBSAGUI_OBJ) userland/programa.ld
+# D462 (enlace dinámico, fase 3b): los programas que se enlazan con esta regla (casi todo /bin y las apps
+# sencillas de /apps) salen dinámicos: lo que enlazaban de la libsagui pasa a /lib/libsagui.so.1 y
+# /lib/libsagui_medios.so.1, y la libc común con su libm a /lib/libc.so.1 (solo si el programa la usaba). El resto
+# de lo que enlaza cada uno (libtls, libfontes, la IA...) sigue dentro del ejecutable. --as-needed deja en
+# DT_NEEDED solo las .so que se usan de verdad (muchos programas no necesitan libsagui_medios).
+# Se quedan ESTÁTICOS (BIN_ESTATICOS) los que hacen falta para arrancar y para reparar el sistema sin las .so:
+#  - los del initramfs (modo rescate, antes de montar la raíz; tools/mkinitramfs.py los rechaza si son dinámicos);
+#  - servicios (el gestor de servicios, el primer proceso), login, admin, su y passwd (entrar y cuentas);
+#  - instalar, reparar (también lo lanza el servicio reparar-arranque), arranque y kconfig (arranque y opciones);
+#  - chmod, chown, chgrp y kill: el kernel solo carga el intérprete si /lib es de root sin escritura de otros, y
+#    con ellos se arregla aunque ningún programa dinámico arranque;
+#  - terminal (para llegar a un shell desde el escritorio) y sshd (reparar a distancia).
+# DINAMICO=0 es la vuelta atrás: todo como hasta la v8.5.5.2 (estático; las .so siguen en /lib para /apps).
+DINAMICO ?= 1
+BIN_ESTATICOS := sagsh sh ls cat cp mv rm mkdir echo mount umount montar desmontar discos dmesg mem ps sync \
+  servicios login admin su passwd instalar reparar arranque kconfig chmod chown chgrp kill terminal sshd
+LIGADOS_EM_SO = $(LIBSAGUI_OBJ) $(LIBC_OBJ) $(QJS_LIBM)
+es_dinamico = $(and $(filter 1,$(DINAMICO)),$(filter-out $(BIN_ESTATICOS),$(notdir $(1))))
+ifeq ($(DINAMICO),1)
+BIN_DIN_REQ := $(LIBSAGUI_SO) $(MEDIOS_SO) $(LIBC_SO) $(B)/userland/libsagui/inicio.asm.o
+endif
+# Al cambiar DINAMICO o la lista, los programas se vuelven a enlazar: la marca solo se reescribe si cambia.
+DINAMICO_MARCA := $(B)/gerado/dinamico.marca
+$(shell mkdir -p $(B)/gerado && echo "DINAMICO=$(DINAMICO) $(BIN_ESTATICOS)" | cmp -s - $(DINAMICO_MARCA) || \
+  echo "DINAMICO=$(DINAMICO) $(BIN_ESTATICOS)" > $(DINAMICO_MARCA))
+BIN_DIN_REQ += $(DINAMICO_MARCA)
+define ligar_bin_dinamico
+$(LD) $(ULDFLAGS_DIN) --as-needed -o $@.elf $(B)/userland/libsagui/inicio.asm.o \
+	  $(filter-out $(LIGADOS_EM_SO),$(filter %.o,$^)) \
+	  $(if $(filter $(LIBC_OBJ) $(QJS_LIBM),$^),$(LIBC_SO)) $(MEDIOS_SO) $(LIBSAGUI_SO)
+endef
+# D455: ayuda-gui.c incluye markdown.c entero: si cambia el visor, hay que recompilar la Ayuda.
+$(B)/userland/programas/ayuda-gui.o: userland/programas/markdown.c
+
+$(B)/userland/bin/%: $(B)/userland/programas/%.o $(LIBSAGUI_OBJ) userland/programa.ld $(BIN_DIN_REQ)
 	@mkdir -p $(dir $@)
-	$(LD) $(ULDFLAGS) -o $@.elf $(filter %.o,$^)
+	$(if $(call es_dinamico,$@),$(ligar_bin_dinamico),$(LD) $(ULDFLAGS) -o $@.elf $(filter %.o,$^))
 	objcopy --strip-all $@.elf $@
 	@$(PY) $(CHECK_ELF32) $@.elf
 
@@ -1426,14 +1496,7 @@ $(DL_SO_DIR)/libcomp_%.so: $(B)/userland/testes/dl/comp_%.pic.o
 #  - Un programa dinámico enlaza inicio.asm.o (su _inicio) y las .so con el guion por defecto
 #    del ld, a 0x80000000, con PT_INTERP = /lib/ld-sagui.so.1, -z now y RELRO.
 #  - ld-sagui.so.1 es un ELF estático a 0xD8000000 (INTERP_BASE): ligador.c con LD_INTERPRETE.
-PIC_B    := $(B)/pic
-SO_DIR   := $(B)/lib
-SO_APPS_DIR := $(B)/lib-apps
-LIBSAGUI_SO := $(SO_APPS_DIR)/libsagui.so.1
-LIBC_SO  := $(SO_APPS_DIR)/libc.so.1
-LD_SAGUI := $(SO_DIR)/ld-sagui.so.1
-MEDIOS_SO := $(SO_APPS_DIR)/libsagui_medios.so.1
-SO_SISTEMA := $(LD_SAGUI)
+# (PIC_B, SO_DIR y las rutas de las .so están definidas arriba, junto a la libsagui: D462.)
 pic_de = $(patsubst $(B)/%,$(PIC_B)/%,$(1))
 LIBSAGUI_BASE_PIC := $(call pic_de,$(filter-out %/inicio.asm.o,$(LIBSAGUI_BASE_OBJ)) $(B)/userland/libdl/dl_ponte.o)
 LIBSAGUI_MEDIOS_PIC := $(call pic_de,$(LIBSAGUI_MEDIOS_OBJ) $(B)/userland/libtls/sha256.o)   # saguimark usa el SHA-256
@@ -1483,7 +1546,7 @@ $(B)/userland/testes/dinamico: $(B)/userland/testes/dinamico.o $(B)/userland/lib
 # D378 (fase 3, h390): las páginas compartidas, con las tres bibliotecas del sistema.
 $(B)/userland/testes/compartidas: $(B)/userland/testes/compartidas.o $(B)/userland/libsagui/inicio.asm.o $(LIBSAGUI_SO) $(LIBC_SO) $(MEDIOS_SO)
 	$(call enlazar_dinamico,$(B)/userland/testes/compartidas.o,$(LIBC_SO) $(LIBSAGUI_SO) $(MEDIOS_SO))
-APPS_RECURSOS += lib:$(SO_APPS_DIR) testes:$(B)/apps-testes
+APPS_RECURSOS += testes:$(B)/apps-testes   # /apps/lib: SO_APPS (D462)
 $(APPS_DEP): $(MEDIOS_SO) $(LIBSAGUI_SO) $(LIBC_SO) $(B)/apps-testes/.feito
 $(B)/apps-testes/.feito: $(DL_PROG_TESTE) $(DL_TESTE_SO)
 	@rm -rf $(B)/apps-testes && mkdir -p $(B)/apps-testes/lib
@@ -1525,7 +1588,10 @@ $(B)/sonidos/saguios/.feito: tools/gerar_sonidos.py
 	$(PY) tools/gerar_sonidos.py $(B)/sonidos/saguios
 	@touch $@
 
-$(B)/ramdisk.sgfs: $(B)/sonidos/saguios/.feito $(SONIDOS_KENNEY) $(B)/idiomas/.feito $(ROOTFS) $(PROGRAMAS) $(PROG_TESTE) $(SO_SISTEMA) $(C8_ROMS) $(LMK_PY) tools/mksgfs.py \
+# D455: las guías educativas de docs/ (kernel y aplicaciones, en tres idiomas) se copian a /ayuda/guias para la
+# aplicación Ayuda; no se duplican en git.
+GUIAS_AYUDA := $(wildcard docs/guia-*.md)
+$(B)/ramdisk.sgfs: $(B)/sonidos/saguios/.feito $(SONIDOS_KENNEY) $(B)/idiomas/.feito $(ROOTFS) $(GUIAS_AYUDA) $(PROGRAMAS) $(PROG_TESTE) $(SO_SISTEMA) $(C8_ROMS) $(LMK_PY) tools/mksgfs.py \
                   userland/libsgl/sgl.c userland/libsgl/sgl.h $(RAMDISK_APPS_DEP) $(APPS_MARCA) $(FIRMWARE_RAMDISK) $(FIRMWARE_RADEON) $(FIRMWARE_BT_RTL) $(FIRMWARE_BT_ATH) \
                   $(UEFI_EFI) $(B)/boot/mbr.bin
 	@set -e; \
@@ -1533,6 +1599,7 @@ $(B)/ramdisk.sgfs: $(B)/sonidos/saguios/.feito $(SONIDOS_KENNEY) $(B)/idiomas/.f
 	trap 'rm -rf "$$d"' EXIT; \
 	chmod 755 "$$d"; \
 	cp -r rootfs/. "$$d/"; \
+	mkdir -p "$$d/ayuda/guias"; cp $(GUIAS_AYUDA) "$$d/ayuda/guias/"; \
 	mkdir -p "$$d/jogos/chip8" "$$d/testes/chip8" "$$d/ejemplos/sagui_gl"; \
 	cp userland/libsgl/sgl.c userland/libsgl/sgl.h "$$d/ejemplos/sagui_gl/"; \
 	cp $(B)/chip8/jogos/* "$$d/jogos/chip8/"; \
@@ -1546,6 +1613,9 @@ $(B)/ramdisk.sgfs: $(B)/sonidos/saguios/.feito $(SONIDOS_KENNEY) $(B)/idiomas/.f
 	      echo "Makefile: $$x fuera del ramdisk completo (rutas de más de $(SGFS_MAX_RUTA) caracteres para el SGFS; D379)"; \
 	      rm -rf "$$d/apps/$$x" "$$d/apps/bin/$$x" "$$d/apps/bin/$$x"-*; fi; \
 	  done; \
+	  if ls -d "$$d"/apps/tcc/include/libav* >/dev/null 2>&1; then \
+	    echo "Makefile: cabeceras y bibliotecas de FFmpeg para TCC fuera del ramdisk completo (rutas de más de $(SGFS_MAX_RUTA) caracteres; D458; ffmpeg y ffprobe sí van)"; \
+	    rm -rf "$$d"/apps/tcc/include/libav* "$$d"/apps/tcc/include/libsw* "$$d"/apps/tcc/lib/libav* "$$d"/apps/tcc/lib/libsw*; fi; \
 	  if [ -e "$$d/apps/doom" ]; then \
 	    echo "Makefile: DOOM (Freedoom, unos 57 MB) fuera del ramdisk completo (D383; las imágenes con /apps en partición lo conservan)"; \
 	    rm -rf "$$d/apps/doom" "$$d/apps/bin"/chocolate-*; fi; \
@@ -1607,8 +1677,9 @@ $(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(N
 	t="$$(mktemp -d $(B)/apps/tmp.XXXXXX)"; \
 	trap 'rm -rf "$$t"' EXIT; \
 	chmod 755 "$$t"; \
-	mkdir "$$t/bin"; \
+	mkdir "$$t/bin" "$$t/lib"; \
 	if [ -n "$(APPS_BINS)" ]; then cp $(APPS_BINS) "$$t/bin/"; fi; \
+	if [ -n "$(strip $(SO_APPS))" ]; then cp $(SO_APPS) "$$t/lib/"; fi; \
 	if [ -n "$(APPS_GUIONES)" ]; then cp $(APPS_GUIONES) "$$t/bin/"; fi; \
 	for r in $(APPS_RECURSOS); do mkdir -p "$$t/$${r%%:*}"; cp -r "$${r#*:}"/* "$$t/$${r%%:*}/"; done; \
 	cp userland/apps/leeme.txt "$$t/leeme.txt"; \

@@ -57,7 +57,7 @@ endif
 # -O2 (el núcleo es lo que más pesa; el resto del sistema va en -Os), sin marco de pila.
 MG_DEFS := -DM_CORE_GBA -DM_CORE_GB -DDISABLE_THREADING \
   -DHAVE_STRDUP -DHAVE_LOCALTIME_R -DHAVE_STRLCPY -DHAVE_STRNDUP -DUSE_VFS_FILE -DBINARY_NAME=\"mgba\" -DMGBA_STANDALONE
-MG_FLAGS := $(subst -Os,-O2,$(SDL2_FLAGS)) -fomit-frame-pointer -fno-strict-aliasing -w \
+MG_FLAGS := $(subst -Os,-O2,$(SDL2_FLAGS)) -fomit-frame-pointer -fno-strict-aliasing -w -Wno-error=implicit-function-declaration \
   -I$(MG_J)/include -I$(MG_J)/src -I$(MG_DIR)/plataforma -include compat_mgba.h $(MG_DEFS) \
   -finput-charset=UTF-8 -fexec-charset=UTF-8
 

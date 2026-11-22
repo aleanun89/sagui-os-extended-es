@@ -178,6 +178,7 @@ int32_t acel2d_prova(uint32_t ptr, uint32_t n);
 /* Los aceleradores (kernel/dispositivos/acel_*.c). */
 extern const acel_driver_t acel_vmware;
 extern const acel_driver_t acel_intel;
+extern const acel_driver_t acel_intel_exec;   /* D434: Gen9-Gen12 por execlists (acel_intel_exec.c) */
 extern const acel_driver_t acel_radeon;
 extern const acel_driver_t acel_r600;      /* R6xx/R7xx por el motor DMA (D223) */
 extern const acel_driver_t acel_gcn;       /* Radeon GCN 1.0 por el motor DMA (D360) */

@@ -1595,7 +1595,7 @@ static int ui_parrafo(int x, int y, int l, const char *t, uint32_t cor)
 enum { S_SISTEMA, S_TELA, S_ACEL, S_ENERGIA, S_KERNEL, S_ZONA, S_IDIOMA, S_USUARIOS,
        S_ESCRITORIO, S_COLORES, S_ESTILOS, S_BARRA, S_WIDGETS, S_FUENTES, S_CAPTURAS, S_SONIDOS,
        S_DISPOSITIVOS, S_TECLADO, S_MANDOS, S_SONIDO,
-       S_REDES, S_BLOQUEO, S_VPN, S_VNC,
+       S_REDES, S_INTERFACES, S_BLOQUEO, S_VPN, S_VNC,
        S_IA, S_IA_LOCAL, S_QTD };
 
 static int pagina = S_TELA;      /* la sección abierta (índice de la tabla) */
@@ -3460,6 +3460,100 @@ static void pg_bloqueo(void)
     cont_h = y + 8;
 }
 
+/* Red > Interfaces (D445): todas las tarjetas a la vez, con su dirección, su enlace y la prioridad de su ruta
+ * por defecto. Las órdenes van a la interfaz elegida (SIS_CONFIG_REDE con su nombre); las que cambian la red son
+ * de root: si hace falta, el diálogo de administrador. La dirección fija se pone con ifconfig. */
+static int ifz_sel;
+
+static int ifz_config(int op, unsigned valor, const char *nome)
+{
+    int r;
+    __asm__ volatile("int $0x80" : "=a"(r) : "a"(SIS_CONFIG_REDE), "b"(op), "c"(valor), "d"(nome), "S"(0), "D"(0) : "memory");
+    if (r == ERRO_ACESSO && !sou_root() && elevar_grafico(_("cambiar la configuración de la red")) == 0) {
+        __asm__ volatile("int $0x80" : "=a"(r) : "a"(SIS_CONFIG_REDE), "b"(op), "c"(valor), "d"(nome), "S"(0), "D"(0) : "memory");
+        elevacao_soltar();
+    }
+    return r;
+}
+
+static int ifz_prefixo(uint32_t m) { int n = 0; while (m & 0x80000000u) { n++; m <<= 1; } return n; }
+
+static void pg_interfaces(void)
+{
+    static info_rede_t v[8];
+    int n = info_sistema(INFO_INTERFACES, v, 8), q = 0;
+    static int fis[8];
+    for (int i = 0; i < n; i++) if (!v[i].loopback && compara_texto(v[i].driver, "wireguard") != 0) fis[q++] = i;
+    int w = XR - XL;
+    char t[200], a[16], b[16];
+    int y = 26;
+    if (!q) {
+        y = ui_parrafo(XL, y, w, _("No hay ninguna tarjeta de red con driver."), COR_TEXTO);
+        if (!ui_ev) ui_grupo(0, y + 4, N_("Interfaces"));
+        cont_h = y + 12;
+        return;
+    }
+    if (ifz_sel >= q) ifz_sel = 0;
+    for (int k = 0; k < q; k++) {
+        const info_rede_t *r = &v[fis[k]];
+        const char *estado_if = r->desativada ? _("desactivada") : !r->pode_desativar ? (r->wifi ? _("sin conectar") : _("sin driver")) :
+                                !r->cabo ? (r->wifi ? _("sin conectar") : _("sin cable")) : NULL;
+        if (r->ip)
+            formatar_texto(t, sizeof t, "%s (%s): %s/%d, %s %s%s%s", r->nome, r->driver[0] ? r->driver : "-", ip_para_texto(r->ip, a),
+                           ifz_prefixo(r->mascara), r->metodo == REDE_POR_DHCP ? "DHCP" : _("fija"),
+                           r->roteador ? ip_para_texto(r->roteador, b) : "", estado_if ? ", " : "", estado_if ? estado_if : "");
+        else formatar_texto(t, sizeof t, "%s (%s): %s", r->nome, r->driver[0] ? r->driver : "-", estado_if ? estado_if : _("sin dirección"));
+        if (ui_opcion(XL, y, t, k == ifz_sel)) { ifz_sel = k; ui_mudou = true; return; }
+        y += 20;
+        formatar_texto(t, sizeof t, _("Prioridad (métrica) %u%s"), r->metrica, r->rota_padrao ? _(" - ruta por defecto") : "");
+        ui_texto(XL + 22, y, t, r->rota_padrao ? COR_DESTAQUE : COR_TEXTO_FRACO);
+        y += 24;
+    }
+    if (!ui_ev) ui_grupo(0, y + 2, N_("Interfaces"));
+    const info_rede_t *r = &v[fis[ifz_sel]];
+    int g2 = y + 14;
+    y = g2 + 26;
+    int r_ok = 1;
+    if (ui_boton(XL, y, 150, N_("Renovar DHCP"), false)) { r_ok = ifz_config(REDE_RENOVAR, 0, r->nome); ui_mudou = true; }
+    if (ui_boton(XL + 160, y, 150, r->desativada ? N_("Activar") : N_("Desactivar"), false)) {
+        r_ok = ifz_config(r->desativada ? REDE_ATIVAR : REDE_DESATIVAR, 0, r->nome);
+        ui_mudou = true;
+    }
+    y += 34;
+    /* la prioridad: menor = preferida; «Preferir» la deja por delante de todas las demás */
+    unsigned menor = 9999;
+    for (int k = 0; k < q; k++) if (k != ifz_sel && v[fis[k]].metrica < menor) menor = v[fis[k]].metrica;
+    if (ui_boton(XL, y, 150, N_("Preferir esta"), r->rota_padrao)) {
+        unsigned m = menor > 0 ? menor - 1 : 0;
+        if (m > r->metrica) m = r->metrica;
+        r_ok = ifz_config(REDE_METRICA, m, r->nome);
+        ui_mudou = true;
+    }
+    if (ui_boton(XL + 160, y, 70, "-", false) && r->metrica > 0) {
+        r_ok = ifz_config(REDE_METRICA, r->metrica >= 10 ? r->metrica - 10 : 0, r->nome);
+        ui_mudou = true;
+    }
+    if (ui_boton(XL + 240, y, 70, "+", false) && r->metrica < 9999) {
+        r_ok = ifz_config(REDE_METRICA, r->metrica + 10 > 9999 ? 9999 : r->metrica + 10, r->nome);
+        ui_mudou = true;
+    }
+    y += 34;
+    if (r_ok < 0) {
+        formatar_texto(t, sizeof t, _("No se pudo: %s"), nome_erro(r_ok));
+        dizer(t);
+    } else if (ui_mudou) dizer(_("Hecho."));
+    if (r->ip) {
+        formatar_texto(t, sizeof t, _("DNS %s, puerta de enlace %s."), r->dns ? ip_para_texto(r->dns, a) : _("ninguno"),
+                       r->roteador ? ip_para_texto(r->roteador, b) : _("ninguna"));
+        y = ui_parrafo(XL, y, w, t, COR_TEXTO);
+    }
+    formatar_texto(t, sizeof t, _("Interfaz %s"), r->nome);
+    if (!ui_ev) ui_grupo(g2, y - g2 + 6, t);
+    y += 18;
+    y = ui_parrafo(XL - 6, y, w + 6, _("La ruta por defecto sale por la interfaz con enlace de prioridad menor (cable 100, Wi-Fi 600). Si se cae, pasa a la siguiente. Dirección fija: ifconfig eth1 10.0.3.5/24 gw 10.0.3.1 en el Terminal."), COR_TEXTO_FRACO);
+    cont_h = y + 8;
+}
+
 /* ------------------------------------------------------------ Dispositivos > Sonido (D201, D292, D367) */
 
 typedef struct {
@@ -4665,6 +4759,7 @@ PAGINA_UI(colores)
 PAGINA_UI(acel)
 PAGINA_UI(kernel)
 PAGINA_UI(bloqueo)
+PAGINA_UI(interfaces)
 PAGINA_UI(barra)
 PAGINA_UI(widgets)
 PAGINA_UI(vpn)
@@ -5006,6 +5101,8 @@ static void predet_idioma(void)
     dizer_gravado(conf_gravar());
 }
 static int iv_vnc(void) { return 1000; }
+static int iv_interfaces(void) { return 1000; }      /* D445: el enlace y la dirección cambian solos */
+static bool tq_interfaces(void) { return true; }
 static int iv_sonido(void) { return mic_aberto ? 60 : 0; }   /* el medidor del micrófono (D292) */
 static int iv_mandos(void) { return 50; }                    /* la prueba en vivo de los mandos (D307) */
 static bool tq_vnc(void) { vnc_refrescar(); return true; }
@@ -5042,6 +5139,7 @@ static const seccao_t seccoes[S_QTD] = {
     [S_MANDOS]    = { "mandos", N_("Mandos"), "Mandos", 1, p_mandos, s_mandos, d_mandos, t_mandos, NULL, NULL, iv_mandos, tq_mandos },
     [S_SONIDO]    = { "sonido", N_("Sonido"), "Sonido", 1, p_sonido, s_sonido, d_sonido, t_sonido, snd_predet, NULL, iv_sonido, tq_sonido },
     [S_REDES]     = { "redes", N_("Red"), "Red", 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+    [S_INTERFACES] = { "interfaces", N_("Interfaces"), "Red", 1, NULL, NULL, d_interfaces, t_interfaces, NULL, NULL, iv_interfaces, tq_interfaces },
     [S_BLOQUEO]   = { "red", N_("Publicidad (DNS)"), "Red", 1, NULL, NULL, d_bloqueo, t_bloqueo, NULL, NULL, NULL, NULL },
     [S_VPN]       = { "vpn", N_("VPN (WireGuard)"), "VPN", 1, NULL, NULL, d_vpn, t_vpn, NULL, NULL, NULL, NULL },
     [S_VNC]       = { "vnc", N_("Escritorio remoto"), "Escritorio remoto", 1, p_vnc, NULL, d_vnc, t_vnc, NULL, NULL, iv_vnc, tq_vnc },
@@ -5056,7 +5154,7 @@ static int seccion_por_nombre(const char *n)
         { "pantalla", S_TELA }, { "salvapantallas", S_ENERGIA }, { "bateria", S_ENERGIA }, { "resolucion", S_TELA }, { "aceleracion", S_ACEL }, { "gpu", S_ACEL }, { "fecha", S_ZONA },
         { "hora", S_ZONA }, { "fondo", S_COLORES }, { "colores", S_COLORES }, { "apariencia", S_ESTILOS }, { "esquemas", S_ESTILOS }, { "temas", S_ESTILOS }, { "fuente", S_FUENTES }, { "sonido", S_SONIDO },
         { "teclado", S_TECLADO }, { "mandos", S_MANDOS }, { "joystick", S_MANDOS }, { "usuarios", S_USUARIOS },
-        { "idioma", S_IDIOMA }, { "bloqueo", S_BLOQUEO }, { "escritorio-remoto", S_VNC }, { "kernel", S_KERNEL }, { "sonidos-sistema", S_SONIDOS }, { "sonidos-del-sistema", S_SONIDOS },
+        { "idioma", S_IDIOMA }, { "bloqueo", S_BLOQUEO }, { "interfaz", S_INTERFACES }, { "ifconfig", S_INTERFACES }, { "escritorio-remoto", S_VNC }, { "kernel", S_KERNEL }, { "sonidos-sistema", S_SONIDOS }, { "sonidos-del-sistema", S_SONIDOS },
     };
     for (int i = 0; i < S_QTD; i++) if (compara_texto(n, seccoes[i].chave) == 0) return i;
     for (unsigned i = 0; i < sizeof alias / sizeof alias[0]; i++) if (compara_texto(n, alias[i].alias) == 0) return alias[i].s;

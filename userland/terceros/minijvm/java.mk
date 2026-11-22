@@ -26,7 +26,7 @@ JV_OBJ := $(foreach f,$(JV_SRC),$(JV_B)/$(subst /,_,$(f:.c=.o)))
 JV_FLAGS := -m32 -march=i686 -std=gnu99 -O2 \
   -ffreestanding -fno-builtin -nostdlib -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables \
   -ffunction-sections -fdata-sections -DNDEBUG -mfpmath=387 -fexcess-precision=standard -fcommon \
-  -nostdinc -isystem $(shell $(CC) -print-file-name=include) -I$(LIBC_DIR) -Iuserland/inc -idirafter kernel/inc \
+  -nostdinc -isystem $(shell $(CC) -print-file-name=include) -I$(JV_DIR)/plataforma/inc -I$(LIBC_DIR) -Iuserland/inc -idirafter kernel/inc \
   -I$(JV_DIR)/plataforma/inc -I$(JV_C) -I$(JV_C)/jvm -I$(JV_C)/utils -w -finput-charset=UTF-8 -fexec-charset=UTF-8 \
   -D__saguios__ -DMADV_DONTNEED=4 -include sagui_red.h -I$(JV_C)/utils/https
 

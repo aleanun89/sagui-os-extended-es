@@ -51,9 +51,21 @@ static const char *conf_achar(const char *b, const char *chave, int *l, const ch
     return NULL;
 }
 
+/* D462: widget.c va en libsagui.so.1 (lo usan los widgets y el panel, que están siempre abiertos): sus
+ * búferes grandes salen del malloc la primera vez, no de la BSS, que pagaría cada programa dinámico. */
+static char *conf_b, *conf_novo;
+
+static bool conf_buferes(void)
+{
+    if (!conf_b) conf_b = aloca(CONF_MAX);
+    if (!conf_novo) conf_novo = aloca(CONF_MAX);
+    return conf_b && conf_novo;
+}
+
 int widget_ler(const char *chave, char *dst, int n)
 {
-    static char b[CONF_MAX];
+    if (!conf_buferes()) { if (n > 0) dst[0] = 0; return -1; }
+    char *b = conf_b;
     conf_ler_tudo(b);
     int l;
     const char *v = conf_achar(b, chave, &l, NULL);
@@ -66,7 +78,8 @@ int widget_ler(const char *chave, char *dst, int n)
 
 int widget_gravar(const char *chave, const char *valor)
 {
-    static char b[CONF_MAX], novo[CONF_MAX];
+    if (!conf_buferes()) return ERRO_SEM_MEMORIA;
+    char *b = conf_b, *novo = conf_novo;
     int n = conf_ler_tudo(b);
     int l;
     const char *ini;
@@ -467,13 +480,24 @@ const char *widget_versao(void)
 #define TOP_MAX 64
 typedef struct { int pid; unsigned cpu_ms; } top_ant_t;
 static unsigned top_ger, top_t_ant;
-static info_processo_t top_v[TOP_MAX];
-static top_ant_t top_ant[TOP_MAX];
-static int top_n, top_nant, top_ord_cpu[TOP_MAX], top_ord_mem[TOP_MAX];
-static unsigned top_pct[TOP_MAX];
+static int top_n, top_nant;
+/* D462: unos 6 KB que solo usa el widget de los procesos: del malloc la primera vez (ver conf_buferes). */
+typedef struct {
+    info_processo_t v[TOP_MAX];
+    top_ant_t ant[TOP_MAX];
+    int ord_cpu[TOP_MAX], ord_mem[TOP_MAX];
+    unsigned pct[TOP_MAX];
+} top_t;
+static top_t *top;
+#define top_v       (top->v)
+#define top_ant     (top->ant)
+#define top_ord_cpu (top->ord_cpu)
+#define top_ord_mem (top->ord_mem)
+#define top_pct     (top->pct)
 
 static void top_ler(void)
 {
+    if (!top && !(top = aloca_zerado(sizeof *top))) { top_n = 0; return; }
     if (top_ger == geracao) return;
     top_ger = geracao;
     int n = info_sistema(INFO_PROCESSOS, top_v, TOP_MAX);
@@ -502,6 +526,7 @@ static void top_ler(void)
 int widget_top(int i, bool por_mem, char *nome, int n, unsigned *cpu, unsigned *mem, int *pid)
 {
     top_ler();
+    if (!top) { if (nome && n > 0) nome[0] = 0; return -1; }
     /* el proceso 0 (ocioso) no cuenta */
     int visto = -1;
     for (int k = 0; k < top_n; k++) {

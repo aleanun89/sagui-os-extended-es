@@ -73,13 +73,28 @@ static void modelos(void)
     confere(!intel_variante(0x0403, NULL) && !intel_variante(0x0432, NULL) && !intel_variante(0x1642, NULL) &&
             !intel_variante(0x0126, NULL) && !intel_variante(0x46A8, NULL), "huecos de los intervalos y otras: no");
     const char *f = NULL, *p = NULL;
-    confere(intel_familia_sem_2d(0x46A8, &f, &p) == 12 && f && strstr(f, "Alder Lake-P") && p && strstr(p, "execlists"),
-            "0x46A8 (i3-1220P): Gen12 Alder Lake-P, sin 2D por execlists");
-    confere(intel_familia_sem_2d(0x46B3, NULL, NULL) == 12 && intel_familia_sem_2d(0x9A49, NULL, NULL) == 12,
-            "Alder Lake-P GT1 y Tiger Lake: Gen12");
-    confere(intel_familia_sem_2d(0x1916, NULL, NULL) == 9 && intel_familia_sem_2d(0x5916, NULL, NULL) == 9 &&
-            intel_familia_sem_2d(0x3E92, NULL, NULL) == 9, "Skylake, Kaby Lake y Coffee Lake: Gen9");
-    confere(intel_familia_sem_2d(0x8A52, NULL, NULL) == 11, "Ice Lake: Gen11");
+    /* D434: Gen9-Gen12 tienen su lista exacta (execlists), que no cae en las familias sin 2D. */
+    int exec = 0, exec_sem = 0;
+    for (uint32_t m = 0; m <= 0xFFFF; m++) {
+        int v = intel_variante_exec((uint16_t)m, NULL);
+        if (v) { exec++; if (intel_familia_sem_2d((uint16_t)m, NULL, NULL)) exec_sem++; }
+    }
+    confere(exec == 86 + 15 + 46, "147 modelos exactos de Gen9 (86), Gen11 (15) y Gen12 (46) con execlists");
+    confere(exec_sem == 0, "ningún modelo de execlists está también entre las familias sin 2D");
+    confere(intel_variante_exec(0x46A8, &f) == INTEL_VAR_TGL && f && strstr(f, "Alder"),
+            "0x46A8 (i3-1220P): Gen12 (Alder Lake-P, Xe), con execlists");
+    confere(intel_variante_exec(0x46B3, NULL) == INTEL_VAR_TGL && intel_variante_exec(0x9A49, NULL) == INTEL_VAR_TGL,
+            "Alder Lake-P y Tiger Lake: Gen12");
+    confere(intel_variante_exec(0x1916, NULL) == INTEL_VAR_SKL && intel_variante_exec(0x5916, NULL) == INTEL_VAR_SKL &&
+            intel_variante_exec(0x3E92, NULL) == INTEL_VAR_SKL && intel_variante_exec(0x9B41, NULL) == INTEL_VAR_SKL,
+            "Skylake, Kaby Lake, Coffee Lake y Comet Lake: Gen9");
+    confere(intel_variante_exec(0x8A52, NULL) == INTEL_VAR_ICL, "Ice Lake: Gen11");
+    confere(intel_variante_exec(0x0166, NULL) == 0 && intel_variante_exec(0x0F31, NULL) == 0 &&
+            intel_variante_exec(0x4C9B, NULL) == 0 && intel_variante_exec(0x46A4, NULL) == 0,
+            "HD 4000, Atom y los IDs no listados de Gen9-12: no (la CPU)");
+    confere(intel_familia_sem_2d(0x3184, &f, &p) == 9 && p && strstr(p, "D434"), "Gemini Lake: Gen9 sin lista (D434)");
+    confere(intel_familia_sem_2d(0xA7A0, NULL, NULL) == 12 && intel_familia_sem_2d(0x4500, NULL, NULL) == 11,
+            "Raptor Lake y Elkhart Lake: sin lista de execlists");
     confere(intel_familia_sem_2d(0x0F31, &f, &p) == 7 && strstr(p, "Atom"), "Bay Trail: Atom, sin 2D");
     confere(intel_familia_sem_2d(0x0166, NULL, NULL) == 0 && intel_familia_sem_2d(0x1111, NULL, NULL) == 0,
             "la HD 4000 y otras no son «sin 2D»");

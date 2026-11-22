@@ -1,0 +1,41 @@
+# Opciones de ./configure de FFmpeg para SaguiOS (D458, docs/ffmpeg.md). Una por línea; las que empiezan por # no cuentan.
+# --- cruzado con la cadena de SaguiOS: i686, libc común, sin ensamblador (de momento), hilos sobre los de la libsagui ---
+--enable-cross-compile
+--arch=x86_32
+--cpu=i686
+--target-os=none
+--disable-asm
+--disable-x86asm
+--disable-inline-asm
+--disable-debug
+--disable-doc
+--disable-stripping
+--disable-network
+--disable-autodetect
+--disable-iconv
+--enable-pthreads
+# --- licencia: LGPL-2.1-or-later (nada de --enable-gpl ni --enable-nonfree) ---
+--disable-everything
+--disable-ffplay
+--enable-avdevice
+# --- formatos de entrada ---
+--enable-demuxer=mov,matroska,avi,ogg,wav,mp3,flac,aac,mpegts,mpegps,mpegvideo,h264,m4v,image2,lavfi
+--enable-indev=lavfi
+# --- formatos de salida ---
+--enable-muxer=mp4,mov,matroska,webm,avi,ogg,wav,mp3,flac,adts,mpegts,mpeg1system,mpeg2video,mpeg1video,rawvideo,image2,null,md5,framemd5,crc,pcm_s16le,pcm_s16be,pcm_u8,pcm_f32le
+# --- protocolos ---
+--enable-protocol=file,pipe
+# --- decodificadores ---
+--enable-decoder=wrapped_avframe,h264,mpeg1video,mpeg2video,mpeg4,vp8,mjpeg,theora,aac,mp3,mp3float,mp2,mp2float,vorbis,opus,flac,rawvideo,ppm,bmp,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s32le,pcm_u8,pcm_f32le,pcm_f64le,pcm_alaw,pcm_mulaw
+# --- codificadores nativos ---
+--enable-encoder=wrapped_avframe,mpeg1video,mpeg2video,mpeg4,mjpeg,flac,mp2,vorbis,aac,rawvideo,ppm,bmp,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s32le,pcm_u8,pcm_f32le,pcm_alaw,pcm_mulaw
+# --- analizadores y filtros de flujo ---
+--enable-parser=h264,mpeg4video,mpegvideo,mpegaudio,aac,aac_latm,flac,vorbis,opus,vp8,mjpeg
+--enable-bsf=aac_adtstoasc,h264_mp4toannexb,extract_extradata,null,mpeg4_unpack_bframes
+# --- filtros ---
+--enable-swscale
+--enable-swresample
+--enable-filter=scale,crop,fps,aresample,volume,format,aformat,null,anull,trim,atrim,setpts,asetpts,pad,hflip,vflip,transpose,rotate,atempo,amix,amerge,pan,channelmap,split,asplit,setsar,testsrc,testsrc2,color,nullsrc,sine,anullsrc
+# --- programas ---
+--enable-ffmpeg
+--enable-ffprobe

@@ -154,6 +154,10 @@ static void caso(const gpu3d_estado2_t *e, const char *nome)
     int coord[4] = { -1, -1, -1, -1 }, pos = 0;
     for (int u = 0; u < e->unidades; u++) if (e->u[u].ativa) { VER(fp.mapa[pos] == e->u[u].coord, "%s: mapa", nome); coord[u] = (int)R5V_T_COORD(pos); pos++; }
     VER(fp.ntc == (pos ? pos : 1), "%s: juegos de coordenadas (%d)", nome, fp.ntc);
+    /* Revisión de D457 (Amilo): el RS escribe los ntc juegos aunque el programa no los lea; US_PIXSIZE tiene que
+     * cubrirlos (sin texturas, PIXSIZE 1 y el RS escribiendo t2 daba quads negros al azar en la X1400). */
+    VER(fp.max_temp >= (int)R5V_T_COORD(fp.ntc - 1), "%s: US_PIXSIZE %d no cubre lo que escribe el RS (t%u)", nome, fp.max_temp,
+        R5V_T_COORD(fp.ntc - 1));
     /* D426 (Amilo): los semáforos de textura como Mesa (radeon_pair_schedule.c): solo la última lectura del bloque
      * lleva SEM_WAIT y SEM_ACQUIRE; con los dos en cada lectura la X1400 se colgaba con dos o más texturas. */
     int ult_tex = -1;

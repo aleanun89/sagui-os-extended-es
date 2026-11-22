@@ -3,6 +3,8 @@
 /* Paneles de la partida (v8.5.4.7): marcador (Tab), diplomacia y tributo (F3), ayuda de teclas (F1), pausa y la pantalla
  * final con las estadísticas de cada jugador y la gráfica de la puntuación en el tiempo. */
 #include "interfaz.h"
+#include "red.h"
+#include "ordenes.h"
 #include "ia.h"
 
 int panel_abierto = PANEL_NINGUNO;
@@ -388,7 +390,7 @@ void draw_endscreen(void) {
 			for (int c = 0; c < 6; ++c) if (v[c][0]) gfx_ts(cx0 + c * cw, yy + 4, v[c], c == 5 && !pl->alive ? COL_MAL : COL_CREAM, 1);
 		}
 	}
-	if (button(x + w / 2 - 130, y + h - 54, 260, 40, "Volver al menú", 1, 2)) { world_free(); app.screen = SC_MENU; }
+	if (button(x + w / 2 - 130, y + h - 54, 260, 40, "Volver al menú", 1, 2)) { if (ord_red || red_estado() != RED_NADA) red_salir_partida(); world_free(); app.screen = SC_MENU; }
 	static int dicho;
 	if (!dicho) { dicho = 1; AOEN_LOG("[AOEN] pantalla final: %s, %d jugadores, %d muestras en la gráfica; %s", tit, n, W.pl[W.human].hist_n, gan); }
 }
@@ -396,20 +398,29 @@ void draw_endscreen(void) {
 /* ---------- pausa ---------- */
 void draw_pause(void) {
 	gfx_fill_a(0, 0, fb.w, fb.h, gfx_rgb(0, 0, 0), 140);
+	int red = ord_red;   /* D461: en red el juego sigue por detrás: el menú solo tapa la pantalla */
 	int pw = 360, bh = 40, gap = 10, ph = 70 + 6 * (bh + gap) + 10, px = (fb.w - pw) / 2, py = (fb.h - ph) / 2;
 	panel(px, py, pw, ph);
-	gfx_ts(fb.w / 2 - gfx_t_w("Pausa", 2) / 2, py + 18, "Pausa", COL_GOLD, 2);
+	gfx_ts(fb.w / 2 - gfx_t_w(red ? "Menú (la partida sigue)" : "Pausa", 2) / 2, py + 18, red ? "Menú (la partida sigue)" : "Pausa", COL_GOLD, 2);
 	int y = py + 64;
 	foco_inicio();
 	if (button(px + 40, y, pw - 80, bh, "Continuar", 1, 2) || tecla(SDL_SCANCODE_ESCAPE)) app.paused = 0;
 	y += bh + gap;
+	if (red) {
+		if (button(px + 40, y, pw - 80, bh, red_pausado() ? "Seguir la partida (todos)" : "Pausar la partida (todos)", 1, 2)) red_pedir_pausa();
+		y += bh + gap;
+		button(px + 40, y, pw - 80, bh, "Guardar: no en red", 0, 2);
+		if (hit(px + 40, y, pw - 80, bh)) tip_simple((Rect){ px + 40, y, pw - 80, bh }, "Guardar y cargar", "En una partida en red no se puede guardar ni cargar: todas las máquinas tendrían que hacerlo a la vez.");
+		y += bh + gap;
+	} else {
 	if (button(px + 40, y, pw - 80, bh, "Guardar partida", 1, 2)) { refresh_slots(); saves_msg[0] = 0; app.saves_mode = 1; app.saves_back = SC_GAME; app.screen = SC_SAVES; }
 	y += bh + gap;
 	if (button(px + 40, y, pw - 80, bh, "Cargar partida", any_save(), 2)) { refresh_slots(); saves_msg[0] = 0; app.saves_mode = 0; app.saves_back = SC_GAME; app.screen = SC_SAVES; }
 	y += bh + gap;
+	}
 	if (button(px + 40, y, pw - 80, bh, "Opciones", 1, 2)) { app.options_back = SC_GAME; app.screen = SC_OPTIONS; }
 	y += bh + gap;
-	if (button(px + 40, y, pw - 80, bh, "Abandonar partida", 1, 2)) { world_free(); app.paused = 0; app.screen = SC_MENU; }
+	if (button(px + 40, y, pw - 80, bh, "Abandonar partida", 1, 2)) { if (ord_red || red_estado() != RED_NADA) red_salir_partida(); world_free(); app.paused = 0; app.screen = SC_MENU; }
 	y += bh + gap;
-	if (button(px + 40, y, pw - 80, bh, "Salir del juego", 1, 2)) app.running = 0;
+	if (button(px + 40, y, pw - 80, bh, "Salir del juego", 1, 2)) { if (ord_red || red_estado() != RED_NADA) red_salir_partida(); app.running = 0; }
 }

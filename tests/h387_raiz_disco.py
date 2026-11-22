@@ -473,7 +473,7 @@ def donos_ld(p, que):
     """D378: /lib, /apps/lib, el intérprete y las .so de la raíz instalada: de root, sin escritura de otros."""
     rutas = ["/lib", "/lib/ld-sagui.so.1", "/apps/lib"]
     for pasta in ("/lib", "/apps/lib"):
-        rutas += [f"{pasta}/{n}" for n in re.findall(r"(\S+\.so\.\d+)", debugfs(p, f"ls {pasta}").decode("latin-1"))]
+        rutas += [f"{pasta}/{n}" for n in re.findall(r"(\S+\.so\.\d+(?:\.\d+)*)", debugfs(p, f"ls {pasta}").decode("latin-1"))]
     malas = []
     for r in rutas:
         st = debugfs(p, f'stat "{r}"').decode("latin-1")

@@ -47,6 +47,7 @@
 #include "sse2.h"
 #include "video.h"
 #include "g3d_v2_provas.h"
+#include "wc.h"
 
 #define RING_BYTES   (64 * 1024)
 #define RING_DW      (RING_BYTES / 4)
@@ -127,6 +128,35 @@ static int dest_vaga = -1, princ_l, princ_a, princ_passo, princ_zbits;
 static int modo_sh = 1, ps_posto = -1;
 static struct { bool usado; uint32_t uso; uint8_t desc[PS2_DESC]; int pal; } ps_cache[PS2_CACHE];
 static uint32_t ps_relogio, ps_gerados, ps_acertos, caps_v2;
+/* D457 (gpu3d v3, «v3 en R6xx/R7xx»): los búferes de vértices viven en un bloque de la zona (b_vbm, en la parte grande
+ * si la hay), repartido por huecos (vbm); los sombreadores de vértices v3 generados, en una caché de 8 en la página de
+ * sombreadores (0x9000-0xCFFF, 2 KB cada uno); lo último que se puso (modo_sh 3: el rasterizador de v3) para no
+ * repetirlo en cada dibujo de un mundo hecho de cientos de búferes. */
+#define SH_VS3      0x9000u
+#define VS3_CACHE   8
+#define VS3_BYTES   2048u
+static g3d_buffer_t b_vbm;
+static g3d_vbmonte_t vbm;
+static bool vbm_sujo;                          /* se subió algo desde el último vaciado de la caché de vértices */
+static struct { bool usado; uint32_t uso; r63d_vs3_desc_t desc; int pal; } vs3_cache[VS3_CACHE];
+static int vs3_posto = -1;
+static gpu3d_estado2_t e3_posto;
+static gpu3d_transf_t t3_posto;
+static bool e3_valido, t3_valido;
+static uint32_t v3_dibujos, v3_subidas, v3_kb, v3_vs_gerados, v3_transf, v3_montes, v3_wc;
+/* D457: banderas de /sistema/conf/gpu3d-r600.conf («inicio 28ffc N»: un registro que no existe; no se escribe nunca):
+ *   1  sin v3 aunque la tarjeta esté confirmada;      2  v3 en una tarjeta sin confirmar (la autoprueba decide igual);
+ *   4  cada dibujo v3 se espera y se dice en el registro («r600 v3 sinc»);
+ *   8  el descarte de caras de v3 con la otra convención;   10 v3 sin índices;   20 los búferes sin write-combining */
+#define R3_REG_DEPURAR    0x28FFCu
+#define R3D_SEM_V3        0x01u
+#define R3D_COM_V3        0x02u
+#define R3D_V3_SYNC       0x04u
+#define R3D_V3_DESC_INV   0x08u
+#define R3D_V3_SEM_IND    0x10u
+#define R3D_V3_SEM_WC     0x20u
+static uint32_t r3_dep;
+static void dep_ler(void);
 
 /* D406: la GART de las R7xx (ver el bloque «D406» más abajo). */
 #define GART_BYTES   (16u << 20)
@@ -168,7 +198,8 @@ static const g3d_faixa_t r3_faixas_ajustes[] = {
 static void ajustes_por(r6_lote_t *l, int quando)
 {
     for (int i = 0; i < gpu3d_ajustes.n; i++)
-        if (gpu3d_ajustes.quando[i] == quando) r63d_reg(l, gpu3d_ajustes.reg[i], gpu3d_ajustes.val[i]);
+        if (gpu3d_ajustes.quando[i] == quando && gpu3d_ajustes.reg[i] != R3_REG_DEPURAR)   /* D457: banderas, no un registro */
+            r63d_reg(l, gpu3d_ajustes.reg[i], gpu3d_ajustes.val[i]);
 }
 
 static void esperar_ms(uint32_t ms)
@@ -201,6 +232,10 @@ static void r3_detalle(const char *fase)
          apres_n, apres_vblank_fora);
     klog("[GPU3D] r600 detalle (%s): v2 (D426): capacidades %x; destino %s; sombreadores de pixeles: %u generados, %u de la cache; "
          "SPI de v%d\n", fase, caps_v2, dest_vaga < 0 ? "principal" : "textura", ps_gerados, ps_acertos, modo_sh);
+    klog("[GPU3D] r600 detalle (%s): v3 (D457): banderas %x; %u dibujos desde buferes, %u transformaciones, %u subidas (%u KB, %u en "
+         "write-combining); monton %u KB (%u usados en %u buferes, %u creados); sombreadores de vertices v3: %u generados%s\n", fase, r3_dep,
+         v3_dibujos, v3_transf, v3_subidas, v3_kb, v3_wc, b_vbm.usado ? vbm.total >> 10 : 0, vbm.usado >> 10, vbm.n, v3_montes, v3_vs_gerados,
+         modo_sh == 3 ? "; el motor tiene puesto el rasterizador de v3" : "");
     uint32_t khz = hw_tsc_khz();
     if (khz && n_ler)
         klog("[GPU3D] r600 detalle (%s): %u cuadros leidos (%u kpx): esperando la valla %u us, copiando a la RAM %u us (%u us por cuadro)\n",
@@ -432,11 +467,14 @@ static bool ligar_cp(char *m, int nm)
     cp_ligado = false;
     tocou = false;
     sh_atual = -1;
-    est_valido = false;
+    est_valido = false; e3_valido = false;
     pendente = false;
     alvo_l = alvo_a = 0;
     memset(&b_vb, 0, sizeof b_vb); memset(&b_cor, 0, sizeof b_cor); memset(&b_z, 0, sizeof b_z); memset(b_tex, 0, sizeof b_tex);
     arena_g_ok = false;
+    memset(&b_vbm, 0, sizeof b_vbm); memset(&vbm, 0, sizeof vbm); memset(vs3_cache, 0, sizeof vs3_cache);   /* D457 */
+    vbm_sujo = e3_valido = t3_valido = false; vs3_posto = -1;
+    v3_dibujos = v3_subidas = v3_kb = v3_vs_gerados = v3_transf = v3_montes = v3_wc = 0;
 
     /* Etapa 1: el microcódigo, del sistema de archivos. */
     char cam[64];
@@ -912,13 +950,14 @@ static int r3_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, ui
 {
     quer_gart = (variante & GPU3D_CAB_GTT) != 0;
 #ifdef SAGUI_SEM_FIRMWARE
-    (void)d; (void)geracao; (void)t; (void)r3_sondar; (void)ligar_cp; (void)prefixar_etapa; (void)gart_ligar; (void)gart_confirmada;
+    (void)d; (void)geracao; (void)t; (void)r3_sondar; (void)ligar_cp; (void)prefixar_etapa; (void)gart_ligar; (void)gart_confirmada; (void)dep_ler;
     snformatar(m, (size_t)nm, "esta compilacion no lleva firmware (SEM_FIRMWARE=1): sin microcodigo no hay 3D");
     return G3D_NAO;
 #else
     etapa = 0;
     gart.tab.usado = gart.prova.usado = false;   /* D406: la arena se vuelve a crear al encender */
     if (!r3_sondar(d, geracao, t, m, nm)) { prefixar_etapa(m, nm); return G3D_NAO; }   /* solo leyó: no es un fallo de la GPU */
+    dep_ler();   /* D457 */
     if (!quer_gart && r7 && !(variante & GPU3D_CAB_SEM_GTT) && gart_confirmada(d)) {
         quer_gart = true;
         klog("[GPU3D] r600 GART: tarjeta confirmada (%04x:%04x): se enciende sola con el 3D («gpu3d encender sin-gtt» la evita)\n",
@@ -952,8 +991,13 @@ static int r3_esperar(g3d_vala_t vala, uint32_t ms)
         pendente = false;
         vb_usado = 0;
         vala = v;                    /* la última valla cubre todas las anteriores */
-    } else if (!vala) return G3D_OK;
-    else vala = seq;
+    } else {
+        /* Revisión de D457: sin «pendente» puede quedar una valla mandada y no esperada (un dibujo con «vala»):
+         * esperar a la última siempre, para que quien va a escribir una textura o un búfer no pise lo que la GPU
+         * aún lee. Si ya llegó, es una lectura del registro. */
+        if (rd(SCRATCH_VALLA) == seq) return G3D_OK;
+        vala = seq;
+    }
     return valla_esperar(vala, ms) ? G3D_OK : G3D_FALHA;
 }
 
@@ -980,7 +1024,7 @@ static int r3_alvo(int larg, int alt, int zbits)
     if (!emitir(&l)) return G3D_FALHA;
     alvo_l = larg; alvo_a = alt; alvo_passo = passo; alvo_zbits = zbits;
     b_cor.passo = (uint32_t)passo * 4; b_cor.larg = larg; b_cor.alt = alt; b_cor.bpp = 32;
-    est_valido = false;
+    est_valido = false; e3_valido = false;
     pendente = true;
     return G3D_OK;
 }
@@ -997,6 +1041,7 @@ static bool por_estado(const gpu3d_estado_t *e, uint32_t limpar)
     r6_lote_t l;
     r63d_lote(&l, b, 128 + 3 * G3D_AJUSTES_MAX);
     if (modo_sh != 1) {   /* D426: tras un dibujo v2, el SPI y lo que el estado de v1 no pone */
+        if (modo_sh == 3) r63d_v3_sair(&l);   /* D457: sin recorte ni vista, vértices ya en la pantalla */
         r63d_spi(&l, 3);
         r63d_estado_v1(&l);
         modo_sh = 1; sh_atual = -1; ps_posto = -1;
@@ -1016,6 +1061,7 @@ static bool por_estado(const gpu3d_estado_t *e, uint32_t limpar)
                     familia == R63D_R600);
     ajustes_por(&l, G3D_AJ_DIBUJO);    /* D390: después del estado, para que no lo pise */
     if (!emitir(&l)) return false;
+    e3_valido = false;                 /* D457: el estado de los píxeles de v3 ya no es el que quedó */
     if (limpar) est_valido = false;
     else { est_posto = *e; est_valido = true; }
     return true;
@@ -1072,7 +1118,7 @@ static int r3_textura(int vaga, int larg, int alt, const uint32_t *argb)
     if (r3_esperar(0, GPU3D_PRAZO_MS) != G3D_OK) return G3D_FALHA;
     soltar(b);
     tex_fmt[vaga] = G3D_FMT_ARGB8888;
-    est_valido = false;
+    est_valido = false; e3_valido = false;
     if (!argb) return G3D_OK;
     int passo = r63d_passo(larg, alin_passo);   /* lineal alineada: múltiplo de 64 o 128 texels según el grupo (D402) */
     if (!criar_grande(b, G3D_BUF_TEXTURA, (uint64_t)passo * (uint32_t)((alt + 7) & ~7) * 4u)) return G3D_NAO;
@@ -1266,7 +1312,11 @@ static int desenhar2_int(const gpu3d_estado2_t *e, const gpu3d_vert2_t *v, int n
     uint32_t b[256 + 3 * G3D_AJUSTES_MAX];
     r6_lote_t l;
     r63d_lote(&l, b, 256 + 3 * G3D_AJUSTES_MAX);
-    if (modo_sh != 2) { r63d_spi(&l, 6); modo_sh = 2; ps_posto = -1; }
+    if (modo_sh != 2) {
+        if (modo_sh == 3) r63d_v3_sair(&l);   /* D457: el SPI de v3 es el de v2 (6 parámetros); el rasterizador no */
+        else r63d_spi(&l, 6);
+        modo_sh = 2; ps_posto = -1;
+    }
     if (ps_posto != pi) {
         r63d_programas2(&l, mc_zona + RING_BYTES + SH_VS2, mc_zona + RING_BYTES + SH_PS2 + (uint32_t)pi * 4096u, R63D_PS2_GPRS,
                         (uint32_t)ps_cache[pi].pal * 4u);
@@ -1282,7 +1332,7 @@ static int desenhar2_int(const gpu3d_estado2_t *e, const gpu3d_vert2_t *v, int n
     ajustes_por(&l, G3D_AJ_DIBUJO);
     if (!emitir(&l)) return G3D_FALHA;
     sh_atual = -1;                 /* v1 tiene que volver a poner sus sombreadores */
-    est_valido = false;
+    est_valido = false; e3_valido = false;
     return vertices2(v, n);
 }
 
@@ -1342,7 +1392,7 @@ static int r3_textura2(const gpu3d_textura2_t *t)
     if (r3_esperar(0, GPU3D_PRAZO_MS) != G3D_OK) return G3D_FALHA;
     soltar(b);
     tex_fmt[t->vaga] = G3D_FMT_ARGB8888;
-    est_valido = false;
+    est_valido = false; e3_valido = false;
     uint32_t bs = t->formato == G3D_FMT_DXT1 ? 8u : 16u, pal = bs / 4u;
     int passo = r63d_passo_tex((int)t->larg, t->formato, alin_passo);
     uint32_t pb = (uint32_t)passo / 4u, nbx = (t->larg + 3u) / 4u, nby = (t->alt + 3u) / 4u;
@@ -1378,7 +1428,7 @@ static int r3_destino(int vaga, int zbits, int estencil)
         r63d_alvo(&l, (uint32_t)b_cor.gpu, (uint32_t)b_z.gpu, alvo_passo, (alvo_a + 63) & ~63, alvo_l, alvo_a, alvo_zbits,
                   R63D_PRECISA_SBU(familia));
         if (!emitir(&l)) return G3D_FALHA;
-        est_valido = false;
+        est_valido = false; e3_valido = false;
         pendente = true;
     }
     if (vaga < 0) return G3D_OK;
@@ -1395,8 +1445,264 @@ static int r3_destino(int vaga, int zbits, int estencil)
     if (!emitir(&l)) { soltar(&b_zdest); return G3D_FALHA; }
     alvo_l = t->larg; alvo_a = t->alt; alvo_passo = passo; alvo_zbits = zb;
     cur_cor = t; cur_z = &b_zdest; dest_vaga = vaga;
-    est_valido = false;
+    est_valido = false; e3_valido = false;
     pendente = true;
+    return G3D_OK;
+}
+
+/* ------------------------------------------------------------------ gpu3d v3 (D457, «v3 en R6xx/R7xx»)
+ *
+ * Búferes de vértices en la VRAM y sombreador de vértices generado (r63d_vs3_gerar, r600_3d_pacotes.c). Seguridad: lo
+ * mismo que v2 (todo por la cola del CP, el contexto 3D, nada de pantalla, relojes ni MC); los búferes están dentro de
+ * nuestra zona de la VRAM y la capa ya comprobó que cada dibujo cabe en lo subido; una lectura fuera del recurso
+ * devuelve 0 en el hardware. Solo se anuncia en las tarjetas confirmadas (v3_confirmadas) o con «inicio 28ffc 2», y
+ * aun así la autoprueba v3 de la capa tiene que dar los mismos píxeles que la CPU. */
+static const struct { uint16_t fab, modelo; } v3_confirmadas[] = {
+    { 0x1002, 0x9553 },   /* Mobility HD 4530/4570 (RV710) del HP dv7: autoprueba v3 BIEN (2026-11-22) */
+};
+static bool v3_confirmada(void)
+{
+    for (unsigned k = 0; k < sizeof v3_confirmadas / sizeof v3_confirmadas[0]; k++)
+        if (v3_confirmadas[k].fab == disp3.fabricante && v3_confirmadas[k].modelo == disp3.modelo) return true;
+    return false;
+}
+
+static void dep_ler(void)
+{
+    r3_dep = 0;
+    for (int i = 0; i < gpu3d_ajustes.n; i++) if (gpu3d_ajustes.reg[i] == R3_REG_DEPURAR) r3_dep = gpu3d_ajustes.val[i];
+    if (r3_dep) klog("[GPU3D] r600: banderas de gpu3d-r600.conf (D457): %x\n", r3_dep);
+}
+
+/* Que la GPU haya terminado todo lo mandado (sin esperar si ya está). */
+static int r3_ocioso(void)
+{
+    if (!pendente && rd(SCRATCH_VALLA) == seq) return G3D_OK;
+    pendente = true;
+    return r3_esperar(0, GPU3D_PRAZO_MS);
+}
+
+/* Copia n bytes de la RAM a la dirección «gpu» de la zona: la parte visible por su ventana fija (sin caché); el resto,
+ * o todo si se puede usar write-combining (PAT, como las texturas de la R5xx en D432), por la ventana móvil a trozos. */
+static bool r3_escrever(uint32_t gpu, const uint8_t *o, uint32_t n)
+{
+    uint32_t off = gpu - mc_zona;
+    if (gpu < mc_zona || off >= zona_bytes || n > zona_bytes - off) return false;
+    bool wc = wc_ativo() && wc_via()[0] == 'P' && !(r3_dep & R3D_V3_SEM_WC);
+    if (!wc && off + n <= zona_vis) {
+        volatile uint8_t *d = zona + off;
+        uint32_t i = 0;
+        for (; i + 4 <= n; i += 4)
+            *(volatile uint32_t *)(d + i) = (uint32_t)o[i] | ((uint32_t)o[i + 1] << 8) | ((uint32_t)o[i + 2] << 16) | ((uint32_t)o[i + 3] << 24);
+        for (; i < n; i++) d[i] = o[i];
+    } else {
+        if (!jmovel) jmovel = janela_reservar(JMOVEL_BYTES);
+        if (!jmovel) return false;
+        for (uint32_t feito = 0; feito < n;) {
+            uint32_t fis = tela.fb_fisico + zona_off + off + feito, dentro = fis & 0xFFFu;
+            uint32_t m = n - feito > (4u << 20) ? (4u << 20) : n - feito;
+            uint32_t pags = (dentro + m + 4095u) >> 12;
+            for (uint32_t i = 0; i < pags; i++) {
+                janela_soltar(jmovel + i * 4096u);
+                janela_pagina(jmovel + i * 4096u, (fis & ~0xFFFu) + i * 4096u, wc ? PG_PWT : PG_PCD | PG_PWT);
+            }
+            volatile uint8_t *d = (volatile uint8_t *)(jmovel + dentro);
+            if (wc) memcpy((void *)d, o + feito, m);
+            else for (uint32_t i = 0; i < m; i++) d[i] = o[feito + i];
+            feito += m;
+        }
+        if (wc) v3_wc++;
+    }
+    __asm__ volatile("lock; orl $0, (%%esp)" ::: "memory");   /* lo de write-combining, a la memoria antes de avisar al CP */
+    return true;
+}
+
+static int r3_vbuf(int vaga, uint32_t bytes, uint32_t desloc, const void *dados, uint32_t n)
+{
+    if (!cp_ligado) return G3D_FALHA;
+    if (vaga < 0 || vaga >= GPU3D_VBUFS) return G3D_NAO;
+    if (!dados && !bytes && !vbm.tam[vaga]) return G3D_OK;
+    /* un dibujo pendiente puede estar leyendo ese búfer (o el sitio que va a ocupar) */
+    if (r3_ocioso() != G3D_OK) return G3D_FALHA;
+    if (dados) {
+        if (!b_vbm.usado || !vbm.tam[vaga] || desloc > vbm.tam[vaga] || n > vbm.tam[vaga] - desloc) return G3D_NAO;
+        if (!r3_escrever((uint32_t)b_vbm.gpu + vbm.off[vaga] + desloc, (const uint8_t *)dados, n)) return G3D_NAO;
+        v3_subidas++;
+        v3_kb += n >> 10;
+        vbm_sujo = true;
+        return G3D_OK;
+    }
+    g3d_vbmonte_soltar(&vbm, vaga);
+    if (!bytes) {
+        if (b_vbm.usado && !vbm.n) soltar(&b_vbm);   /* nadie usa búferes: la memoria vuelve a las texturas */
+        return G3D_OK;
+    }
+    if (!b_vbm.usado) {
+        /* el montón: la mitad de lo libre de la parte grande de la zona (o de la visible si no hay), hasta 64 MB (lo otro
+         * queda para las texturas; con poco, un mundo grande expulsa un búfer en cada dibujo: lo aprendido en la R5xx) */
+        #define R3_VB_MAX (64u << 20)
+        #define R3_VB_MIN (256u << 10)
+        uint64_t livre = g3d_arena_livre(arena_g_ok ? &arena_g : &arena) / 2;
+        uint32_t t = livre > R3_VB_MAX ? R3_VB_MAX : (uint32_t)livre & ~(R3_VB_MIN - 1u);
+        for (; t >= R3_VB_MIN; t = (t / 2) & ~(R3_VB_MIN - 1u))
+            if (criar_grande(&b_vbm, G3D_BUF_VERTICES, t)) break;
+        if (t < R3_VB_MIN) return G3D_NAO;
+        g3d_vbmonte_iniciar(&vbm, t);
+        vbm_sujo = true;
+        if (!v3_montes++) klog("[GPU3D] r600 v3: monton de vertices de %u KB en la VRAM (MC %x)\n", t >> 10, (uint32_t)b_vbm.gpu);
+    }
+    if (!g3d_vbmonte_criar(&vbm, vaga, bytes)) {
+        if (!vbm.n) soltar(&b_vbm);
+        return G3D_NAO;
+    }
+    return G3D_OK;
+}
+
+/* El sombreador de vértices v3 de un dibujo: de la caché o generado y escrito en su sitio. -1 no cabe; -2 la GPU no terminó. */
+static int vs3_programa(const r63d_vs3_desc_t *ds)
+{
+    static r63d_vs3_t vs;
+    static uint32_t relogio;
+    relogio++;
+    for (int i = 0; i < VS3_CACHE; i++)
+        if (vs3_cache[i].usado && !memcmp(&vs3_cache[i].desc, ds, sizeof *ds)) { vs3_cache[i].uso = relogio; return i; }
+    r63d_vs3_gerar(&vs, ds, r7);
+    v3_vs_gerados++;
+    if (vs.erro || (uint32_t)vs.n * 4u > VS3_BYTES) {
+        if (v3_vs_gerados < 4) klog("[GPU3D] r600 v3: un sombreador de vertices no se pudo generar: ese dibujo va por la CPU\n");
+        return -1;
+    }
+    int l = -1;
+    for (int i = 0; i < VS3_CACHE && l < 0; i++) if (!vs3_cache[i].usado) l = i;
+    if (l < 0) {
+        l = 0;
+        for (int i = 1; i < VS3_CACHE; i++) if (vs3_cache[i].uso < vs3_cache[l].uso) l = i;
+        if (r3_ocioso() != G3D_OK) return -2;   /* un dibujo pendiente puede estar usándolo */
+    }
+    volatile uint32_t *sh = (volatile uint32_t *)(zona + RING_BYTES + SH_VS3 + (uint32_t)l * VS3_BYTES);
+    for (int i = 0; i < vs.n; i++) sh[i] = vs.p[i];
+    vs3_cache[l].usado = true; vs3_cache[l].uso = relogio; vs3_cache[l].desc = *ds; vs3_cache[l].pal = vs.n;
+    if (vs3_posto == l) vs3_posto = -1;
+    return l;
+}
+
+static int r3_desenhar3(const g3d_desenho3_t *d, g3d_vala_t *vala)
+{
+    if (!cp_ligado || !alvo_l) return G3D_FALHA;
+    const gpu3d_estado2_t *e = d->e;
+    const gpu3d_transf_t *t = d->t;
+    bool idx = d->d.indices != GPU3D_SEM_INDICES;
+    if ((t->flags & G3D3_LUZ) || ((t->flags & G3D3_NEBLINA) && t->neb_modo != G3D_NEB_LINEAR) || !b_vbm.usado || d->d.n < 1 ||
+        d->d.n > GPU3D_MAX_VERT3 || d->d.modo > G3D_PRIM_ABANICO || (idx && (r3_dep & R3D_V3_SEM_IND))) return G3D_NAO;
+    /* la parte de los píxeles: lo mismo que pide v2 */
+    int nu = e->unidades > 4 ? 4 : e->unidades;
+    for (int u = 0; u < nu; u++) {
+        const gpu3d_unidade_t *x = &e->u[u];
+        if (!x->ativa) continue;
+        if (x->vaga >= GPU3D_TEXTURAS || (int)x->vaga == dest_vaga || x->tipo != G3D_TEX_2D || !b_tex[x->vaga].usado ||
+            (x->filtro & (G3D_FIL_MIP_VECINO | G3D_FIL_MIP_LINEAR))) return G3D_NAO;
+    }
+    /* el programa de vértices */
+    r63d_vs3_desc_t ds;
+    memset(&ds, 0, sizeof ds);
+    ds.pos_fmt = d->d.pos.formato;
+    ds.cor_fmt = d->d.cor_a.formato;
+    ds.unidades = (uint8_t)nu;
+    for (int u = 0; u < nu; u++) {
+        ds.tc_fmt[u] = d->d.tc[u].formato;
+        if (t->flags & G3D3_TEX_MAT(u)) ds.tex_mat |= (uint8_t)(1u << u);
+    }
+    ds.neblina = !(t->flags & G3D3_NEBLINA) ? R63D_V3_NEB_NADA : (t->flags & G3D3_NEB_MEZCLADA) ? R63D_V3_NEB_MEZCLADA : R63D_V3_NEB_ESPEC;
+    int vi = vs3_programa(&ds);
+    if (vi == -2) return G3D_FALHA;
+    if (vi < 0) return G3D_NAO;
+    const r63d_vs3_desc_t *dc = &vs3_cache[vi].desc;
+    /* los arrays: el primer vértice de cada uno (sin índices: el «primeiro»), con lo que queda de su hueco */
+    int nb = 0;                 /* qué lee cada recurso: el orden de r63d_vs3_gerar (posición, color, juegos) */
+    uint8_t atr[R63D_VS3_BUFS];
+    atr[nb++] = 0;
+    if (dc->cor_fmt != G3D_AT_NADA) atr[nb++] = 1;
+    for (int u = 0; u < nu; u++) if (dc->tc_fmt[u] != G3D_AT_NADA) atr[nb++] = (uint8_t)(2 + u);
+    r63d_vbuf_t vb[R63D_VS3_BUFS];
+    for (int k = 0; k < nb; k++) {
+        const gpu3d_atrib_t *a = atr[k] == 0 ? &d->d.pos : atr[k] == 1 ? &d->d.cor_a : &d->d.tc[atr[k] - 2];
+        if (a->vaga >= GPU3D_VBUFS || !vbm.tam[a->vaga] || (a->passo & 3) || (a->desloc & 3)) return G3D_NAO;
+        uint64_t des = (uint64_t)a->desloc + (idx ? 0 : (uint64_t)d->d.primeiro * a->passo);
+        if (des >= vbm.tam[a->vaga]) return G3D_NAO;
+        vb[k].mc = (uint32_t)b_vbm.gpu + vbm.off[a->vaga] + (uint32_t)des;
+        vb[k].bytes = vbm.tam[a->vaga] - (uint32_t)des;
+        vb[k].passo = a->passo;
+    }
+    uint32_t mc_idx = 0;
+    if (idx) {
+        uint32_t iv = d->d.indices;
+        if (iv >= GPU3D_VBUFS || !vbm.tam[iv] || (uint64_t)d->d.primeiro * 2u + (uint64_t)d->d.n * 2u > vbm.tam[iv]) return G3D_NAO;
+        mc_idx = (uint32_t)b_vbm.gpu + vbm.off[iv] + d->d.primeiro * 2u;
+    }
+    int pi = ps_programa(e);
+    if (pi == -2) return G3D_FALHA;
+    if (pi < 0) return G3D_NAO;
+    static uint32_t b[640 + 3 * G3D_AJUSTES_MAX];
+    r6_lote_t l;
+    r63d_lote(&l, b, (int)(sizeof b / sizeof b[0]));
+    int modo_antes = modo_sh;
+    if (modo_sh != 3) {
+        if (modo_sh != 2) r63d_spi(&l, 6);     /* las salidas de v3 son las de v2 */
+        r63d_v3_entrar(&l);
+        modo_sh = 3; ps_posto = -1; vs3_posto = -1; e3_valido = false; t3_valido = false;
+        sh_atual = -1; est_valido = false;     /* v1 tiene que volver a poner los suyos */
+    }
+    if (ps_posto != pi || vs3_posto != vi) {
+        r63d_programas3(&l, mc_zona + RING_BYTES + SH_VS3 + (uint32_t)vi * VS3_BYTES, (uint32_t)vs3_cache[vi].pal * 4u,
+                        mc_zona + RING_BYTES + SH_PS2 + (uint32_t)pi * 4096u, R63D_PS2_GPRS, (uint32_t)ps_cache[pi].pal * 4u);
+        ps_posto = pi; vs3_posto = vi;
+    }
+    if (!e3_valido || memcmp(e, &e3_posto, sizeof *e)) {
+        for (int u = 0; u < nu; u++) {
+            const gpu3d_unidade_t *x = &e->u[u];
+            if (!x->ativa) continue;
+            const g3d_buffer_t *tx = &b_tex[x->vaga];
+            r63d_textura2(&l, u, (uint32_t)tx->gpu, tx->larg, tx->alt, (int)(tx->passo / 4), tex_fmt[x->vaga], x, (uint32_t)tx->bytes);
+        }
+        r63d_estado2(&l, e, alvo_l, alvo_a, alvo_zbits == 24, familia == R63D_R600);
+        ajustes_por(&l, G3D_AJ_DIBUJO);
+        e3_posto = *e; e3_valido = true;
+    }
+    if (!t3_valido || memcmp(t, &t3_posto, sizeof *t)) {
+        static uint32_t c[R63D_VS3_NCONST * 4];
+        r63d_vs3_constantes(c, t);
+        r63d_vs3_consts_emitir(&l, c);
+        r63d_v3_vista(&l, t);
+        r63d_reg(&l, 0x28814, r63d_v3_descarte(t->descarte, (r3_dep & R3D_V3_DESC_INV) != 0));   /* PA_SU_SC_MODE_CNTL */
+        t3_posto = *t; t3_valido = true;
+        v3_transf++;
+    }
+    if (vbm_sujo) {   /* lo subido desde el último dibujo: fuera de la caché de vértices (o de texturas) */
+        r63d_sync_vertices(&l, (uint32_t)b_vbm.gpu, (uint32_t)b_vbm.bytes, R63D_SEM_CACHE_VTX(familia));
+        vbm_sujo = false;
+    }
+    r63d_desenhar3(&l, vb, nb, (int)d->d.modo, d->d.n, idx, mc_idx);
+    if (l.cheio) {   /* nada llegó a la cola: el motor sigue en el modo de antes */
+        e3_valido = t3_valido = false; ps_posto = -1; vs3_posto = -1;
+        if (modo_antes != 3) modo_sh = modo_antes;
+        return G3D_NAO;
+    }
+    if (!emitir(&l)) { e3_valido = t3_valido = false; ps_posto = -1; r3_detalle("al dibujar (v3)"); return G3D_FALHA; }
+    pendente = true;
+    if (!v3_dibujos++)
+        klog("[GPU3D] r600 v3: primer dibujo desde buferes: %u %s, %d arrays, sombreador de vertices de %d palabras; %d palabras en la cola\n",
+             d->d.n, idx ? "indices" : "vertices", nb, vs3_cache[vi].pal, l.n);
+    avisar();
+    if (r3_dep & R3D_V3_SYNC) {
+        int r = r3_esperar(0, 500);
+        klog("[GPU3D] r600 v3 sinc: dibujo de %u %s (modo %u, %d arrays): %s\n", d->d.n, idx ? "indices" : "vertices", d->d.modo, nb,
+             r == G3D_OK ? "bien" : "CUELGA");
+        if (r != G3D_OK) { r3_detalle("al dibujar (v3)"); return G3D_FALHA; }
+    }
+    if (vala) {
+        if (!submeter(vala)) return G3D_FALHA;
+        pendente = false;
+    }
     return G3D_OK;
 }
 
@@ -1445,6 +1751,7 @@ static bool apres_estado(const g3d_buffer_t *t, bool linear, int tl, int ta)
     r6_lote_t l;
     r63d_lote(&l, b, 128);
     if (modo_sh != 1) {
+        if (modo_sh == 3) r63d_v3_sair(&l);   /* D457 */
         r63d_spi(&l, 3);
         r63d_estado_v1(&l);
         modo_sh = 1; sh_atual = -1; ps_posto = -1;
@@ -1456,7 +1763,7 @@ static bool apres_estado(const g3d_buffer_t *t, bool linear, int tl, int ta)
     }
     if (t) r63d_textura(&l, (uint32_t)t->gpu, t->larg, t->alt, (int)(t->passo / 4), true, true, linear);
     r63d_estado(&l, false, false, 7, false, 1, 0, true, 0, 0, tl, ta, familia == R63D_R600);
-    est_valido = false;
+    est_valido = false; e3_valido = false;
     return emitir(&l);
 }
 
@@ -1525,7 +1832,7 @@ static int r3_apresentar(const g3d_apres_t *p)
     r63d_alvo(&l, (uint32_t)b_cor.gpu, (uint32_t)b_z.gpu, alvo_passo, (alvo_a + 63) & ~63, alvo_l, alvo_a, alvo_zbits,
               R63D_PRECISA_SBU(familia));
     if (!emitir(&l)) return G3D_FALHA;
-    est_valido = false;
+    est_valido = false; e3_valido = false;
     pendente = true;
     if (!apres_n++)
         klog("[GPU3D] r600 presentar (D432): primera copia a la pantalla: fuente MC %x paso %u (%dx%d) -> pantalla MC %x paso %d "
@@ -1555,6 +1862,13 @@ static void r3_capacidades(gpu3d_capas_t *c)
     c->max_aniso = (ok & G3D_CAP_TEX_ANISO) ? 16 : 1;
     c->zbits = 3;
     c->estencil_bits = (ok & G3D_CAP_ESTENCIL) ? 8 : 0;
+    /* D457: v3 en las confirmadas (o si se pide); la capa lo pone a prueba contra la CPU (autoprueba v3) antes de usarlo */
+    if ((ok & G3D_CAP_V2) && !(r3_dep & R3D_SEM_V3) && (v3_confirmada() || (r3_dep & R3D_COM_V3))) {
+        c->bits3 = G3D_C3_V3 | G3D_C3_NEBLINA | G3D_C3_TEX_MAT | G3D_C3_TIRAS | G3D_C3_COR_FLOAT;
+        if (!(r3_dep & R3D_V3_SEM_IND)) c->bits3 |= G3D_C3_INDICES;
+    } else if (ok & G3D_CAP_V2)
+        klog("[GPU3D] r600 v3 (D457): sin anunciar (%s)\n", (r3_dep & R3D_SEM_V3) ? "lo quita gpu3d-r600.conf" :
+             "tarjeta sin confirmar: \"inicio 28ffc 2\" en /sistema/conf/gpu3d-r600.conf lo pide");
 }
 
 const gpu3d_driver_t gpu3d_r600 = {
@@ -1562,4 +1876,5 @@ const gpu3d_driver_t gpu3d_r600 = {
     "r600", r3_faixas_ajustes, (int)(sizeof r3_faixas_ajustes / sizeof r3_faixas_ajustes[0]), r3_vistas,
     r3_capacidades, r3_desenhar2, r3_textura2, r3_limpar2, r3_destino,
     r3_apresentar,
+    r3_vbuf, r3_desenhar3,
 };

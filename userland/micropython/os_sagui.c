@@ -7,9 +7,12 @@
  *   system, getpid, uname, sep, linesep, curdir, pardir, extsep e o
  *   submódulo path (join, exists, isdir, isfile, basename, dirname, split,
  *   splitext, abspath, normpath, isabs, getsize, expanduser).
+ * Los procesos y descriptores POSIX (fork, execv, waitpid, kill, pipe, dup2,
+ * read, write, open...) están en os_processos_sagui.h (D419).
  *
  * Los nombres de archivo llegan de Python en UTF-8 y van al kernel en Latin-1
  * (y vuelven convertidos), como el resto del sistema (D068). */
+#include <stdio.h>
 #include <string.h>
 #include "py/runtime.h"
 #include "py/objstr.h"
@@ -317,6 +320,9 @@ static mp_obj_t os_system(mp_obj_t cmd)
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(os_system_obj, os_system);
 
+/* fork, exec*, waitpid, kill, pipe, dup2, read/write/open... (D419). */
+#include "os_processos_sagui.h"
+
 /* Atributos calculados del módulo (su diccionario queda en ROM). Para un
  * nombre desconocido devuelve MP_OBJ_NULL, que el module_attr de MicroPython
  * entiende como "no existe" (el import busca __init__ así, sin error). */
@@ -556,6 +562,7 @@ static const mp_rom_map_elem_t os_globais_tab[] = {
     { MP_ROM_QSTR(MP_QSTR_putenv), MP_ROM_PTR(&os_putenv_obj) },
     { MP_ROM_QSTR(MP_QSTR_unsetenv), MP_ROM_PTR(&os_unsetenv_obj) },
     { MP_ROM_QSTR(MP_QSTR_system), MP_ROM_PTR(&os_system_obj) },
+    OS_PROCESOS_ENTRADAS
 };
 static MP_DEFINE_CONST_DICT(os_globais, os_globais_tab);
 

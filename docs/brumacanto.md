@@ -10,9 +10,17 @@ SDL_GL_* sobre EGL.
   EGL y SaguiGL. No se usan `third_party/sdl2` ni `third_party/khronos` del ZIP. Entra también en `make SEM_GPL=1`.
 - Ejecutable `/apps/bin/brumacanto`; atlas en `/apps/brumacanto/atlas.rgba`; partidas en `/home/brumacanto/`.
   Inicio > Juegos > Brumacanto. Ayuda: `rootfs/ayuda/brumacanto.md`.
-- Opciones: `--seed S`, `--size X[xZ[xY]]`, `--view 32-104` (distancia de dibujo; F3 en el juego), `--bench CUADROS`,
-  `--fullscreen` (pantalla completa; F11 la cambia en el juego) y `--escala 50|75|100` (escala de dibujo, solo para esa vez; F4 en
-  el juego la cambia y la guarda en `escala.txt` junto a las partidas). D451.
+- Opciones: `--seed S`, `--size X[xZ[xY]]`, `--view 32-104|auto` (distancia de dibujo solo para esa vez; F3 en el juego la cambia y la
+  guarda; `auto` la vuelve a elegir según el equipo), `--bench CUADROS`, `--fullscreen` (pantalla completa; F11 la cambia en el juego)
+  y `--escala 50|75|100` (escala de dibujo, solo para esa vez; F4 en el juego la cambia y la guarda). D451.
+- **Ajustes guardados** (D444): `ajustes.txt` junto a las partidas (`/home/brumacanto/`), una clave por línea: `vista=64`,
+  `escala=75`. Si no existe, la escala se lee del `escala.txt` de antes. **La primera vez** (sin `vista` guardada y sin `--view`) la
+  distancia se elige según lo que anuncia el 3D de SaguiOS en `glGetString(GL_RENDERER)`: `SaguiGL (software)` (no hay 3D por la GPU)
+  o `SaguiGL (GPU)` (GPU antigua, sin gpu3d v3) dan **48**; `SaguiGL (GPU v3)` da **64**, y con v3 se miden unos cuadros con la vista de 64
+  (se saltan los 45 primeros, que generan terreno; se promedian los 45 siguientes): si el trabajo por cuadro es de 8 ms o menos, se
+  pasa a **104**. Todo eso va dentro de `SAGUI_BRUMACANTO`; fuera de SaguiOS (Linux) la de serie es 64. En el registro:
+  `BRUMA_VISTA_AJUSTE N (origen)` (lo guardado o elegido) y `BRUMA_VISTA N (origen)` (la que se usa), con `BRUMA_VISTA medida ...`
+  si hubo medida. Las funciones puras están en `fuentes/src/ajustes.h` (`tests/ajustes_test.c` las prueba en el PC).
 
 ## Qué hizo falta en el sistema
 - `SDL_HINT_OPENGL_ES_DRIVER` (se acepta y se ignora).
@@ -33,8 +41,8 @@ conservan, y las mallas (VBO) de los visibles. Cualquier tamaño de mundo cabe e
 | 64 | 8,2 | 150 ms | 0,6 |
 | 104 | 7,1 | 220 ms | 0,7 |
 
-Sin KVM (TCG) va a 0,3-0,5 cuadros/s (solo sirve para probar que funciona). Con la distancia de serie (104) por software son 7 cuadros/s
-en QEMU; bajar a 32-48 con F3 o `--view` da 9-10. El **driver simulado** de la GPU (`--gpu3d=simulado`) es unas 15 veces más
+Sin KVM (TCG) va a 0,3-0,5 cuadros/s (solo sirve para probar que funciona). Con 104 (que era la de serie antes de los ajustes guardados) por software son 7 cuadros/s
+en QEMU; por eso la primera vez se elige 48 sin 3D por la GPU, y 32-48 con F3 o `--view` dan 9-10. El **driver simulado** de la GPU (`--gpu3d=simulado`) es unas 15 veces más
 lento que el software: rasteriza en el kernel con enteros y recibe los vértices de cada dibujo; es una prueba de la ruta gpu3d v2
 (h424), no un dato de rendimiento de una GPU real (X1400, HD 4500: pendiente de medir en esas máquinas).
 

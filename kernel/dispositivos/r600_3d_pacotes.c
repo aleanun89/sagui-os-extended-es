@@ -1115,3 +1115,381 @@ void r63d_ps2_gerar(r63d_ps2_t *out, const gpu3d_estado2_t *e, bool r7xx)
     out->clausulas = ncl;
     out->n = total;
 }
+
+
+/* ================================================================== gpu3d v3 (D457, «v3 en R6xx/R7xx»)
+ *
+ * El sombreador de vértices generado para la transformación fija de ES 1.1. Valores y reglas contrastados con Mesa
+ * 23.3.6 (src/gallium/drivers/r600: r600_sq.h, r600d.h, r600_isa.c, r600_asm.c, r600_state.c, r600_state_common.c;
+ * MIT) y xf86-video-ati (r600_shader.c, r600_exa.c, r600_reg_r6xx.h; MIT): solo números y reglas, el código es propio.
+ *
+ *   lecturas: R1 = posición (FLOAT2/3/4 con z = 0 y w = 1 de relleno), R2 = color (4 bytes R, G, B, A normalizados o 4
+ *             floats), R3 + u = juego u (FLOAT2/3/4); recurso 160 + k para la lectura k, índice en R0.x;
+ *   ALU:      R7 = MVP · R1 (4 DOT4); color float: R2 = sat(R2); color constante: R2 = C9;
+ *             niebla: R8.xyz = MV · R1 (3 DOT4), R8.w = R8.xyz · R8.xyz (DOT4), R8.w = sqrt(R8.w) (en la ranura t),
+ *             R9.w = sat(C7.x - R8.w · C7.y) (MULADD); mezclada: R2.rgb *= R9.w, R9.rgb = C8 - C8 · R9.w, R9.w = 1;
+ *             juego constante: R3 + u = C10 + u; con matriz: R10 + u = TEX_u · (R3 + u) (4 DOT4);
+ *   salidas:  POS0 = R7, PARAM0 = R2, PARAM1 = R9 (o (0, 0, 0, 1) sin niebla; (0, 0, 0, f) sin mezclar), PARAM2-5 =
+ *             los juegos (o (0, 0, 0, 1) para las unidades que no hay).
+ * Reglas de los puertos (r600_asm.c, check_vector/check_scalar/reserve_cfile): en cada ciclo de lectura (VEC_012: el
+ * origen i en el ciclo i; la ranura t con SCL_210) un solo registro por canal; del «constant file», 4 lecturas
+ * distintas por grupo en las R6xx y 2 parejas de canales (xy, zw) en las R7xx; la ranura t, como mucho 2 constantes y
+ * ningún registro en un ciclo anterior a ellas. El generador las comprueba y, si una no se cumple, no hay programa
+ * (el dibujo va por la CPU). */
+
+#define V3_R_IDX    0u
+#define V3_R_POS    1u
+#define V3_R_COR    2u
+#define V3_R_TC(u)  (3u + (u))
+#define V3_R_CLIP   7u
+#define V3_R_OLHO   8u
+#define V3_R_ESP    9u
+#define V3_R_TCM(u) (10u + (u))
+#define V3_C_MVP    0u
+#define V3_C_MV     4u
+#define V3_C_NEB    7u
+#define V3_C_NEBCOR 8u
+#define V3_C_COR    9u
+#define V3_C_TC(u)  (10u + (u))
+#define V3_C_TEX(u) (14u + 4u * (u))
+#define V3_CFILE    256u            /* ALU_SRC_CFILE_BASE: la constante i del sombreador es el origen 256 + i */
+#define V3_OP_MUL   0x01u
+#define V3_OP_MOV   0x19u
+#define V3_OP_DOT4  0x50u
+#define V3_OP_SQRT  0x6Au           /* SQRT_IEEE: solo en la ranura t */
+#define V3_OP3_MULADD 0x10u
+#define V3_GRUPOS_MAX 64
+
+typedef struct { uint32_t sel, chan, neg; } v3o_t;
+typedef struct { bool usada, op3, escreve, clamp; uint32_t op; int ns; v3o_t s[3]; uint32_t dst; } v3i_t;
+typedef struct { v3i_t i[5]; } v3g_t;      /* ranuras x, y, z, w y t; la de x..w escribe en su canal */
+typedef struct { uint32_t alu[2 * 5 * V3_GRUPOS_MAX]; int n, grupos, gini[V3_GRUPOS_MAX + 1]; bool erro, r7; } v3a_t;
+
+static void v3_zerar(void *p, uint32_t n) { uint8_t *b = (uint8_t *)p; while (n--) *b++ = 0; }
+
+static v3o_t o_gpr(uint32_t r, uint32_t c) { v3o_t o = { r, c & 3u, 0 }; return o; }
+static v3o_t o_k(uint32_t k, uint32_t c)   { v3o_t o = { V3_CFILE + k, c & 3u, 0 }; return o; }
+static v3o_t o_esp(uint32_t sel)           { v3o_t o = { sel, 0, 0 }; return o; }   /* 248 = 0,0; 249 = 1,0 */
+static v3o_t o_neg(v3o_t o)                { o.neg ^= 1u; return o; }
+
+/* ¿Cumple el grupo las reglas de lectura? (como check_and_set_bank_swizzle con el reparto fijo VEC_012 / SCL_210) */
+static bool v3_grupo_ok(const v3g_t *g, bool r7)
+{
+    int hw[3][4], ka[4], kc[4], nk = 0;
+    for (int c = 0; c < 3; c++) for (int k = 0; k < 4; k++) hw[c][k] = -1;
+    for (int r = 0; r < 5; r++) {
+        const v3i_t *x = &g->i[r];
+        if (!x->usada) continue;
+        if ((r == 4) != (x->op == V3_OP_SQRT && !x->op3)) return false;   /* la transcendente, y solo ella, en la ranura t */
+        int consts = 0;
+        for (int i = 0; i < x->ns; i++) {
+            const v3o_t *s = &x->s[i];
+            if (s->sel >= V3_CFILE && s->sel < 512u) {
+                uint32_t el = r7 ? s->chan / 2u : s->chan;
+                int j = 0;
+                while (j < nk && !(ka[j] == (int)s->sel && kc[j] == (int)el)) j++;
+                if (j == nk) { if (nk == (r7 ? 2 : 4)) return false; ka[nk] = (int)s->sel; kc[nk] = (int)el; nk++; }
+                consts++;
+            } else if (s->sel >= 248u && s->sel <= 252u) consts++;
+        }
+        if (r == 4 && consts > 2) return false;
+        for (int i = 0; i < x->ns; i++) {
+            const v3o_t *s = &x->s[i];
+            if (s->sel >= 128u) continue;
+            int ciclo = r == 4 ? 2 - i : i;
+            if (r == 4 && ciclo < consts) return false;
+            if (r < 4 && i == 1 && s->sel == x->s[0].sel && s->chan == x->s[0].chan) continue;
+            int *h = &hw[ciclo][s->chan];
+            if (*h == -1) *h = (int)s->sel;
+            else if (*h != (int)s->sel) return false;
+        }
+    }
+    return true;
+}
+
+static void v3_emitir(v3a_t *a, const v3g_t *g)
+{
+    if (a->erro) return;
+    if (!v3_grupo_ok(g, a->r7) || a->grupos >= V3_GRUPOS_MAX) { a->erro = true; return; }
+    int ultima = -1;
+    for (int r = 0; r < 5; r++) if (g->i[r].usada) ultima = r;
+    if (ultima < 0) return;
+    a->gini[a->grupos] = a->n;
+    for (int r = 0; r < 5; r++) {
+        const v3i_t *x = &g->i[r];
+        if (!x->usada) continue;
+        uint32_t ch = r < 4 ? (uint32_t)r : x->dst >> 8;          /* la ranura t lleva su canal en dst >> 8 */
+        uint32_t dst = x->dst & 0x7Fu;
+        uint32_t w0 = x->s[0].sel | (x->s[0].chan << 10) | (x->s[0].neg << 12) | (r == ultima ? 1u << 31 : 0u);
+        if (x->ns > 1) w0 |= (x->s[1].sel << 13) | (x->s[1].chan << 23) | (x->s[1].neg << 25);
+        uint32_t w1;
+        if (x->op3) w1 = x->s[2].sel | (x->s[2].chan << 10) | (x->s[2].neg << 12) | (x->op << 13);
+        else w1 = (x->escreve ? 1u << 4 : 0u) | (x->op << (a->r7 ? 7 : 8));
+        w1 |= (dst << 21) | (ch << 29) | (x->clamp ? 1u << 31 : 0u);   /* BANK_SWIZZLE 0: VEC_012 y SCL_210 */
+        a->alu[a->n++] = w0;
+        a->alu[a->n++] = w1;
+    }
+    a->grupos++;
+    a->gini[a->grupos] = a->n;
+}
+
+/* dst.c = DOT4(a, filas de la constante k), escrito solo en el canal c (las cuatro ranuras calculan el producto). */
+static void v3_dot(v3a_t *a, uint32_t dst, uint32_t c, uint32_t ra, uint32_t k)
+{
+    v3g_t g;
+    v3_zerar(&g, sizeof g);
+    for (uint32_t r = 0; r < 4; r++) {
+        v3i_t *x = &g.i[r];
+        x->usada = true; x->op = V3_OP_DOT4; x->ns = 2; x->dst = dst; x->escreve = r == c;
+        x->s[0] = o_gpr(ra, r); x->s[1] = o_k(k, r);
+    }
+    v3_emitir(a, &g);
+}
+
+/* dst.xyzw = origen (registro o constante), con o sin saturar. */
+static void v3_mov4(v3a_t *a, uint32_t dst, v3o_t o, bool sat)
+{
+    v3g_t g;
+    v3_zerar(&g, sizeof g);
+    for (uint32_t r = 0; r < 4; r++) {
+        v3i_t *x = &g.i[r];
+        x->usada = true; x->op = V3_OP_MOV; x->ns = 1; x->dst = dst; x->escreve = true; x->clamp = sat;
+        x->s[0] = o; x->s[0].chan = r;
+    }
+    v3_emitir(a, &g);
+}
+
+/* Una lectura de vértices (128 bits) del recurso 160 + k, con el índice en R0.x, como r600_bytecode_vtx_build:
+ * MEGA_FETCH con 32 bytes; floats como SCALED con signo (lo que ya leen los de v1 y v2 en la HD 4500), bytes
+ * normalizados sin signo. sw: dst_sel de los cuatro componentes. */
+static void v3_vtx(uint32_t *p, uint32_t k, uint32_t gpr, uint32_t fmt, bool norm, const uint32_t sw[4])
+{
+    p[0] = (k << 8) | (V3_R_IDX << 16) | (31u << 26);
+    p[1] = gpr | (sw[0] << 9) | (sw[1] << 12) | (sw[2] << 15) | (sw[3] << 18) | (fmt << 22) | ((norm ? 0u : 2u) << 28) |
+           ((norm ? 0u : 1u) << 30);
+    p[2] = 1u << 19;
+    p[3] = 0;
+}
+
+/* Exportación con su selección de componentes (4 = 0, 5 = 1). */
+static void v3_exp(uint32_t *p, uint32_t base, uint32_t tipo, uint32_t gpr, const uint32_t sw[4], bool fim, bool barreira)
+{
+    p[0] = base | (tipo << 13) | (gpr << 15);
+    p[1] = sw[0] | (sw[1] << 3) | (sw[2] << 6) | (sw[3] << 9) | ((fim ? 1u : 0u) << 21) |
+           ((fim || tipo == EXP_POS ? CF_EXP_F : CF_EXP) << 23) | ((barreira ? 1u : 0u) << 31);
+}
+
+void r63d_vs3_gerar(r63d_vs3_t *vs, const r63d_vs3_desc_t *d, bool r7xx)
+{
+    static v3a_t a;
+    v3_zerar(vs, sizeof *vs);
+    v3_zerar(&a, sizeof a);
+    a.r7 = r7xx;
+    int nu = d->unidades;
+    if (d->pos_fmt < G3D_AT_FLOAT2 || d->pos_fmt > G3D_AT_FLOAT4 || nu > 4 || d->neblina > R63D_V3_NEB_MEZCLADA ||
+        (d->cor_fmt != G3D_AT_NADA && d->cor_fmt != G3D_AT_UBYTE4N && d->cor_fmt != G3D_AT_FLOAT4)) { vs->erro = true; return; }
+    for (int u = 0; u < nu; u++)
+        if (d->tc_fmt[u] != G3D_AT_NADA && (d->tc_fmt[u] < G3D_AT_FLOAT2 || d->tc_fmt[u] > G3D_AT_FLOAT4)) { vs->erro = true; return; }
+
+    /* Las lecturas. */
+    static const uint32_t ffmt[5] = { 0, 0, 0x1Eu, 0x30u, 0x23u };   /* FMT_32_32_FLOAT, FMT_32_32_32_FLOAT, FMT_32_32_32_32_FLOAT */
+    uint32_t vtx[R63D_VS3_BUFS][4];
+    int nf = 0;
+    {
+        uint32_t f = d->pos_fmt, sw[4] = { SEL_X, SEL_Y, f >= 3 ? SEL_Z : SEL_0, f >= 4 ? SEL_W : SEL_1 };
+        v3_vtx(vtx[nf], (uint32_t)nf, V3_R_POS, ffmt[f], false, sw);
+        vs->atr[nf++] = 0;
+    }
+    if (d->cor_fmt == G3D_AT_UBYTE4N) {
+        static const uint32_t sw[4] = { SEL_X, SEL_Y, SEL_Z, SEL_W };   /* bytes R, G, B, A en ese orden en la memoria */
+        v3_vtx(vtx[nf], (uint32_t)nf, V3_R_COR, 0x1Au, true, sw);
+        vs->atr[nf++] = 1;
+    } else if (d->cor_fmt == G3D_AT_FLOAT4) {
+        static const uint32_t sw[4] = { SEL_X, SEL_Y, SEL_Z, SEL_W };
+        v3_vtx(vtx[nf], (uint32_t)nf, V3_R_COR, 0x23u, false, sw);
+        vs->atr[nf++] = 1;
+    }
+    for (int u = 0; u < nu; u++) {
+        uint32_t f = d->tc_fmt[u];
+        if (f == G3D_AT_NADA) continue;
+        uint32_t sw[4] = { SEL_X, SEL_Y, f >= 3 ? SEL_Z : SEL_0, f >= 4 ? SEL_W : SEL_1 };
+        v3_vtx(vtx[nf], (uint32_t)nf, V3_R_TC(u), ffmt[f], false, sw);
+        vs->atr[nf++] = (uint8_t)(2 + u);
+    }
+
+    /* El ALU. */
+    for (uint32_t r = 0; r < 4; r++) v3_dot(&a, V3_R_CLIP, r, V3_R_POS, V3_C_MVP + r);
+    if (d->cor_fmt == G3D_AT_FLOAT4) v3_mov4(&a, V3_R_COR, o_gpr(V3_R_COR, 0), true);
+    else if (d->cor_fmt == G3D_AT_NADA) v3_mov4(&a, V3_R_COR, o_k(V3_C_COR, 0), false);
+    if (d->neblina != R63D_V3_NEB_NADA) {
+        for (uint32_t r = 0; r < 3; r++) v3_dot(&a, V3_R_OLHO, r, V3_R_POS, V3_C_MV + r);
+        v3g_t g;
+        v3_zerar(&g, sizeof g);                           /* R8.w = R8.xyz · R8.xyz */
+        for (uint32_t r = 0; r < 4; r++) {
+            v3i_t *x = &g.i[r];
+            x->usada = true; x->op = V3_OP_DOT4; x->ns = 2; x->dst = V3_R_OLHO; x->escreve = r == 3;
+            if (r < 3) { x->s[0] = o_gpr(V3_R_OLHO, r); x->s[1] = o_gpr(V3_R_OLHO, r); }
+            else { x->s[0] = o_esp(248); x->s[1] = o_esp(248); }
+        }
+        v3_emitir(&a, &g);
+        v3_zerar(&g, sizeof g);                           /* R8.w = sqrt(R8.w), en la ranura t */
+        g.i[4] = (v3i_t){ true, false, true, false, V3_OP_SQRT, 1, { o_gpr(V3_R_OLHO, 3) }, V3_R_OLHO | (3u << 8) };
+        v3_emitir(&a, &g);
+        v3_zerar(&g, sizeof g);                           /* R9.w = sat(a - d · b) */
+        g.i[3] = (v3i_t){ true, true, true, true, V3_OP3_MULADD, 3,
+                          { o_gpr(V3_R_OLHO, 3), o_neg(o_k(V3_C_NEB, 1)), o_k(V3_C_NEB, 0) }, V3_R_ESP };
+        v3_emitir(&a, &g);
+        if (d->neblina == R63D_V3_NEB_MEZCLADA) {
+            v3_zerar(&g, sizeof g);                       /* R2.rgb *= f */
+            for (uint32_t r = 0; r < 3; r++)
+                g.i[r] = (v3i_t){ true, false, true, false, V3_OP_MUL, 2, { o_gpr(V3_R_COR, r), o_gpr(V3_R_ESP, 3) }, V3_R_COR };
+            v3_emitir(&a, &g);
+            v3_zerar(&g, sizeof g);                       /* R9.rgb = C8 - C8 · f */
+            for (uint32_t r = 0; r < 3; r++)
+                g.i[r] = (v3i_t){ true, true, true, false, V3_OP3_MULADD, 3,
+                                  { o_k(V3_C_NEBCOR, r), o_neg(o_gpr(V3_R_ESP, 3)), o_k(V3_C_NEBCOR, r) }, V3_R_ESP };
+            v3_emitir(&a, &g);
+            v3_zerar(&g, sizeof g);                       /* R9.w = 1 */
+            g.i[3] = (v3i_t){ true, false, true, false, V3_OP_MOV, 1, { o_esp(249) }, V3_R_ESP };
+            v3_emitir(&a, &g);
+        }
+    }
+    uint32_t tc_sai[4];
+    for (int u = 0; u < nu; u++) {
+        if (d->tc_fmt[u] == G3D_AT_NADA) v3_mov4(&a, V3_R_TC(u), o_k(V3_C_TC(u), 0), false);
+        tc_sai[u] = V3_R_TC(u);
+        if (d->tex_mat & (1u << u)) {
+            for (uint32_t r = 0; r < 4; r++) v3_dot(&a, V3_R_TCM(u), r, V3_R_TC(u), V3_C_TEX(u) + r);
+            tc_sai[u] = V3_R_TCM(u);
+        }
+    }
+    if (a.erro) { vs->erro = true; return; }
+
+    /* Cláusulas del ALU de 128 ranuras (256 palabras) como mucho, cortadas entre grupos. */
+    int cl_ini[8], cl_n[8], ncl = 0;
+    for (int g = 0; g < a.grupos;) {
+        if (ncl == 8) { vs->erro = true; return; }
+        int g0 = g;
+        while (g < a.grupos && a.gini[g + 1] - a.gini[g0] <= 256) g++;
+        if (g == g0) { vs->erro = true; return; }
+        cl_ini[ncl] = a.gini[g0]; cl_n[ncl] = a.gini[g] - a.gini[g0]; ncl++;
+    }
+    /* Montaje: CF (lecturas, ALU, 7 exportaciones), las lecturas alineadas a 16 bytes y el ALU. */
+    int ncf = 1 + ncl + 7;
+    int vtx_ini = (ncf + 1) & ~1, alu_ini = vtx_ini + 2 * nf;     /* en palabras de 64 bits */
+    int total = 2 * alu_ini + a.n;
+    if (total > R63D_VS3_MAX) { vs->erro = true; return; }
+    uint32_t *p = vs->p;
+    for (int i = 0; i < total; i++) p[i] = 0;
+    int c = 0;
+    cf(p + 2 * c++, (uint32_t)vtx_ini, (uint32_t)nf, CF_VTX);
+    for (int i = 0; i < ncl; i++) cf_alu(p + 2 * c++, (uint32_t)(alu_ini + cl_ini[i] / 2), (uint32_t)(cl_n[i] / 2));
+    static const uint32_t xyzw[4] = { SEL_X, SEL_Y, SEL_Z, SEL_W }, nada[4] = { SEL_0, SEL_0, SEL_0, SEL_1 },
+                          so_w[4] = { SEL_0, SEL_0, SEL_0, SEL_W };
+    v3_exp(p + 2 * c++, 60, EXP_POS, V3_R_CLIP, xyzw, false, true);
+    v3_exp(p + 2 * c++, 0, EXP_PARAM, V3_R_COR, xyzw, false, false);
+    v3_exp(p + 2 * c++, 1, EXP_PARAM, V3_R_ESP, d->neblina == R63D_V3_NEB_NADA ? nada : d->neblina == R63D_V3_NEB_ESPEC ? so_w : xyzw,
+           false, false);
+    for (int u = 0; u < 4; u++)
+        v3_exp(p + 2 * c++, 2u + (uint32_t)u, EXP_PARAM, u < nu ? tc_sai[u] : V3_R_IDX, u < nu ? xyzw : nada, u == 3, false);
+    for (int k = 0; k < nf; k++) for (int w = 0; w < 4; w++) p[2 * vtx_ini + 4 * k + w] = vtx[k][w];
+    for (int i = 0; i < a.n; i++) p[2 * alu_ini + i] = a.alu[i];
+    vs->n = total;
+    vs->grupos = a.grupos;
+    vs->clausulas_alu = ncl;
+    vs->lecturas = nf;
+}
+
+void r63d_vs3_constantes(uint32_t c[R63D_VS3_NCONST * 4], const gpu3d_transf_t *t)
+{
+    for (int i = 0; i < R63D_VS3_NCONST * 4; i++) c[i] = 0;
+    for (uint32_t r = 0; r < 4; r++)                    /* las matrices llegan por columnas: m[col * 4 + fila] */
+        for (uint32_t k = 0; k < 4; k++) {
+            c[(V3_C_MVP + r) * 4 + k] = t->mvp[k * 4 + r];
+            if (r < 3) c[(V3_C_MV + r) * 4 + k] = t->mv[k * 4 + r];
+            for (uint32_t u = 0; u < 4; u++) c[(V3_C_TEX(u) + r) * 4 + k] = t->tex[u][k * 4 + r];
+        }
+    c[V3_C_NEB * 4 + 0] = t->neb_a;
+    c[V3_C_NEB * 4 + 1] = t->neb_b;
+    for (uint32_t k = 0; k < 3; k++) c[V3_C_NEBCOR * 4 + k] = r63d_float_byte((t->neb_cor >> (16 - 8 * k)) & 0xFFu);
+    for (uint32_t k = 0; k < 3; k++) c[V3_C_COR * 4 + k] = r63d_float_byte((t->cor >> (16 - 8 * k)) & 0xFFu);
+    c[V3_C_COR * 4 + 3] = r63d_float_byte(t->cor >> 24);
+    for (uint32_t u = 0; u < 4; u++) for (uint32_t k = 0; k < 4; k++) c[(V3_C_TC(u)) * 4 + k] = t->tc_const[u][k];
+}
+
+void r63d_vs3_consts_emitir(r6_lote_t *l, const uint32_t c[R63D_VS3_NCONST * 4])
+{
+    r63d_regs(l, R63D_ALU_CONST_VS, c, R63D_VS3_NCONST * 4);   /* SET_ALU_CONST: las constantes 256-285 */
+}
+
+void r63d_v3_entrar(r6_lote_t *l)
+{
+    uint32_t v[3];
+    v[0] = 1u << 24;                                    /* PA_CL_CLIP_CNTL: recorte encendido (espacio de GL: -w <= z <= w),
+                                                         * DX_LINEAR_ATTR_CLIP_ENA (los atributos se interpolan en el espacio de
+                                                         * recorte, como la CPU); sin planos del usuario */
+    v[1] = 1u << 2;                                     /* PA_SU_SC_MODE_CNTL: sin descarte hasta r63d_v3_vista */
+    v[2] = 0x3Fu | (1u << 10);                          /* PA_CL_VTE_CNTL: las seis escalas de la vista y la w de verdad (VTX_W0_FMT) */
+    r63d_regs(l, 0x28810, v, 3);
+}
+
+void r63d_v3_vista(r6_lote_t *l, const gpu3d_transf_t *t)
+{
+    uint32_t v[6] = { t->vp_escala[0], t->vp_desloc[0], t->vp_escala[1], t->vp_desloc[1], t->vp_escala[2], t->vp_desloc[2] };
+    r63d_regs(l, 0x2843C, v, 6);                        /* PA_CL_VPORT_XSCALE_0 ... ZOFFSET_0 */
+}
+
+uint32_t r63d_v3_descarte(uint8_t descarte, bool inv)
+{
+    uint32_t pos = inv ? 2u : 1u, neg = inv ? 1u : 2u;  /* CULL_FRONT (bit 0) o CULL_BACK (bit 1) */
+    return (1u << 2) | (descarte == G3D_DESC_POS ? pos : descarte == G3D_DESC_NEG ? neg : 0u);
+}
+
+void r63d_v3_sair(r6_lote_t *l)
+{
+    uint32_t v[3] = { 1u << 16, 1u << 2, (1u << 8) | (1u << 9) };   /* lo del estado base */
+    r63d_regs(l, 0x28810, v, 3);
+}
+
+void r63d_programas3(r6_lote_t *l, uint32_t mc_vs, uint32_t vs_bytes, uint32_t mc_ps, int gprs_ps, uint32_t bytes_ps)
+{
+    sync(l, SYNC_SH, vs_bytes, mc_vs);
+    r63d_reg(l, 0x28858, mc_vs >> 8);                           /* SQ_PGM_START_VS */
+    r63d_reg(l, 0x28868, R63D_VS3_GPRS);                        /* SQ_PGM_RESOURCES_VS */
+    r63d_reg(l, 0x288D0, 0);
+    sync(l, SYNC_SH, bytes_ps, mc_ps);
+    r63d_reg(l, 0x28840, mc_ps >> 8);                           /* SQ_PGM_START_PS */
+    r63d_reg(l, 0x28850, (uint32_t)gprs_ps | (1u << 28));       /* SQ_PGM_RESOURCES_PS */
+    r63d_reg(l, 0x28854, 2);
+    r63d_reg(l, 0x288CC, 0);
+}
+
+void r63d_sync_vertices(r6_lote_t *l, uint32_t mc, uint32_t bytes, bool sem_cache_vertices)
+{
+    sync(l, sem_cache_vertices ? SYNC_TC : SYNC_VC, bytes, mc);
+}
+
+void r63d_desenhar3(r6_lote_t *l, const r63d_vbuf_t *b, int nb, int prim, uint32_t n, bool com_indices, uint32_t mc_idx)
+{
+    static const uint32_t tipo[3] = { 4u, 6u, 5u };             /* DI_PT_TRILIST, TRISTRIP, TRIFAN */
+    for (int k = 0; k < nb; k++) {
+        uint32_t v[7] = { b[k].mc, b[k].bytes - 1u, b[k].passo << 8, 1, 0, 0, 3u << 30 };
+        r63d_regs(l, 0x38000 + (160u + (uint32_t)k) * 28u, v, 7);   /* recursos 160 + k del sombreador de vértices */
+    }
+    r63d_reg(l, 0x8958, tipo[prim >= 0 && prim <= 2 ? prim : 0]);   /* VGT_PRIMITIVE_TYPE */
+    r63d_p(l, R63D_PKT3(R63D_IT_INDEX_TYPE, 1));
+    r63d_p(l, 0);                                               /* VGT_INDEX_16 */
+    r63d_p(l, R63D_PKT3(R63D_IT_NUM_INSTANCES, 1));
+    r63d_p(l, 1);
+    if (com_indices) {
+        r63d_p(l, R63D_PKT3(R63D_IT_DRAW_INDEX, 4));            /* índices de la memoria (DI_SRC_SEL_DMA) */
+        r63d_p(l, mc_idx);
+        r63d_p(l, 0);
+        r63d_p(l, n);
+        r63d_p(l, 0);
+    } else {
+        r63d_p(l, R63D_PKT3(R63D_IT_DRAW_INDEX_AUTO, 2));
+        r63d_p(l, n);
+        r63d_p(l, 2);                                           /* DI_SRC_SEL_AUTO_INDEX */
+    }
+}

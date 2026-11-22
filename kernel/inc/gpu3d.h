@@ -29,6 +29,7 @@
 #include "acel2d.h"
 #include "pci.h"
 #include "gpu3d_diag.h"
+#include "gpu3d_v3.h"
 
 /* Lo que pide la cabecera de arranque (CAB_GPU3D; mkimagem.py --gpu3d). */
 #define GPU3D_CAB_MODO      0x07
@@ -71,6 +72,7 @@ uint64_t g3d_arena_livre(const g3d_arena_t *a);          /* bytes sin usar (suma
 #define G3D_BUF_Z        2
 #define G3D_BUF_TEXTURA  3
 #define G3D_BUF_LOTE     4       /* órdenes */
+#define G3D_BUF_VERTICES 5       /* D457: el montón de los búferes de vértices e índices (g3d_vbmonte_t) */
 typedef struct {
     bool      usado;
     uint8_t   tipo;              /* G3D_BUF_* */
@@ -84,6 +86,19 @@ typedef struct {
 /* alinhamento: potencia de 2. false: no cabe. */
 bool g3d_buffer_criar(g3d_arena_t *a, g3d_buffer_t *b, uint8_t tipo, uint64_t bytes, uint32_t alinhamento);
 void g3d_buffer_soltar(g3d_arena_t *a, g3d_buffer_t *b);
+
+/* D457: el montón de los búferes de vértices. La arena tiene pocos bloques (son piezas grandes); un mundo
+ * son cientos de búferes pequeños: el driver pide UN bloque a la arena y este montón lo reparte por huecos de
+ * búfer (el primer sitio donde quepa, alineado a 64 bytes). Sin sitio, false: la capa expulsa y repite. */
+typedef struct {
+    uint32_t total;                                  /* bytes del montón */
+    uint32_t usado;                                  /* bytes repartidos */
+    uint32_t n;                                      /* búferes */
+    uint32_t off[GPU3D_VBUFS], tam[GPU3D_VBUFS];     /* por hueco; tam 0 = libre */
+} g3d_vbmonte_t;
+void g3d_vbmonte_iniciar(g3d_vbmonte_t *m, uint32_t total);
+bool g3d_vbmonte_criar(g3d_vbmonte_t *m, int vaga, uint32_t bytes);
+void g3d_vbmonte_soltar(g3d_vbmonte_t *m, int vaga);
 
 /* ------------------------------------------------------------ colas de órdenes */
 
@@ -161,6 +176,14 @@ typedef struct {
      * la GPU termine (con plazo) y deja el destino de dibujo como estaba. La capa ya comprobó los
      * rectángulos y que quien llama tiene la pantalla en exclusiva. */
     int  (*apresentar)(const g3d_apres_t *p);
+    /* ---- gpu3d v3 (D457; docs/gpu3d.md «gpu3d v3»): la GPU transforma los vértices y los guarda. Pueden ser NULL
+     * (las dos o ninguna); el driver anuncia lo que sabe en gpu3d_capas_t.bits3 (capacidades()).
+     * vbuf: dados == NULL y bytes > 0: crea el hueco con esa capacidad (suelta lo que tuviera); G3D_NAO si no cabe
+     * (la capa expulsa otros búferes y repite). dados != NULL: copia n bytes en desloc (el hueco existe y cabe).
+     * bytes == 0: lo suelta. */
+    int  (*vbuf)(int vaga, uint32_t bytes, uint32_t desloc, const void *dados, uint32_t n);
+    /* Dibuja desde los búferes: todo ya validado contra lo anunciado y contra el tamaño de los búferes. */
+    int  (*desenhar3)(const g3d_desenho3_t *d, g3d_vala_t *vala);
 } gpu3d_driver_t;
 
 /* D390: los ajustes del fichero del driver, leídos por la capa antes de iniciar() y ya
@@ -171,6 +194,7 @@ extern const gpu3d_driver_t gpu3d_intel;   /* Gen3: 915, 945, G33, Pineview (gpu
 extern const gpu3d_driver_t gpu3d_r600;    /* Radeon R7xx por el CP (gpu3d_r600.c, D284): no se enciende solo */
 extern const gpu3d_driver_t gpu3d_r500;    /* Radeon R5xx: X1300 a X1950 (gpu3d_r500.c, D287) */
 extern const gpu3d_driver_t gpu3d_evergreen; /* Radeon Evergreen y NI sin Cayman: HD 5000-6000, HD 7500M/7600M (gpu3d_evergreen.c, D427) */
+extern const gpu3d_driver_t gpu3d_intel9;  /* Intel Gen9 (Skylake ... Comet Lake) por el RCS con execlists (gpu3d_intel9.c, D438): no se enciende solo */
 extern const gpu3d_driver_t gpu3d_sim;     /* de mentira, por la CPU (gpu3d_sim.c): solo pruebas */
 
 /* D358: lo que quedó en marcha en la Intel (GPU3D_VAR_*) y los KB de RAM en el GTT. */

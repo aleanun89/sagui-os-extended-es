@@ -83,7 +83,7 @@ def comprobar_disco(img, origem, jogo=None, rotulo=""):
                   f"[{rotulo}] la raíz instalada lleva la marca de versión (lo último que se copia)")
         # D378: el intérprete y las bibliotecas, de root y sin escritura de otros (si no, no arrancan los dinámicos)
         malas = []
-        for r in ("/lib", "/lib/ld-sagui.so.1", "/apps/lib", "/apps/lib/libc.so.1", "/apps/lib/libsagui.so.1"):
+        for r in ("/lib", "/lib/ld-sagui.so.1", "/apps/lib", "/lib/libc.so.1", "/lib/libsagui.so.1"):   # D462: las .so en /lib
             st = subprocess.run(["/usr/sbin/debugfs", "-R", f"stat {r}", raiz], capture_output=True, text=True, errors="replace").stdout
             u, mo = re.search(r"User:\s+(\d+)", st), re.search(r"Mode:\s+0?([0-7]+)", st)
             if not u or not mo or int(u.group(1)) != 0 or int(mo.group(1), 8) & 0o022:

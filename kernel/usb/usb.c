@@ -563,6 +563,7 @@ static usb_disp_t *enumerar(const usb_disp_t *m, int tentativa)
         int r = 1;
         if (wifi_usb_reconhecer(d)) { }   /* D215: el pincho Wi-Fi o su CD virtual */
         else if (bt_usb_reconhecer(d)) { }   /* D279: controlador Bluetooth (0xE0/0x01/0x01) */
+        else if (ure_usb_reconhecer(d)) { }  /* D433: Ethernet USB Realtek RTL8152/8153/8156 */
         else if (usbaudio_conectar(d)) { }   /* D275: audio USB (clase Audio 1.0) */
         else if (uvc_conectar(d)) { }        /* D277: cámara UVC (clase vídeo) */
         else if (d->classe == 0x08 && d->subclasse == 0x06 && d->protocolo == 0x50) r = armaz_conectar(d);
@@ -777,6 +778,7 @@ static void remover(usb_disp_t *d)
     if (d->disco) armaz_desconectar(d);
     if (d->wifi) wifi_usb_retirado(d);
     if (d->bt) bt_usb_retirado(d);
+    if (d->ure) ure_usb_retirado(d);   /* D433 */
     if (d->audio) usbaudio_desconectar(d);
     if (d->camara) uvc_desconectar(d);
     klog("[USB] removido: %s %s (endereco %u)\n", d->fabricante, d->produto, d->endereco);

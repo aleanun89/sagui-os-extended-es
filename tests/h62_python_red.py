@@ -42,7 +42,7 @@ import time
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar, RAIZ, SAIDA  # noqa: E402
+from qemu import opcoes_apps, Maquina, verificar, RAIZ, SAIDA  # noqa: E402
 
 from cryptography import x509  # noqa: E402
 from cryptography.hazmat.primitives import hashes, serialization  # noqa: E402
@@ -400,7 +400,7 @@ def main():
     subprocess.run(["python3", os.path.join(RAIZ, "tools", "mkimagem.py"),
                     "--mbr", os.path.join(b, "boot", "mbr.bin"), "--estagio2", os.path.join(b, "boot", "estagio2.bin"),
                     "--kernel", os.path.join(b, "kernel.bin"), "--kernel-elf", os.path.join(b, "kernel.elf"),
-                    "--ramdisk", sgfs, "--saida", img, "--vesa", "--console"], check=True, stdout=subprocess.DEVNULL)
+                    "--ramdisk", sgfs, "--saida", img, "--vesa", *opcoes_apps(), "--console"], check=True, stdout=subprocess.DEVNULL)
 
     extras = ["-nic", f"user,model=e1000,hostfwd=tcp:127.0.0.1:{p['fwd']}-:{PORTA_VM}"]
     with Maquina("h62", "ide", imagem=img, extras=extras) as m:

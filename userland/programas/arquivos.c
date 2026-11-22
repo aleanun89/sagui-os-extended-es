@@ -1003,6 +1003,7 @@ static void construir_lateral(void)
         if (!l) break;
         unsigned usados = mont[i].total_kb - (mont[i].livre_kb < mont[i].total_kb ? mont[i].livre_kb : mont[i].total_kb);
         l->pct = (int)((unsigned long long)usados * 100u / mont[i].total_kb);
+        l->cor = (mont[i].opcoes & MONTAR_SO_LEITURA) != 0;   /* D446: candado de solo lectura (XFS, ext4 -o ro, CD) */
     }
     if (tem_pendrive)
         lado_novo(LT_ITEM, LUG_PEN, "disco", pendrive.montado ? _("Retirar") : pendrive.rotulo[0] ? pendrive.rotulo : _("Pendrive"), NULL, 24);
@@ -1064,7 +1065,9 @@ static void desenhar_lateral(void)
             }
         } else {
             icone_desenhar(j, 9, y + (l->tipo == LT_UNID ? 2 : 4), l->icone, 1);
-            g_texto_n(j, 29, y + (l->tipo == LT_UNID ? 1 : 4), l->texto, (LATERAL - 36) / LETRA_L, t->texto);
+            bool cadeado = l->tipo == LT_UNID && l->cor;   /* D446: unidad de solo lectura */
+            g_texto_n(j, 29, y + (l->tipo == LT_UNID ? 1 : 4), l->texto, (LATERAL - (cadeado ? 56 : 36)) / LETRA_L, t->texto);
+            if (cadeado) icone_desenhar(j, LATERAL - 28, y + 1, "cadeado", 1);
             if (l->tipo == LT_UNID && l->pct >= 0) barra_uso_desenhar(j, 29, y + 22, LATERAL - 42, 6, l->pct);
         }
     }

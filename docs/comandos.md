@@ -113,3 +113,38 @@ Descartados: `ln`, `readlink` (sin enlaces en el VFS), `nohup` (sin SIGHUP), `jo
 ## 4. `htop` (D366)
 
 Monitor de procesos interactivo, clon propio (no usa código de htop): barras de CPU por núcleo, memoria y swap, árbol, hilos, ordenar, buscar, filtrar, `nice`, matar y ratón. Todas las teclas, en `docs/htop.md`.
+
+## 5. `ifconfig` con varias interfaces y `ifconfig route` (D445)
+
+Desde la v8.5.5.3 hay varias interfaces de red a la vez (`eth0`, `eth1`, `wlan0`; ver `docs/red.md`).
+`ifconfig` (alias `ip`) las enseña todas y cada orden puede llevar el nombre de la interfaz; sin él, va
+a la **principal** (la de la ruta por defecto), como antes con una sola tarjeta.
+
+| Orden | Qué hace |
+|---|---|
+| `ifconfig` | todas las interfaces; con más de una, la métrica de cada una y la línea «Ruta por defecto: eth0 por 10.0.2.2 (métrica 100)» |
+| `ifconfig eth1` | solo esa interfaz |
+| `ifconfig route`, `ip route` | la tabla de rutas: la red local de cada interfaz, las rutas por defecto con su métrica (`<- en uso` en la elegida, `(sin enlace)`, `(desactivada)`) y el DNS del sistema |
+| `ifconfig eth1 dhcp` | pide dirección por DHCP en esa interfaz |
+| `ifconfig eth1 10.0.3.5/24 gw 10.0.3.1 [dns X]` | dirección fija en esa interfaz (no se puede repetir la de otra) |
+| `ifconfig eth1 dns 1.1.1.1` | el DNS de esa interfaz (el del sistema es el de la principal) |
+| `ifconfig eth1 metric 50` | prioridad de su ruta por defecto (0-9999; menor = preferida; cable 100, Wi-Fi 600) |
+| `ifconfig eth1 down` / `up` | la desactiva o la activa; la ruta por defecto pasa a otra |
+| `ifconfig -a` | además, las conexiones y la caché ARP (con la interfaz de cada entrada si hay varias) |
+
+`ifconfig eth0 ...` con una sola interfaz se aplica a esa aunque se llame de otra forma (la `wlan0`
+sola), como antes. En Configuración, **Red > Interfaces** lista todas y permite renovar el DHCP,
+activar/desactivar y cambiar la prioridad («Preferir esta», «-», «+»).
+
+## 6. `mount` y `montar` con XFS (D446)
+
+- `mount [-t xfs] <disp> <carpeta>`: un XFS de Linux (v4 o v5) se reconoce solo (`auto`) y se monta **siempre en solo
+  lectura**; con `-o rw` se monta igual en solo lectura y se avisa. `mount` sin argumentos lo lista como
+  `tipo xfs (solo lectura, N MB libres de M MB)`.
+- Un XFS que no se puede leer (funciones incompatibles desconocidas, `needsrepair`...) no se monta: `mount` dice el
+  motivo (`mount: hdb4: XFS: funciones desconocidas 0x80000000`), y `discos` e `infopc` lo muestran como formato.
+- Con el diario sucio (apagado incorrecto) se monta igual, con un aviso: lo último escrito puede no verse.
+- Escribir, crear, borrar o renombrar dentro da «solo lectura» (`ERRO_SO_LEITURA`, el EROFS de SaguiOS).
+- `montar` (la forma antigua, en `/usb`) dice «Pendrive montado en /usb (xfs, solo lectura)».
+- Los enlaces simbólicos con destino relativo se siguen; uno con destino absoluto o roto se lee como un fichero con el
+  destino de texto. Detalles en `docs/xfs.md`.

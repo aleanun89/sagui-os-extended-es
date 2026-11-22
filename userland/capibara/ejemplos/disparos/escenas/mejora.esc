@@ -1,0 +1,11 @@
+# Mejora que cae de algunos enemigos: da una vida o dispara más rápido.
+[Area Mejora]
+forma = "circulo" 7
+capa = 32
+mascara = 2
+z = 1
+guion = "guiones/mejora.lua"
+[Sprite Dibujo padre=.]
+textura = "img/tiles.png"
+cuadricula = 12 10
+fotograma = 25

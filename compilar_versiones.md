@@ -13,6 +13,7 @@ Guía para compilar SaguiOS-Extended desde el código del repositorio público y
 ### 1. Requisitos del PC
 
 - **Sistema:** Linux de 64 bits con `apt` (Ubuntu 24.04 o parecido; `gcc-13` es lo que usa el envoltorio de `tools/entorno-local.sh`) o **WSL2** con Ubuntu, que es donde se desarrolla el proyecto. No hace falta compilador cruzado: el `gcc` normal del PC con `-m32` y `-ffreestanding` hace de compilador (decisión D001); por eso se necesita `gcc-multilib`.
+- **Versiones de GCC probadas:** 13 (Ubuntu 24.04, el de referencia) y 15 (Ubuntu 26.04, que usa C23 por defecto; los ports de terceros fijan su estándar en su `.mk`, D464). Cualquiera de las dos compila el sistema entero.
 - **Paquetes** (Ubuntu/Debian):
 
 ```bash
@@ -34,6 +35,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 **Opcional: Laboratorio de C (D414).** Con las fuentes de TCC, `make` compila también `/apps/bin/labc`, el Laboratorio de C (editor con resaltado, ejecución con libtcc en memoria, errores con su línea y diez ejemplos en `/apps/labc/ejemplos`). No necesita nada más: se incluye desde `tcc.mk`, así que `TCC=0` y `SEM_GPL=1` también lo quitan, y `LABC=0` quita solo él. Ver `rootfs/ayuda/laboratorio-c.md`.
 
 **Opcional: awk y Lua dentro (D440).** `tools/awk_fuentes.sh` baja The One True AWK 20261106 (SHA-256 fijo; licencia permisiva de Lucent) a `userland/terceros/awk/fuentes/`; con eso `make` instala `/bin/awk`. No hace falta bison: la gramática ya generada va en git. `tools/lua_fuentes.sh` baja Lua 5.4.9 (SHA-256 fijo; MIT) a `userland/terceros/lua/fuentes/`; con eso `make` instala `lua` y `luac` en `/apps/bin`, `liblua.a` para TCC y `liblua.so.5.4`. Sin las fuentes cada una se salta con un aviso (`AWK_DENTRO=0` y `LUA_DENTRO=0` las desactivan). Las dos entran también con `SEM_GPL=1`. Ver `docs/awk-lua.md`.
+
+**Opcional: FFmpeg dentro (D458).** `tools/ffmpeg_fuentes.sh` baja FFmpeg 8.1.3 (SHA-256 fijo; LGPL-2.1 o posterior, sin componentes GPL ni no libres) a `userland/terceros/ffmpeg/fuentes/`; con eso `make` ejecuta su `configure` cruzado y compila `/apps/bin/ffmpeg` y `/apps/bin/ffprobe` (sin ensamblador y con los hilos de SaguiOS; la lista de formatos, códecs y filtros está en `userland/terceros/ffmpeg/configurar.args`). Sin las fuentes se salta con un aviso (`FFMPEG=0` lo desactiva). Va fuera de `SEM_GPL=1`. Ver `docs/ffmpeg.md`.
 
 **Opcional: git dentro (D400).** `tools/git_fuentes.sh` baja libgit2 1.9.1 (etiqueta fija, SHA-256 comprobado) a `userland/terceros/git/fuentes/`; con eso `make` también compila `/apps/bin/git` (init, clone, fetch, pull, push, status, add, commit, log, diff, branch, checkout, remote y config; HTTP(S) con TLS, y SSH). Sin las fuentes se salta con un aviso (`GIT=0` lo desactiva). Va fuera de `SEM_GPL=1`. Ver `docs/git.md`.
 
@@ -116,6 +119,7 @@ Se pasan en la línea de `make`: `make NETSURF=0 B=build-mia -j8`. Si cambias un
 | `JOGOS_IMG_MB` | `0` | lo mismo para `saguios.img`, `-smp` y `-uacpi` (`0` = el justo para lo que lleva) |
 | `APPS`, `APPS_MB` | `1`, `0` | `APPS=0` mete las aplicaciones dentro del ramdisk (`/apps`, imagen de un solo bloque); `APPS_MB` es el tamaño de la partición `SAGUI-APPS` (`0` = lo justo más un margen). `convertir-audio`, `traductor` y los exploradores de bases de datos van en la partición de aplicaciones (`/apps`); los exploradores ejecutan `/apps/bin/python`. |
 | `RAIZ_DISCO` | `1` | (D379, desde la v8.5.3.1) las imágenes arrancan con un initramfs mínimo (`build/initramfs.sgfs`, < 1 MB) y el sistema entero, con `/apps`, en la partición `SAGUI-RAIZ` (ext2): live desde el medio (raíz de solo lectura y los cambios en la RAM, o en `SAGUI-PERSIST` en las persistentes); la ISO la copia a la RAM (toram). `0`: todas con el ramdisk de siempre (como hasta la v8.5.3) |
+| `DINAMICO` | `1` | (D462, desde la v8.5.5.3) casi todos los programas de `/bin` (y las apps sencillas de `/apps`) se enlazan con las bibliotecas compartidas de `/lib` (`libsagui.so.1`, `libsagui_medios.so.1`, `libc.so.1`); los esenciales para arrancar y reparar (shell, servicios, login, admin, su, instalador, reparar...) siguen estáticos. `0`: todo `/bin` estático, como hasta la v8.5.5.2 (la vuelta atrás si algo falla). Con `gerar_versao.sh`: `DINAMICO=0 ./gerar_versao.sh` |
 | `PERSIST_MB` | `256` | tamaño de `SAGUI-PERSIST` (la capa persistente de la live) en las imágenes persistentes |
 | `RAMDISK` | `base` | `completo`: el ramdisk de siempre con todo el sistema y las aplicaciones dentro (como `APPS=0` y `RAIZ_DISCO=0`; es `saguios-completo.img`). Se pasa igual con `gerar_versao.sh`, por ejemplo `RAMDISK=completo ./gerar_versao.sh` |
 | `DATOS_MB` | `64` | `/home` de la imagen persistente ext2 |
@@ -133,6 +137,8 @@ Se pasan en la línea de `make`: `make NETSURF=0 B=build-mia -j8`. Si cambias un
 | `LABC` | `1` | el Laboratorio de C (`/apps/bin/labc`, D414): solo entra con TCC. `LABC=0` lo quita (y `TCC=0` también) |
 | `AWK_DENTRO` | `1` | The One True AWK (`/bin/awk`, D440): solo entra si están las fuentes (`tools/awk_fuentes.sh`, ver 1 y 5). `AWK_DENTRO=0` lo quita; con `SEM_GPL=1` también entra |
 | `LUA_DENTRO` | `1` | Lua 5.4 (`/apps/bin/lua` y `luac`, `liblua.a` y `liblua.so.5.4`, D440): solo entra si están las fuentes (`tools/lua_fuentes.sh`, ver 1 y 5). `LUA_DENTRO=0` lo quita; con `SEM_GPL=1` también entra |
+| `CAPIBARA` | `1` | Capibara (`/apps/bin/capibara` y los ejemplos de `/apps/capibara`, D452): motor de juegos 2D con guiones en Lua; solo entra si están las fuentes de Lua (`tools/lua_fuentes.sh`). `CAPIBARA=0` lo quita; con `SEM_GPL=1` también entra. Para Linux, `make -C userland/capibara` |
+| `FFMPEG` | `1` | FFmpeg (`/apps/bin/ffmpeg` y `ffprobe`, D458): solo entra si están las fuentes (`tools/ffmpeg_fuentes.sh`, ver 1 y 5). `FFMPEG=0` lo quita; con `SEM_GPL=1` tampoco entra |
 | `GO` | `1` | programas en Go con TinyGo (`/apps/go/`, ver 1). Sin TinyGo instalado se saltan con un aviso; `GO=0` los desactiva |
 | `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | solo para `make priv_descargas`: dónde está el repositorio de OpenTTD (o de dónde clonarlo). Sin él, la imagen privada no lleva OpenTTD (ver 5) |
 
@@ -389,6 +395,7 @@ A guide to building SaguiOS-Extended from the public repository and generating y
 ### 1. PC requirements
 
 - **System:** 64-bit Linux with `apt` (Ubuntu 24.04 or similar; `gcc-13` is what the `tools/entorno-local.sh` wrapper uses) or **WSL2** with Ubuntu, which is where the project is developed. No cross-compiler is needed: the PC's normal `gcc` with `-m32` and `-ffreestanding` does the job (decision D001), which is why `gcc-multilib` is required.
+- **GCC versions tested:** 13 (Ubuntu 24.04, the reference) and 15 (Ubuntu 26.04, which defaults to C23; the third-party ports pin their standard in their `.mk`, D464). Either one builds the whole system.
 - **Packages** (Ubuntu/Debian):
 
 ```bash
@@ -410,6 +417,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 **Optional: C Lab (D414).** With the TCC sources, `make` also builds `/apps/bin/labc`, the C Lab (a highlighting editor, code run from memory with libtcc, errors with their line, and ten examples in `/apps/labc/ejemplos`). It needs nothing else: it is included from `tcc.mk`, so `TCC=0` and `SEM_GPL=1` also remove it, and `LABC=0` removes only it. See `rootfs/ayuda/laboratorio-c.md`.
 
 **Optional: awk and Lua inside (D440).** `tools/awk_fuentes.sh` downloads The One True AWK 20261106 (fixed SHA-256; permissive Lucent licence) into `userland/terceros/awk/fuentes/`; with it, `make` installs `/bin/awk`. No bison is needed: the already generated grammar is in git. `tools/lua_fuentes.sh` downloads Lua 5.4.9 (fixed SHA-256; MIT) into `userland/terceros/lua/fuentes/`; with it, `make` installs `lua` and `luac` in `/apps/bin`, `liblua.a` for TCC and `liblua.so.5.4`. Without the sources each one is skipped with a warning (`AWK_DENTRO=0` and `LUA_DENTRO=0` turn them off). Both are included with `SEM_GPL=1` too. See `docs/awk-lua.md`.
+
+**Optional: FFmpeg inside (D458).** `tools/ffmpeg_fuentes.sh` downloads FFmpeg 8.1.3 (fixed SHA-256; LGPL-2.1-or-later, no GPL or nonfree components) to `userland/terceros/ffmpeg/fuentes/`; with that, `make` runs its cross `configure` and builds `/apps/bin/ffmpeg` and `/apps/bin/ffprobe` (no assembly, using SaguiOS threads; the list of formats, codecs and filters is in `userland/terceros/ffmpeg/configurar.args`). Without the sources it is skipped with a warning (`FFMPEG=0` disables it). It is left out of `SEM_GPL=1`. See `docs/ffmpeg.md`.
 
 **Optional: git inside (D400).** `tools/git_fuentes.sh` downloads libgit2 1.9.1 (fixed tag, SHA-256 checked) into `userland/terceros/git/fuentes/`; with it, `make` also builds `/apps/bin/git` (init, clone, fetch, pull, push, status, add, commit, log, diff, branch, checkout, remote and config; HTTP(S) with TLS, and SSH). Without the sources it is skipped with a notice (`GIT=0` disables it). It is left out of `SEM_GPL=1`. See `docs/git.md`.
 
@@ -492,6 +501,7 @@ They go on the `make` command line: `make NETSURF=0 B=build-mia -j8`. If you cha
 | `JOGOS_IMG_MB` | `0` | the same for `saguios.img`, `-smp` and `-uacpi` (`0` = just enough for what it holds) |
 | `APPS`, `APPS_MB` | `1`, `0` | `APPS=0` puts the applications inside the ramdisk (`/apps`, single-block image); `APPS_MB` is the size of the `SAGUI-APPS` partition (`0` = just enough plus a margin). `convertir-audio`, `traductor` and the database explorers go in the applications partition (`/apps`); the explorers run `/apps/bin/python`. |
 | `RAIZ_DISCO` | `1` | (D379, since v8.5.3.1) the images boot with a minimal initramfs (`build/initramfs.sgfs`, < 1 MB) and the whole system, `/apps` included, in the `SAGUI-RAIZ` partition (ext2): live from the medium (read-only root with the changes in RAM, or in `SAGUI-PERSIST` on the persistent images); the ISO copies it to RAM (toram). `0`: all of them with the old ramdisk (as up to v8.5.3) |
+| `DINAMICO` | `1` | (D462, since v8.5.5.3) almost every program in `/bin` (and the simple apps in `/apps`) is linked against the shared libraries in `/lib` (`libsagui.so.1`, `libsagui_medios.so.1`, `libc.so.1`); the ones needed to boot and repair (shell, services, login, admin, su, installer, reparar...) stay static. `0`: the whole of `/bin` static, as up to v8.5.5.2 (the way back if something fails). With `gerar_versao.sh`: `DINAMICO=0 ./gerar_versao.sh` |
 | `PERSIST_MB` | `256` | size of `SAGUI-PERSIST` (the live persistent layer) on the persistent images |
 | `RAMDISK` | `base` | `completo`: the old ramdisk with the whole system and the applications inside (like `APPS=0` and `RAIZ_DISCO=0`; it is `saguios-completo.img`). It is passed the same way with `gerar_versao.sh`, for example `RAMDISK=completo ./gerar_versao.sh` |
 | `DATOS_MB` | `64` | `/home` of the ext2 persistent image |
@@ -509,6 +519,8 @@ They go on the `make` command line: `make NETSURF=0 B=build-mia -j8`. If you cha
 | `LABC` | `1` | the C Lab (`/apps/bin/labc`, D414): only included with TCC. `LABC=0` removes it (and `TCC=0` does too) |
 | `AWK_DENTRO` | `1` | The One True AWK (`/bin/awk`, D440): only included if its sources are there (`tools/awk_fuentes.sh`, see 1 and 5). `AWK_DENTRO=0` removes it; with `SEM_GPL=1` it is included too |
 | `LUA_DENTRO` | `1` | Lua 5.4 (`/apps/bin/lua` and `luac`, `liblua.a` and `liblua.so.5.4`, D440): only included if its sources are there (`tools/lua_fuentes.sh`, see 1 and 5). `LUA_DENTRO=0` removes it; with `SEM_GPL=1` it is included too |
+| `CAPIBARA` | `1` | Capibara (`/apps/bin/capibara` and the examples in `/apps/capibara`, D452): 2D game engine with Lua scripts; only included if the Lua sources are there (`tools/lua_fuentes.sh`). `CAPIBARA=0` removes it; with `SEM_GPL=1` it is included too. For Linux, `make -C userland/capibara` |
+| `FFMPEG` | `1` | FFmpeg (`/apps/bin/ffmpeg` and `ffprobe`, D458): only included if its sources are there (`tools/ffmpeg_fuentes.sh`, see 1 and 5). `FFMPEG=0` removes it; with `SEM_GPL=1` it is not included either |
 | `GO` | `1` | programs in Go with TinyGo (`/apps/go/`, see 1). Without TinyGo installed they are skipped with a notice; `GO=0` disables them |
 | `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | only for `make priv_descargas`: where the OpenTTD repository is (or where to clone it from). Without it the private image does not carry OpenTTD (see 5) |
 
@@ -765,6 +777,7 @@ Guia para compilar o SaguiOS-Extended a partir do repositório público e gerar 
 ### 1. Requisitos do PC
 
 - **Sistema:** Linux de 64 bits com `apt` (Ubuntu 24.04 ou parecido; o `gcc-13` é o que o invólucro de `tools/entorno-local.sh` usa) ou **WSL2** com Ubuntu, que é onde o projeto é desenvolvido. Não é preciso compilador cruzado: o `gcc` normal do PC com `-m32` e `-ffreestanding` faz esse papel (decisão D001); por isso é necessário o `gcc-multilib`.
+- **Versões do GCC testadas:** 13 (Ubuntu 24.04, a de referência) e 15 (Ubuntu 26.04, que usa C23 por padrão; os ports de terceiros fixam o padrão no seu `.mk`, D464). Qualquer uma das duas compila o sistema inteiro.
 - **Pacotes** (Ubuntu/Debian):
 
 ```bash
@@ -786,6 +799,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 **Opcional: Laboratório de C (D414).** Com as fontes do TCC, o `make` também compila `/apps/bin/labc`, o Laboratório de C (editor com realce, execução com libtcc na memória, erros com a sua linha e dez exemplos em `/apps/labc/ejemplos`). Não precisa de mais nada: é incluído a partir de `tcc.mk`, então `TCC=0` e `SEM_GPL=1` também o removem, e `LABC=0` remove só ele. Ver `rootfs/ayuda/laboratorio-c.md`.
 
 **Opcional: awk e Lua dentro (D440).** `tools/awk_fuentes.sh` baixa o The One True AWK 20261106 (SHA-256 fixo; licença permissiva de Lucent) para `userland/terceros/awk/fuentes/`; com isso o `make` instala `/bin/awk`. Não precisa de bison: a gramática já gerada está no git. `tools/lua_fuentes.sh` baixa o Lua 5.4.9 (SHA-256 fixo; MIT) para `userland/terceros/lua/fuentes/`; com isso o `make` instala `lua` e `luac` em `/apps/bin`, `liblua.a` para o TCC e `liblua.so.5.4`. Sem as fontes, cada um é pulado com um aviso (`AWK_DENTRO=0` e `LUA_DENTRO=0` os desativam). Os dois também entram com `SEM_GPL=1`. Ver `docs/awk-lua.md`.
+
+**Opcional: FFmpeg dentro (D458).** `tools/ffmpeg_fuentes.sh` baixa o FFmpeg 8.1.3 (SHA-256 fixo; LGPL-2.1 ou posterior, sem componentes GPL nem não livres) para `userland/terceros/ffmpeg/fuentes/`; com isso o `make` executa o seu `configure` cruzado e compila `/apps/bin/ffmpeg` e `/apps/bin/ffprobe` (sem assembly e com as threads do SaguiOS; a lista de formatos, codecs e filtros está em `userland/terceros/ffmpeg/configurar.args`). Sem as fontes é pulado com um aviso (`FFMPEG=0` o desativa). Fica fora do `SEM_GPL=1`. Ver `docs/ffmpeg.md`.
 
 **Opcional: git dentro (D400).** `tools/git_fuentes.sh` baixa o libgit2 1.9.1 (tag fixa, SHA-256 verificado) para `userland/terceros/git/fuentes/`; com isso o `make` também compila `/apps/bin/git` (init, clone, fetch, pull, push, status, add, commit, log, diff, branch, checkout, remote e config; HTTP(S) com TLS, e SSH). Sem as fontes ele é pulado com um aviso (`GIT=0` o desativa). Fica fora de `SEM_GPL=1`. Ver `docs/git.md`.
 
@@ -868,6 +883,7 @@ Vão na linha do `make`: `make NETSURF=0 B=build-mia -j8`. Se mudar uma opção,
 | `JOGOS_IMG_MB` | `0` | o mesmo para `saguios.img`, `-smp` e `-uacpi` (`0` = o justo para o que ela leva) |
 | `APPS`, `APPS_MB` | `1`, `0` | `APPS=0` coloca os aplicativos dentro do ramdisk (`/apps`, imagem de um só bloco); `APPS_MB` é o tamanho da partição `SAGUI-APPS` (`0` = o justo mais uma margem). `convertir-audio`, `traductor` e os exploradores de bancos de dados ficam na partição de aplicativos (`/apps`); os exploradores executam `/apps/bin/python`. |
 | `RAIZ_DISCO` | `1` | (D379, desde a v8.5.3.1) as imagens iniciam com um initramfs mínimo (`build/initramfs.sgfs`, < 1 MB) e o sistema inteiro, com `/apps`, na partição `SAGUI-RAIZ` (ext2): live a partir da mídia (raiz somente leitura e as mudanças na RAM, ou na `SAGUI-PERSIST` nas persistentes); a ISO a copia para a RAM (toram). `0`: todas com o ramdisk de sempre (como até a v8.5.3) |
+| `DINAMICO` | `1` | (D462, desde a v8.5.5.3) quase todos os programas de `/bin` (e os aplicativos simples de `/apps`) são ligados às bibliotecas compartilhadas de `/lib` (`libsagui.so.1`, `libsagui_medios.so.1`, `libc.so.1`); os essenciais para iniciar e reparar (shell, serviços, login, admin, su, instalador, reparar...) continuam estáticos. `0`: todo o `/bin` estático, como até a v8.5.5.2 (a volta atrás se algo falhar). Com o `gerar_versao.sh`: `DINAMICO=0 ./gerar_versao.sh` |
 | `PERSIST_MB` | `256` | tamanho da `SAGUI-PERSIST` (a camada persistente da live) nas imagens persistentes |
 | `RAMDISK` | `base` | `completo`: o ramdisk de sempre com o sistema inteiro e os aplicativos dentro (como `APPS=0` e `RAIZ_DISCO=0`; é a `saguios-completo.img`). Passa-se igual com o `gerar_versao.sh`, por exemplo `RAMDISK=completo ./gerar_versao.sh` |
 | `DATOS_MB` | `64` | `/home` da imagem persistente ext2 |
@@ -885,6 +901,8 @@ Vão na linha do `make`: `make NETSURF=0 B=build-mia -j8`. Se mudar uma opção,
 | `LABC` | `1` | o Laboratório de C (`/apps/bin/labc`, D414): só entra com o TCC. `LABC=0` o remove (e `TCC=0` também) |
 | `AWK_DENTRO` | `1` | o The One True AWK (`/bin/awk`, D440): só entra se as fontes estiverem (`tools/awk_fuentes.sh`, ver 1 e 5). `AWK_DENTRO=0` o remove; com `SEM_GPL=1` também entra |
 | `LUA_DENTRO` | `1` | o Lua 5.4 (`/apps/bin/lua` e `luac`, `liblua.a` e `liblua.so.5.4`, D440): só entra se as fontes estiverem (`tools/lua_fuentes.sh`, ver 1 e 5). `LUA_DENTRO=0` o remove; com `SEM_GPL=1` também entra |
+| `CAPIBARA` | `1` | o Capibara (`/apps/bin/capibara` e os exemplos em `/apps/capibara`, D452): motor de jogos 2D com scripts em Lua; só entra se as fontes do Lua estiverem (`tools/lua_fuentes.sh`). `CAPIBARA=0` o remove; com `SEM_GPL=1` também entra. Para Linux, `make -C userland/capibara` |
+| `FFMPEG` | `1` | o FFmpeg (`/apps/bin/ffmpeg` e `ffprobe`, D458): só entra se as fontes estiverem (`tools/ffmpeg_fuentes.sh`, ver 1 e 5). `FFMPEG=0` o tira; com `SEM_GPL=1` também não entra |
 | `GO` | `1` | programas em Go com TinyGo (`/apps/go/`, veja 1). Sem o TinyGo instalado são pulados com um aviso; `GO=0` os desativa |
 | `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | só para `make priv_descargas`: onde está o repositório do OpenTTD (ou de onde cloná-lo). Sem ele, a imagem privada não leva o OpenTTD (veja 5) |
 

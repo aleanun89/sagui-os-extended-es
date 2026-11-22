@@ -115,6 +115,7 @@ The tables of this section come from that table: each row is an entry of the men
 | Sagui Atrapa Bananas (Sagui catches bananas) | `/apps/bin/banana` | Sagui Pega Banana game | `userland/programas/banana.c` | — |
 | Solitario Spider (Spider solitaire) | `/apps/bin/spider` | Spider solitaire | `userland/programas/spider.c` | D173 |
 | Buscaminas (Minesweeper) | `/apps/bin/buscaminas` | Minesweeper game | `userland/programas/buscaminas.c` | D248 |
+| Snake | `/apps/bin/snake` | the snake game, with the best score kept in the user profile (a simple version to study is in `/ejemplos/tcc/snake.c`) | `userland/programas/snake.c` | D463 |
 | AoEN | `/apps/bin/aoen` | AoEN, real-time strategy game | `userland/juegos/aoen/` | D382 |
 | OpenTyrian | `/apps/bin/opentyrian` | OpenTyrian (shoot-em-up, third-party code) | `userland/terceros/opentyrian/` | D180 † |
 | OpenTyrian (pantalla completa) (full screen) | `/apps/bin/opentyrian --pantalla-completa` | OpenTyrian (shoot-em-up, third-party code) (full screen) | `userland/terceros/opentyrian/` | D204 † |
@@ -141,6 +142,7 @@ The tables of this section come from that table: each row is an entry of the men
 | Name in the menu | Command (path) | What it does | Code | Decision |
 | --- | --- | --- | --- | --- |
 | Terminal | `/bin/terminal` | terminal in a window | `userland/programas/terminal.c` | — |
+| Visor de registros (Log viewer) | `/bin/visorlogs` | the kernel log and log files: filters, colours by level, live following, export and copy (a simple version to study is in `/ejemplos/tcc/visorlogs.c`) | `userland/programas/visorlogs.c` | D463 |
 | Administrador de tareas (Task manager) | `/bin/tareas` | task manager | `userland/programas/tareas.c` | — |
 | Información del PC (PC information) | `/bin/infopc` | PC information | `userland/programas/infopc.c` | — |
 | Pantalla (Display) | `/bin/pantalla --ventana` | resolution and screens | `userland/programas/pantalla.c` | — |
@@ -346,6 +348,7 @@ the one the code itself gives. The **Command** column shows where the executable
 | `/bin/simd` | shows and tests the x87 FPU, MMX, SSE and SSE2 (D032) | `userland/programas/simd.c` |
 | `/apps/bin/sintonia` | sintonia [file / folder / list.m3u / list.pls / http://station] | `userland/programas/sintonia.c` |
 | `/bin/sleep` | waits a few seconds (D097) | `userland/programas/sleep.c` |
+| `/apps/bin/snake` | the SaguiOS Snake game: a snake with the best score in the profile, `--prueba` and `--semilla` (D463) | `userland/programas/snake.c` |
 | `/bin/sobre` | version and credits of SaguiOS-Extended (D101) | `userland/programas/sobre.c` |
 | `/bin/sobre-o-sistema` | the "About SaguiOS-Extended" window (H28, D101): version, image size, active processes, memory and credits | `userland/programas/sobre-o-sistema.c` |
 | `/bin/sonido` | diagnostics and tests of the HDA sound codec (D107) | `userland/programas/sonido.c` |
@@ -386,6 +389,7 @@ the one the code itself gives. The **Command** column shows where the executable
 | `/bin/uptime` | current time, how long the system has been on and how many processes there are (D097) | `userland/programas/uptime.c` |
 | `/bin/usb` | diagnostics: USB 2.0 controllers, ports with a device and recognised devices (H29, H30) | `userland/programas/usb.c` |
 | `/bin/visor` | the SaguiOS Image viewer (D055) | `userland/programas/visor.c` |
+| `/bin/visorlogs` | the Log viewer: the kernel log or a file, with filters, colours and live following (D463) | `userland/programas/visorlogs.c` |
 | `/apps/bin/visorpdf` | the SaguiOS PDF viewer (improvement 059, D138; full desktop interface in improvement 105, D274) | `userland/programas/visorpdf.c` |
 | `/bin/vnc` | VNC remote desktop client (improvement 097 phase 2, D254) | `userland/programas/vnc.c` |
 | `/bin/vncd` | VNC remote desktop server (improvement 097, D252) | `userland/programas/vncd.c` |

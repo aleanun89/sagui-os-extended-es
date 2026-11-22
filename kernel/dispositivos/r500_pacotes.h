@@ -825,6 +825,12 @@ static inline void r5_fp_gerar(r5_fp_t *fp, const gpu3d_estado2_t *e)
         fp->p[k * R5_FP_PAL_INST + 1] &= ~R5_FP_TEX_PEDIR;
     }
     if (!fp->ntc) fp->ntc = 1;   /* sin texturas el vértice lleva igual un juego (el formato de v1) */
+    /* Revisión de D457 (Amilo, 2026-11-22): US_PIXSIZE tiene que cubrir también lo que escribe el RS (los ntc juegos
+     * de coordenadas, aunque el programa no los lea). Sin texturas el RS escribe el registro 2 y el programa solo usa
+     * 0 y 1: con PIXSIZE 1 ese registro cae en el de otro píxel en vuelo y salían quads negros al azar en los
+     * triángulos grandes (las «rayas negras» de D426 en «sombra»). Mesa no lo necesita porque su RS solo escribe lo
+     * que el programa lee (r300_rs_block); v1 pone PIXSIZE = R5_T_TEX = 2. */
+    if (fp->max_temp < (int)R5V_T_COORD(fp->ntc - 1)) fp->max_temp = (int)R5V_T_COORD(fp->ntc - 1);
     uint16_t ant = (uint16_t)R5V_T_COR;
     int k = 0;
     for (int u = 0; u < nu; u++) {
@@ -905,6 +911,25 @@ static inline void r5_fp_carregar(g3d_fila_t *f, const r5_fp_t *fp)
     for (int i = 0; i < fp->n * R5_FP_PAL_INST; i++) r5_reg(f, R5_GA_US_DADOS, fp->p[i]);
 }
 
+/* El rasterizador para ntc juegos de coordenadas (lo comparten v2 y v3, D457). */
+static inline void r5_estado_rs(g3d_fila_t *f, int ntc)
+{
+    /* Rasterizador: instrucción i = juego i (si lo hay) y color i (0 color, 1 especular). */
+    uint32_t ni = (uint32_t)ntc > 2 ? (uint32_t)ntc : 2u;
+    r5_reg(f, R5_RS_COUNT, (2u * (uint32_t)ntc) | (2u << 7) | R5_RS_ALTA_RES);
+    r5_reg(f, R5_RS_INST_COUNT, ni - 1u);
+    for (uint32_t i = 0; i < ni; i++) {
+        uint32_t ip = i < (uint32_t)ntc ? (2u * i) | ((2u * i + 1u) << 6) | (R5_RS_K0 << 12) | (R5_RS_K1 << 18)
+                                       : R5_RS_K0 | (R5_RS_K0 << 6) | (R5_RS_K0 << 12) | (R5_RS_K1 << 18);
+        if (i < 2) ip |= i << 24;
+        r5_reg(f, R5_RS_IP_0 + i * 4, ip);
+        uint32_t in = 0;
+        if (i < (uint32_t)ntc) in |= i | R5_RS_TEX_ESCREVE | (R5V_T_COORD(i) << 5);
+        if (i < 2) in |= (i << 12) | R5_RS_COR_ESCREVE | ((i == 0 ? R5V_T_COR : R5V_T_ESPEC) << 18);
+        r5_reg(f, R5_RS_INST_0 + i * 4, in);
+    }
+}
+
 /* El procesador de vértices y el rasterizador para ntc juegos de coordenadas (1 a 4): PSC, programa de
  * vértices que copia (3 + ntc salidas), formato de salida y RS (juego i -> R5V_T_COORD(i)). Delante,
  * el motor parado (se cambia el programa de vértices). */
@@ -945,20 +970,7 @@ static inline void r5_estado_vertices(g3d_fila_t *f, int ntc)
     r5_reg(f, R5_VAP_OUT_VTX_FMT_0, 7u);
     r5_reg(f, R5_VAP_OUT_VTX_FMT_1, fmt1);
     r5_reg(f, R5_VAP_VTX_SIZE, r5_pal_vert(ntc));
-    /* Rasterizador: instrucción i = juego i (si lo hay) y color i (0 color, 1 especular). */
-    uint32_t ni = (uint32_t)ntc > 2 ? (uint32_t)ntc : 2u;
-    r5_reg(f, R5_RS_COUNT, (2u * (uint32_t)ntc) | (2u << 7) | R5_RS_ALTA_RES);
-    r5_reg(f, R5_RS_INST_COUNT, ni - 1u);
-    for (uint32_t i = 0; i < ni; i++) {
-        uint32_t ip = i < (uint32_t)ntc ? (2u * i) | ((2u * i + 1u) << 6) | (R5_RS_K0 << 12) | (R5_RS_K1 << 18)
-                                       : R5_RS_K0 | (R5_RS_K0 << 6) | (R5_RS_K0 << 12) | (R5_RS_K1 << 18);
-        if (i < 2) ip |= i << 24;
-        r5_reg(f, R5_RS_IP_0 + i * 4, ip);
-        uint32_t in = 0;
-        if (i < (uint32_t)ntc) in |= i | R5_RS_TEX_ESCREVE | (R5V_T_COORD(i) << 5);
-        if (i < 2) in |= (i << 12) | R5_RS_COR_ESCREVE | ((i == 0 ? R5V_T_COR : R5V_T_ESPEC) << 18);
-        r5_reg(f, R5_RS_INST_0 + i * 4, in);
-    }
+    r5_estado_rs(f, ntc);
 }
 
 /* El muestreador y el formato de la unidad u. */
@@ -1068,5 +1080,290 @@ static inline void r5_triangulos2(g3d_fila_t *f, const gpu3d_vert2_t *v, int n, 
 /* Cuántos vértices caben en una orden (múltiplo de 3; el tope de una orden es 16380 palabras, y la cola en
  * RAM del driver de PREP_PAL). */
 static inline int r5_vert_por_pacote2(int ntc) { int n = 4080 / (int)r5_pal_vert(ntc); return n - n % 3; }
+
+/* ============================================================ gpu3d v3 (D457): la GPU transforma los vértices
+ *
+ * Los vértices no van en la orden: están en búferes de la VRAM (3D_LOAD_VBPNTR da a la tarjeta la dirección, el
+ * tamaño y el paso de cada array) y se dibujan con 3D_DRAW_VBUF_2. El procesador de vértices (PVS) deja de copiar
+ * y ejecuta un programa generado aquí para la transformación fija de OpenGL ES 1.1:
+ *   posición = filas de la matriz modelo-vista-proyección (constantes 0-3) · vértice     (4 DOT)
+ *   niebla   = saturar(a - b * |ojo|), con |ojo| = d2 * rsq(d2) y ojo = filas de la modelo-vista (4-6) · vértice;
+ *              sale en el alfa del especular (para el programa de píxeles con niebla) o ya mezclada: color.rgb * f y
+ *              especular.rgb = color de la niebla * (1 - f) (D451)
+ *   textura  = las dos primeras filas de la matriz de textura · coordenada, o la coordenada tal cual
+ * Regla del motor que el generador respeta (y la prueba de unidad vigila): una instrucción no lee dos entradas
+ * distintas ni dos constantes distintas; el origen que no se usa repite el registro del primero con ceros (D386).
+ * La tarjeta hace lo demás: recorte al volumen de vista (VAP_CLIP_CNTL), división por w y vista (VAP_VTE_CNTL
+ * con las escalas de VAP_VPORT_*) y descarte de caras (SU_CULL_MODE). Las salidas son las mismas que en v2
+ * (posición, color, especular y fp->ntc juegos de dos coordenadas), así que el rasterizador y el programa de
+ * píxeles de v2 no cambian.
+ *
+ * Referencias (valores y orden; el código es propio, docs/terceros.md): r300_reg.h (formato de las instrucciones
+ * del PVS, VAP_*), r3xx_vertprog.c y r300_emit.c de Mesa (MIT). Probado en la X1400 (revisión de D457): la
+ * autoprueba v3 de la capa lo compara con la CPU en cada máquina. */
+
+#define R5_P3_LOAD_VBPNTR      0xC0002F00u   /* | (palabras del cuerpo - 1) << 16 */
+#define R5_P3_DRAW_VBUF_2      0xC0003400u
+#define R5_PRIM_LISTA          (2u << 4)     /* los vértices, seguidos, de los arrays de 3D_LOAD_VBPNTR */
+#define R5_PRIM_ABANICO        5u
+#define R5_PRIM_TIRA           6u
+#define R5_VBPNTR_PREBUSCA     (1u << 5)     /* R300_VC_FORCE_PREFETCH: sin índices */
+#define R5_VAP_VPORT_XSCALE    0x1D98        /* y XOFFSET, YSCALE, YOFFSET, ZSCALE, ZOFFSET (0x1D9C..0x1DAC) */
+#define R5_VAP_VF_MAX_VTX_INDX 0x2134        /* y el mínimo en 0x2138 */
+#define   R5_VTE_VISTA         0x3Fu         /* las seis escalas y desplazamientos de la vista */
+#define   R5_VTE_W0            (1u << 10)    /* la w que sale del programa es w (la tarjeta hace 1/w) */
+#define   R5_CLIP_ABANICO      (3u << 14)    /* R300_PS_UCP_MODE_CLIP_AS_TRIFAN: recorte encendido, sin planos del usuario */
+#define   R5_PSC_FLOAT_3       2u
+#define   R5_PSC_BYTE          4u            /* cuatro bytes: x, y, z, w en el orden de la memoria */
+#define   R5_SWZ_XYZ1          0xFA88u       /* x, y, z, 1.0 */
+#define   R5_CULL_FRENTE       1u
+#define   R5_CULL_ATRAS        2u
+#define R5_PVS_CONST_INDICE    1024u         /* R500_PVS_CONST_START: las constantes en la memoria del PVS */
+
+/* Una instrucción del PVS: operación y destino, y tres orígenes. */
+#define R5_PVS_DOT   1u
+#define R5_PVS_MUL   2u
+#define R5_PVS_ADD   3u
+#define R5_PVS_MAD   4u
+#define R5_PVS_MAX   7u
+#define R5_PVS_MIN   8u
+#define R5_PVS_RSQ   (8u | (1u << 6))        /* ME_RECIP_SQRT_DX, del motor matemático */
+#define R5_PVS_D_TEMP 0u
+#define R5_PVS_D_SAIDA 2u
+#define R5_PVS_O_TEMP 0u
+#define R5_PVS_O_ENTRADA 1u
+#define R5_PVS_O_CONST 2u
+#define R5_PVS_X 0u
+#define R5_PVS_Y 1u
+#define R5_PVS_Z 2u
+#define R5_PVS_W 3u
+#define R5_PVS_0 4u
+#define R5_PVS_1 5u
+static inline uint32_t r5_pvs_dest(uint32_t op, uint32_t tipo, uint32_t n, uint32_t mascara)
+{
+    return op | (tipo << 8) | (n << 13) | (mascara << 20);
+}
+static inline uint32_t r5_pvs_orig(uint32_t tipo, uint32_t n, uint32_t x, uint32_t y, uint32_t z, uint32_t w, uint32_t neg)
+{
+    return tipo | (n << 5) | (x << 13) | (y << 16) | (z << 19) | (w << 22) | (neg << 25);
+}
+/* El mismo registro con otras componentes (y sin negar). */
+static inline uint32_t r5_pvs_comp(uint32_t o, uint32_t x, uint32_t y, uint32_t z, uint32_t w)
+{
+    return (o & 0x1FFFu) | (x << 13) | (y << 16) | (z << 19) | (w << 22);
+}
+
+#define R5_VS_INST   32
+#define R5_VS_CONST  24
+#define R5_VS_ARRAYS 6
+/* Lo que el driver manda para la etapa de vértices de un dibujo v3. Dos iguales (memcmp) = no hay que mandarla. */
+typedef struct {
+    uint32_t p[R5_VS_INST * 4];            /* el programa */
+    uint32_t c[R5_VS_CONST][4];            /* sus constantes (bits de float) */
+    uint32_t vista[6];                     /* XSCALE, XOFFSET, YSCALE, YOFFSET, ZSCALE, ZOFFSET */
+    uint16_t psc[R5_VS_ARRAYS], ext[R5_VS_ARRAYS];
+    uint8_t  atr[R5_VS_ARRAYS];            /* qué atributo es cada array: 0 posición, 1 color, 2 + u coordenada de la unidad u */
+    uint8_t  n, nc, arrays, ntc;           /* instrucciones, constantes, arrays, juegos de salida */
+    uint8_t  descarte, erro;
+    uint8_t  reservado[2];
+} r5_vs_t;
+
+static inline void r5_vs_i(r5_vs_t *v, uint32_t d, uint32_t a, uint32_t b, uint32_t c)
+{
+    if (v->n >= R5_VS_INST) { v->erro = 1; return; }
+    uint32_t *p = &v->p[v->n * 4];
+    p[0] = d; p[1] = a; p[2] = b; p[3] = c;
+    v->n++;
+}
+/* El cero de un origen que no se usa: el mismo registro que el primero, con las cuatro componentes a 0 (D386). */
+static inline uint32_t r5_vs_z(uint32_t a) { return r5_pvs_comp(a, R5_PVS_0, R5_PVS_0, R5_PVS_0, R5_PVS_0); }
+
+/* Un byte de color como float de 0 a 1 (255 = 1.0 exacto). */
+static inline uint32_t r5_vs_byte(uint32_t b) { return g3d_float_de_fixo((int32_t)((b * 65536u + 127u) / 255u), 16); }
+
+/* El programa y lo demás de la etapa de vértices para la transformación t y los atributos de d, con las salidas
+ * que espera el programa de píxeles (ntc juegos; mapa[k] = unidad de textura del juego k). vs->erro: no cabe. */
+static inline void r5_vs_gerar(r5_vs_t *v, const gpu3d_transf_t *t, const gpu3d_desenho3_t *d, int ntc, const uint8_t mapa[4], bool inverter)
+{
+    uint8_t *z = (uint8_t *)v;
+    for (uint32_t i = 0; i < sizeof *v; i++) z[i] = 0;
+    if (ntc < 1) ntc = 1;
+    if (ntc > 4) ntc = 4;
+    v->ntc = (uint8_t)ntc;
+    #define R5_XYZW(o) r5_pvs_comp(o, R5_PVS_X, R5_PVS_Y, R5_PVS_Z, R5_PVS_W)
+    /* los arrays y sus entradas: la posición, el color si lo hay y las coordenadas de los juegos que salen */
+    uint32_t e_pos, e_cor = 0, e_tc[4] = { 0, 0, 0, 0 };
+    {
+        uint32_t f = d->pos.formato;
+        v->psc[0] = (uint16_t)((f == G3D_AT_FLOAT2 ? R5_PSC_FLOAT_2 : f == G3D_AT_FLOAT3 ? R5_PSC_FLOAT_3 : R5_PSC_FLOAT_4) | R5_PSC_COM_SINAL | R5_PSC_DESTINO(0));
+        v->ext[0] = (uint16_t)(f == G3D_AT_FLOAT2 ? R5_SWZ_XY01 : f == G3D_AT_FLOAT3 ? R5_SWZ_XYZ1 : R5_SWZ_XYZW);
+        v->atr[0] = 0; v->arrays = 1;
+        e_pos = r5_pvs_orig(R5_PVS_O_ENTRADA, 0, R5_PVS_X, R5_PVS_Y, R5_PVS_Z, R5_PVS_W, 0);
+    }
+    if (d->cor_a.formato != G3D_AT_NADA) {
+        uint32_t k = v->arrays++;
+        v->psc[k] = (uint16_t)(d->cor_a.formato == G3D_AT_UBYTE4N ? R5_PSC_BYTE | R5_PSC_NORMALIZAR | R5_PSC_DESTINO(k)
+                                                                 : R5_PSC_FLOAT_4 | R5_PSC_COM_SINAL | R5_PSC_DESTINO(k));
+        v->ext[k] = (uint16_t)R5_SWZ_XYZW;
+        v->atr[k] = 1;
+        e_cor = r5_pvs_orig(R5_PVS_O_ENTRADA, k, R5_PVS_X, R5_PVS_Y, R5_PVS_Z, R5_PVS_W, 0);
+    }
+    for (int j = 0; j < ntc; j++) {
+        uint32_t u = mapa[j] & 3u, f = d->tc[u].formato;
+        if (f == G3D_AT_NADA) continue;
+        uint32_t k = v->arrays++;
+        v->psc[k] = (uint16_t)((f == G3D_AT_FLOAT2 ? R5_PSC_FLOAT_2 : f == G3D_AT_FLOAT3 ? R5_PSC_FLOAT_3 : R5_PSC_FLOAT_4) | R5_PSC_COM_SINAL | R5_PSC_DESTINO(k));
+        v->ext[k] = (uint16_t)(f == G3D_AT_FLOAT2 ? R5_SWZ_XY01 : f == G3D_AT_FLOAT3 ? R5_SWZ_XYZ1 : R5_SWZ_XYZW);
+        v->atr[k] = (uint8_t)(2u + u);
+        e_tc[j] = r5_pvs_orig(R5_PVS_O_ENTRADA, k, R5_PVS_X, R5_PVS_Y, R5_PVS_Z, R5_PVS_W, 0);
+    }
+    v->psc[v->arrays - 1] |= (uint16_t)R5_PSC_ULTIMO;
+    /* constantes: 0-3 filas de la MVP; 4-6 filas de la modelo-vista; 7 (a, b, 0, 1) de la niebla; 8 su color;
+     * 9 el color constante; 10 + 2j y 11 + 2j las dos filas de la matriz de textura del juego j; 18 + j su
+     * coordenada constante */
+    for (int l = 0; l < 4; l++) for (int k = 0; k < 4; k++) v->c[l][k] = t->mvp[k * 4 + l];
+    v->nc = 4;
+    #define R5_K(n) r5_pvs_orig(R5_PVS_O_CONST, (n), R5_PVS_X, R5_PVS_Y, R5_PVS_Z, R5_PVS_W, 0)
+    #define R5_USA(n) do { if (v->nc < (n) + 1) v->nc = (uint8_t)((n) + 1); } while (0)
+    /* posición */
+    for (uint32_t l = 0; l < 4; l++)
+        r5_vs_i(v, r5_pvs_dest(R5_PVS_DOT, R5_PVS_D_SAIDA, 0, 1u << l), e_pos, R5_K(l), r5_vs_z(e_pos));
+    /* color y especular (con la niebla) */
+    uint32_t cor = e_cor;
+    if (d->cor_a.formato == G3D_AT_NADA) {
+        cor = R5_K(9); R5_USA(9);
+    }
+    if (t->flags & G3D3_NEBLINA) {
+        const uint32_t T0 = r5_pvs_orig(R5_PVS_O_TEMP, 0, R5_PVS_X, R5_PVS_Y, R5_PVS_Z, R5_PVS_0, 0);
+        const uint32_t FX = r5_pvs_orig(R5_PVS_O_TEMP, 1, R5_PVS_X, R5_PVS_X, R5_PVS_X, R5_PVS_X, 0);
+        const uint32_t FY = r5_pvs_orig(R5_PVS_O_TEMP, 1, R5_PVS_Y, R5_PVS_Y, R5_PVS_Y, R5_PVS_Y, 0);
+        for (int l = 0; l < 3; l++) for (int k = 0; k < 4; k++) v->c[4 + l][k] = t->mv[k * 4 + l];
+        v->c[7][0] = t->neb_a; v->c[7][1] = t->neb_b; v->c[7][2] = 0; v->c[7][3] = 0x3F800000u;
+        R5_USA(7);
+        for (uint32_t l = 0; l < 3; l++)
+            r5_vs_i(v, r5_pvs_dest(R5_PVS_DOT, R5_PVS_D_TEMP, 0, 1u << l), e_pos, R5_K(4 + l), r5_vs_z(e_pos));
+        r5_vs_i(v, r5_pvs_dest(R5_PVS_DOT, R5_PVS_D_TEMP, 1, 1), T0, T0, r5_vs_z(T0));                       /* t1.x = d2 */
+        r5_vs_i(v, r5_pvs_dest(R5_PVS_RSQ, R5_PVS_D_TEMP, 1, 2), FX, r5_vs_z(FX), r5_vs_z(FX));               /* t1.y = 1 / raíz(d2) */
+        r5_vs_i(v, r5_pvs_dest(R5_PVS_MUL, R5_PVS_D_TEMP, 1, 1), FX, FY, r5_vs_z(FX));                        /* t1.x = d */
+        r5_vs_i(v, r5_pvs_dest(R5_PVS_MAD, R5_PVS_D_TEMP, 1, 1), FX,                                          /* t1.x = a - b d */
+                r5_pvs_orig(R5_PVS_O_CONST, 7, R5_PVS_Y, R5_PVS_Y, R5_PVS_Y, R5_PVS_Y, 0xFu),
+                r5_pvs_orig(R5_PVS_O_CONST, 7, R5_PVS_X, R5_PVS_X, R5_PVS_X, R5_PVS_X, 0));
+        r5_vs_i(v, r5_pvs_dest(R5_PVS_MAX, R5_PVS_D_TEMP, 1, 1), FX, r5_vs_z(FX), r5_vs_z(FX));               /* >= 0 */
+        r5_vs_i(v, r5_pvs_dest(R5_PVS_MIN, R5_PVS_D_TEMP, 1, 1), FX,                                          /* <= 1 */
+                r5_pvs_comp(FX, R5_PVS_1, R5_PVS_1, R5_PVS_1, R5_PVS_1), r5_vs_z(FX));
+        if (t->flags & G3D3_NEB_MEZCLADA) {
+            for (int k = 0; k < 3; k++) v->c[8][k] = r5_vs_byte((t->neb_cor >> (16 - 8 * k)) & 0xFFu);
+            v->c[8][3] = 0;
+            R5_USA(8);
+            r5_vs_i(v, r5_pvs_dest(R5_PVS_MUL, R5_PVS_D_SAIDA, 1, 7), cor, FX, r5_vs_z(cor));                 /* color.rgb * f */
+            r5_vs_i(v, r5_pvs_dest(R5_PVS_ADD, R5_PVS_D_SAIDA, 1, 8), cor, r5_vs_z(cor), r5_vs_z(cor));       /* color.a */
+            r5_vs_i(v, r5_pvs_dest(R5_PVS_MAD, R5_PVS_D_SAIDA, 2, 15), FX,                                    /* niebla * (1 - f) */
+                    r5_pvs_orig(R5_PVS_O_CONST, 8, R5_PVS_X, R5_PVS_Y, R5_PVS_Z, R5_PVS_W, 0xFu), R5_K(8));
+        } else {
+            r5_vs_i(v, r5_pvs_dest(R5_PVS_ADD, R5_PVS_D_SAIDA, 1, 15), cor, r5_vs_z(cor), r5_vs_z(cor));
+            r5_vs_i(v, r5_pvs_dest(R5_PVS_MUL, R5_PVS_D_SAIDA, 2, 15), FX,                                    /* (0, 0, 0, f) */
+                    r5_pvs_comp(FX, R5_PVS_0, R5_PVS_0, R5_PVS_0, R5_PVS_1), r5_vs_z(FX));
+        }
+    } else {
+        r5_vs_i(v, r5_pvs_dest(R5_PVS_ADD, R5_PVS_D_SAIDA, 1, 15), cor, r5_vs_z(cor), r5_vs_z(cor));
+        r5_vs_i(v, r5_pvs_dest(R5_PVS_ADD, R5_PVS_D_SAIDA, 2, 15), r5_pvs_comp(e_pos, R5_PVS_0, R5_PVS_0, R5_PVS_0, R5_PVS_1),
+                r5_vs_z(e_pos), r5_vs_z(e_pos));                                                              /* (0, 0, 0, 1) */
+    }
+    if (d->cor_a.formato == G3D_AT_NADA)
+        for (int k = 0; k < 4; k++)   /* 0xAARRGGBB -> r, g, b, a de 0 a 1 */
+            v->c[9][k] = r5_vs_byte((t->cor >> (k == 3 ? 24 : 16 - 8 * k)) & 0xFFu);
+    /* coordenadas de textura */
+    for (uint32_t j = 0; j < (uint32_t)ntc; j++) {
+        uint32_t u = mapa[j] & 3u, o = e_tc[j];
+        if (d->tc[u].formato == G3D_AT_NADA) {
+            for (int k = 0; k < 4; k++) v->c[18 + j][k] = t->tc_const[u][k];
+            o = R5_K(18 + j); R5_USA(18 + j);
+        }
+        if ((t->flags & G3D3_TEX_MAT(u)) && d->tc[u].formato == G3D_AT_NADA) {
+            /* el motor no lee dos constantes distintas (ni dos entradas) en una instrucción (r3xx_vertprog.c de
+             * Mesa, transform_source_conflicts): la coordenada constante pasa antes a un temporal */
+            r5_vs_i(v, r5_pvs_dest(R5_PVS_ADD, R5_PVS_D_TEMP, 2, 15), o, r5_vs_z(o), r5_vs_z(o));
+            o = r5_pvs_orig(R5_PVS_O_TEMP, 2, R5_PVS_X, R5_PVS_Y, R5_PVS_Z, R5_PVS_W, 0);
+        }
+        if (t->flags & G3D3_TEX_MAT(u)) {
+            for (int l = 0; l < 2; l++) for (int k = 0; k < 4; k++) v->c[10 + 2 * j + (uint32_t)l][k] = t->tex[u][k * 4 + l];
+            R5_USA(11 + 2 * j);
+            r5_vs_i(v, r5_pvs_dest(R5_PVS_DOT, R5_PVS_D_SAIDA, 3 + j, 1), o, R5_K(10 + 2 * j), r5_vs_z(o));
+            r5_vs_i(v, r5_pvs_dest(R5_PVS_DOT, R5_PVS_D_SAIDA, 3 + j, 2), o, R5_K(11 + 2 * j), r5_vs_z(o));
+        } else r5_vs_i(v, r5_pvs_dest(R5_PVS_ADD, R5_PVS_D_SAIDA, 3 + j, 15), o, r5_vs_z(o), r5_vs_z(o));
+    }
+    #undef R5_K
+    #undef R5_USA
+    #undef R5_XYZW
+    for (int k = 0; k < 3; k++) { v->vista[2 * k] = t->vp_escala[k]; v->vista[2 * k + 1] = t->vp_desloc[k]; }
+    /* descarte: el signo del área en la pantalla (y hacia abajo). Medido en la X1400 (revisión de D457, 2026-11-22):
+     * con SU_CULL_MODE «frente» = CCW (bit 2 a 0) la tarjeta llama «atrás» a las de área positiva con la y hacia abajo
+     * (la escena 1 de la autoprueba v3 salía con la tira contraria). «inverter»: la otra convención (depuración). */
+    v->descarte = t->descarte == G3D_DESC_NADA ? 0 : (uint8_t)((t->descarte == G3D_DESC_POS) != inverter ? R5_CULL_ATRAS : R5_CULL_FRENTE);
+}
+
+/* La etapa de vértices de v3 a la cola (unas 2 * (60 + 4 n + 4 nc) palabras). Delante, el motor parado. */
+static inline void r5_estado_vertices3(g3d_fila_t *f, const r5_vs_t *v)
+{
+    r5_vaciar(f);
+    r5_reg(f, R5_VAP_PVS_FLUSH, 0);
+    for (uint32_t r = 0; r < ((uint32_t)v->arrays + 1) / 2; r++) {
+        r5_reg(f, R5_VAP_PSC_0 + r * 4, v->psc[2 * r] | ((uint32_t)(2 * r + 1 < R5_VS_ARRAYS ? v->psc[2 * r + 1] : 0) << 16));
+        r5_reg(f, R5_VAP_PSC_EXT_0 + r * 4, v->ext[2 * r] | ((uint32_t)(2 * r + 1 < R5_VS_ARRAYS ? v->ext[2 * r + 1] : 0) << 16));
+    }
+    r5_reg(f, R5_VAP_PVS_INDICE, 0);
+    for (uint32_t i = 0; i < (uint32_t)v->n * 4; i++) r5_reg(f, R5_VAP_PVS_DADOS, v->p[i]);
+    r5_reg(f, R5_VAP_PVS_INDICE, R5_PVS_CONST_INDICE);
+    for (uint32_t i = 0; i < v->nc; i++) for (int k = 0; k < 4; k++) r5_reg(f, R5_VAP_PVS_DADOS, v->c[i][k]);
+    r5_reg(f, R5_VAP_PVS_CONST_CNTL, ((uint32_t)v->nc - 1u) << 16);
+    r5_reg(f, R5_VAP_PVS_CODE_CNTL_0, 0u | (((uint32_t)v->n - 1u) << 10) | (((uint32_t)v->n - 1u) << 20));
+    r5_reg(f, R5_VAP_PVS_CODE_CNTL_1, (uint32_t)v->n - 1u);
+    uint32_t fmt1 = 0;
+    for (uint32_t i = 0; i < v->ntc; i++) fmt1 |= 2u << (3 * i);
+    r5_reg(f, R5_VAP_OUT_VTX_FMT_0, 7u);
+    r5_reg(f, R5_VAP_OUT_VTX_FMT_1, fmt1);
+    for (uint32_t i = 0; i < 6; i++) r5_reg(f, R5_VAP_VPORT_XSCALE + i * 4, v->vista[i]);
+    r5_reg(f, R5_VAP_VTE_CNTL, R5_VTE_VISTA | R5_VTE_W0);
+    r5_reg(f, R5_VAP_CLIP_CNTL, R5_CLIP_ABANICO);
+    r5_reg(f, R5_SU_CULL_MODE, v->descarte);
+    r5_estado_rs(f, v->ntc);
+}
+
+/* Lo que v3 cambió y la etapa de vértices de v1/v2 (r5_estado_vertices) no vuelve a poner. El mayor índice: v1 y v2
+ * no lo ponen y v3 lo deja en el n - 1 de su último dibujo; Mesa lo manda también antes de 3D_DRAW_IMMD_2
+ * (r300_draw_arrays_immediate, r300_render.c), así que se vuelve a abrir del todo (revisión de D457). */
+static inline void r5_estado_v3_fim(g3d_fila_t *f)
+{
+    r5_reg(f, R5_VAP_VF_MAX_VTX_INDX, 0x00FFFFFFu);
+    r5_reg(f, R5_VAP_VF_MAX_VTX_INDX + 4, 0);
+    r5_reg(f, R5_VAP_VTE_CNTL, R5_VTE_XY_DIVIDIDO | R5_VTE_Z_DIVIDIDO);
+    r5_reg(f, R5_VAP_CLIP_CNTL, R5_CLIP_DESLIGADO);
+    r5_reg(f, R5_VAP_PVS_CONST_CNTL, 0);
+    r5_reg(f, R5_SU_CULL_MODE, 0);
+}
+
+/* Los arrays y el dibujo: 3D_LOAD_VBPNTR (dirección, palabras por vértice y paso en palabras de cada array, de dos
+ * en dos) y 3D_DRAW_VBUF_2. gpu[k]: la dirección en el mapa de la tarjeta del atributo del primer vértice. */
+static inline void r5_desenho3(g3d_fila_t *f, const r5_vs_t *v, const gpu3d_desenho3_t *d, const uint32_t gpu[R5_VS_ARRAYS])
+{
+    uint32_t n = v->arrays, tam[R5_VS_ARRAYS], passo[R5_VS_ARRAYS];
+    for (uint32_t k = 0; k < n; k++) {
+        const gpu3d_atrib_t *a = v->atr[k] == 0 ? &d->pos : v->atr[k] == 1 ? &d->cor_a : &d->tc[(v->atr[k] - 2u) & 3u];
+        tam[k] = a->formato == G3D_AT_UBYTE4N ? 1u : a->formato;
+        passo[k] = a->passo / 4u;
+    }
+    r5_reg(f, R5_VAP_VF_MAX_VTX_INDX, d->n - 1u);     /* como r300_emit_draw_init de Mesa: el mayor y el menor índice */
+    r5_reg(f, R5_VAP_VF_MAX_VTX_INDX + 4, 0);
+    g3d_por(f, R5_P3_LOAD_VBPNTR | (((n * 3u + 1u) / 2u) << 16));
+    g3d_por(f, n | R5_VBPNTR_PREBUSCA);
+    for (uint32_t k = 0; k + 1 < n; k += 2) {
+        g3d_por(f, tam[k] | (passo[k] << 8) | (tam[k + 1] << 16) | (passo[k + 1] << 24));
+        g3d_por(f, gpu[k]); g3d_por(f, gpu[k + 1]);
+    }
+    if (n & 1) { g3d_por(f, tam[n - 1] | (passo[n - 1] << 8)); g3d_por(f, gpu[n - 1]); }
+    g3d_por(f, R5_P3_DRAW_VBUF_2);
+    g3d_por(f, (d->modo == G3D_PRIM_TIRA ? R5_PRIM_TIRA : d->modo == G3D_PRIM_ABANICO ? R5_PRIM_ABANICO : R5_PRIM_TRIANGULOS) |
+               R5_PRIM_LISTA | (d->n << 16));
+}
 
 #endif

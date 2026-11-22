@@ -42,7 +42,7 @@ $(SDL2_OBJ): userland/libsdl2/sdl2_sagui.c userland/libsdl2/sdl2gpu.h userland/l
 	$(CC) $(SDL2_FLAGS) -c -o $@ $<
 endif
 
-GB_FLAGS := $(SDL2_FLAGS) -fcommon -w -I$(GB_J)/include -I$(GB_J)/lib -I$(GB_J) \
+GB_FLAGS := $(SDL2_FLAGS) -fcommon -w -Wno-error=incompatible-pointer-types -I$(GB_J)/include -I$(GB_J)/lib -I$(GB_J) \
   -DIS_LITTLE_ENDIAN -D_GNU_SOURCE=1 -D_REENTRANT
 
 $(GB_OBJ): $(B)/%.o: %.c $(GB_HDR) $(LIBC_HDR) userland/libsdl2/SDL.h userland/libsdl2/SDL2/SDL.h $(GB_DIR)/gnuboy.mk

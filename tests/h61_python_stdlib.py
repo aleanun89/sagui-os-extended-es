@@ -32,7 +32,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar, RAIZ, SAIDA  # noqa: E402
+from qemu import opcoes_apps, Maquina, verificar, RAIZ, SAIDA  # noqa: E402
 
 DADOS = "SaguiOS y MicroPython: año, ñandú, café".encode("utf-8")
 
@@ -203,7 +203,7 @@ def main():
     subprocess.run(["python3", os.path.join(RAIZ, "tools", "mkimagem.py"),
                     "--mbr", os.path.join(b, "boot", "mbr.bin"), "--estagio2", os.path.join(b, "boot", "estagio2.bin"),
                     "--kernel", os.path.join(b, "kernel.bin"), "--kernel-elf", os.path.join(b, "kernel.elf"),
-                    "--ramdisk", sgfs, "--saida", img, "--vesa", "--console"], check=True, stdout=subprocess.DEVNULL)
+                    "--ramdisk", sgfs, "--saida", img, "--vesa", *opcoes_apps(), "--console"], check=True, stdout=subprocess.DEVNULL)
 
     with Maquina("h61", "ide", imagem=img) as m:
         m.esperar_serial("sagui:/$", 120)

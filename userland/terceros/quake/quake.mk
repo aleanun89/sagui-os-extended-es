@@ -41,7 +41,7 @@ QK_BASE := -m32 -march=i686 -std=gnu99 -O2 \
   -nostdinc -isystem $(shell $(CC) -print-file-name=include) \
   -I$(QK_J) -Iuserland/libsdl12 -I$(LIBC_DIR) -Iuserland/inc -idirafter kernel/inc
 # El motor: sus avisos son los de un código de 1996 (no se tocan).
-QK_FLAGS := $(QK_BASE) -Dfopen=quake_fopen -w
+QK_FLAGS := $(QK_BASE) -Dfopen=quake_fopen -w -Wno-error=implicit-function-declaration
 # Lo nuestro: con avisos y los textos en Latin-1, como el resto del userland.
 QK_PLAT_FLAGS := $(QK_BASE) -I$(QK_DIR)/plataforma -finput-charset=UTF-8 -fexec-charset=ISO-8859-1 \
   -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers

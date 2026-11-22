@@ -76,7 +76,11 @@ def parte_a():
                 if "terceros" in d or "micropython_embed" in d:
                     continue
                 txt = open(os.path.join(d, f), encoding="latin-1").read()
-                for ln, linea in enumerate(txt.splitlines(), 1):
+                lineas = txt.splitlines()
+                for ln, linea in enumerate(lineas, 1):
+                    # un respaldo «si no está en /apps/bin, en /bin» justo debajo de la ruta buena no es una ruta rota
+                    if ln > 1 and "/apps/bin/" in lineas[ln - 2]:
+                        continue
                     if patron.search(linea) and "#!" not in linea[:2] + "":
                         # los comentarios que solo nombran el programa no lo lanzan: se exige una cadena
                         if re.search(r'"[^"\n]*(?<!apps)/bin/(' + "|".join(MOVIDAS) + r')(?![\w-])', linea):

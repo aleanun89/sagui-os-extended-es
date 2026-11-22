@@ -176,6 +176,10 @@ const char *nome_erro(int e)
     case ERRO_RECUSADA: return "conexión rechazada";
     case ERRO_INALCANCAVEL: return "destino inalcanzable";
     case ERRO_CONEXAO_CAIU: return "el otro extremo cortó la conexión";
+    case ERRO_INTERROMPIDO: return "interrumpido por una señal";
+    case ERRO_TENTAR: return "recurso no disponible por ahora (descriptor no bloqueante)";
+    case ERRO_EM_CURSO: return "conexión en curso";
+    case ERRO_JA_EM_CURSO: return "la conexión ya está en curso";
     default: return "error desconocido";
     }
 }

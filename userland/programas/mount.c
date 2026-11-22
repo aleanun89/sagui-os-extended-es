@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /* mount - monta sistemas de archivos (D040).
  *   mount                                   lista lo que está montado
- *   mount [-t fat32|exfat|ext2|ext3|ext4|iso9660|udf|cd|auto] [-o ro|rw] <dispositivo> <carpeta>
+ *   mount [-t fat32|exfat|ext2|ext3|ext4|xfs|iso9660|udf|cd|auto] [-o ro|rw] <dispositivo> <carpeta>
+ * D446: XFS se monta siempre en solo lectura (aunque se pida -o rw).
  * "-t cd" (D233): lo que tenga el CD/DVD (ISO 9660 o UDF), como auto.
  * El dispositivo es un nombre de "discos" (usb0, usb0p1, hda1), LABEL=rótulo
  * ou "arranque". Os discos internos montam só para leitura, salvo -o rw.
@@ -39,6 +40,8 @@ static void listar_montagens(void)
                      base, capa, base, capa);
         else if (raiz_live)
             imprimir("%-7s en /  tipo live: sistema de serie (%s, SAGUI-RAIZ, solo lectura) + tus cambios en la RAM  (rw", base, base);
+        else if (compara_texto(m[i].tipo, "xfs") == 0)   /* D446: XFS, siempre solo lectura */
+            imprimir("%-7s en %s  tipo xfs (solo lectura", m[i].dispositivo, m[i].ponto);
         else
             imprimir("%-7s en %s  tipo %s  (%s", m[i].dispositivo, m[i].ponto, m[i].tipo,
                      (m[i].opcoes & MONTAR_SO_LEITURA) ? "ro" : "rw");
@@ -50,7 +53,7 @@ static void listar_montagens(void)
 
 static int uso(void)
 {
-    imprimir_em(ERROS, "uso: mount [-t fat32|ext2|ext3|ext4|iso9660|udf|cd|auto] [-o ro|rw|uid=N|gid=N|umask=022] <dispositivo> <carpeta>\n");
+    imprimir_em(ERROS, "uso: mount [-t fat32|exfat|ext2|ext3|ext4|xfs|iso9660|udf|cd|auto] [-o ro|rw|uid=N|gid=N|umask=022] <dispositivo> <carpeta>\n");
     return 1;
 }
 
@@ -69,6 +72,7 @@ int principal(int argc, char **argv)
             else if (compara_texto(t, "ext4") == 0) opcoes |= MONTAR_EXT4;
             else if (compara_texto(t, "iso9660") == 0) opcoes |= MONTAR_ISO9660;   /* D207 */
             else if (compara_texto(t, "udf") == 0) opcoes |= MONTAR_UDF;           /* D233 */
+            else if (compara_texto(t, "xfs") == 0) opcoes |= MONTAR_XFS;           /* D446: solo lectura */
             else if (compara_texto(t, "auto") != 0 && compara_texto(t, "cd") != 0) { imprimir_em(ERROS, "mount: tipo desconocido: %s\n", t); return 1; }
         } else if (compara_texto(argv[i], "-o") == 0 && i + 1 < argc) {
             char o[64];
@@ -107,10 +111,12 @@ int principal(int argc, char **argv)
     else
         r = montar_em(disp, pasta, opcoes);
     if (r == ERRO_FORMATO) {
-        /* D233: en un CD/DVD, lo que hay en el lector ("sin disco", "CD de audio: no se monta"...). */
+        /* D233: en un CD/DVD, lo que hay en el lector ("sin disco", "CD de audio: no se monta"...).
+         * D446: un XFS que no se puede leer dice por qué (funciones desconocidas, needsrepair...). */
         info_disco_t d;
         for (int i = 0; listar_discos(i, &d) == 1; i++)
-            if (compara_texto(d.nome, disp) == 0 && (d.flags & DISCO_CD) && !d.suportado) {
+            if (compara_texto(d.nome, disp) == 0 && (((d.flags & DISCO_CD) && !d.suportado) ||
+                (comeca_com(d.formato, "XFS") && compara_texto(d.formato, "XFS (solo lectura)") != 0))) {
                 imprimir_em(ERROS, "mount: %s: %s\n", disp, d.formato);
                 return 1;
             }
@@ -129,9 +135,12 @@ int principal(int argc, char **argv)
         else { pasta_atual(abs, sizeof abs); if (tam_texto(abs) > 1) junta_texto(abs, "/", sizeof abs); junta_texto(abs, pasta, sizeof abs); }
         if (compara_texto(m[i].ponto, abs) != 0) continue;
         bool ro = (m[i].opcoes & MONTAR_SO_LEITURA) != 0;
-        imprimir("%s (%s) montado en %s%s\n", m[i].dispositivo, m[i].tipo, m[i].ponto, ro ? ", solo lectura" : "");
+        bool xfs = compara_texto(m[i].tipo, "xfs") == 0;
+        imprimir("%s (%s) montado en %s%s\n", m[i].dispositivo, xfs ? "xfs, solo lectura" : m[i].tipo, m[i].ponto,
+                 ro && !xfs ? ", solo lectura" : "");
         if (ro && (opcoes & MONTAR_LEITURA_ESCRITA))
             imprimir(compara_texto(m[i].tipo, "iso9660") == 0 || compara_texto(m[i].tipo, "udf") == 0 ? "Aviso: un CD/DVD es de solo lectura.\n"
+                     : xfs ? "Aviso: SaguiOS solo sabe leer XFS (la escritura llegará más adelante).\n"
                      : "Aviso: SaguiOS solo sabe leer este sistema de archivos (ext3/ext4, diario pendiente o características desconocidas).\n");
         return 0;
     }

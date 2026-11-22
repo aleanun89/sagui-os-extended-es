@@ -529,7 +529,9 @@ bool video_trocar_modo(uint32_t l, uint32_t a)
     if (l == prim_l && a == prim_a) return true;
     uint32_t novo_bpp = video_bpp_a_quente();
     if (l * a * 4 > fb_mapeado) return false;
-    if (acel2d_ativo()) acel2d_desligar("cambio de modo de video");   /* D195: el acelerador conoce el modo de antes */
+    /* D195: el acelerador conoce el modo de antes. Sin mirar acel2d_ativo(): con D434 el motor puede seguir encendido
+     * solo para el volcado (las copias por la CPU, acel2d_ativo() = false) y también hay que pararlo. */
+    acel2d_desligar("cambio de modo de video");
     acel_volcado_buffer(true);   /* D387: la GPU (o la simulada) deja de leer el búfer de atrás viejo */
     uint32_t dl, da;
     telas_desktop(0, l, a, &dl, &da);   /* D290: con varias pantallas el escritorio es más que este modo */
@@ -567,7 +569,7 @@ bool video_refazer(void)
     if (!ativo) return false;
     uint32_t dl, da;
     telas_desktop(-1, 0, 0, &dl, &da);
-    if (telas_qtd() > 1 && acel2d_ativo()) acel2d_desligar("varias pantallas");   /* el acelerador solo conoce la cabeza 0 */
+    if (telas_qtd() > 1) acel2d_desligar("varias pantallas");   /* la cabeza 0 solo (y el motor del volcado, D434) */
     if (dl != larg || da != alt) {
         uint32_t *novo = kmalloc(dl * da * 4);
         if (!novo) return false;

@@ -93,3 +93,5 @@ Windows_*.wav
 # Fuentes de awk y Lua (D440): las bajan tools/awk_fuentes.sh y tools/lua_fuentes.sh; no van en git
 /userland/terceros/awk/fuentes
 /userland/terceros/lua/fuentes
+# Fuentes de FFmpeg (D458): las baja tools/ffmpeg_fuentes.sh; no van en git
+/userland/terceros/ffmpeg/fuentes

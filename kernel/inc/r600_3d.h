@@ -34,6 +34,7 @@
 #define R63D_IT_START_3D        0x24   /* solo R6xx */
 #define R63D_IT_CONTEXT_CONTROL 0x28
 #define R63D_IT_INDEX_TYPE      0x2A
+#define R63D_IT_DRAW_INDEX      0x2B   /* D457: índices desde la memoria */
 #define R63D_IT_DRAW_INDEX_AUTO 0x2D
 #define R63D_IT_NUM_INSTANCES   0x2F
 #define R63D_IT_CP_DMA          0x41   /* D406: copia de memoria por el CP (r600_copy_cpdma) */
@@ -266,5 +267,64 @@ typedef struct {
     bool     erro;             /* no cabe: el dibujo va por software */
 } r63d_ps2_t;
 void r63d_ps2_gerar(r63d_ps2_t *ps, const gpu3d_estado2_t *e, bool r7xx);
+
+
+/* ============================================================ gpu3d v3 (D457, «v3 en R6xx/R7xx»)
+ *
+ * La GPU lee los vértices de los búferes residentes y los transforma con un sombreador de vértices generado para la
+ * transformación fija de ES 1.1: posición por la MVP, niebla lineal (distancia al ojo por la modelo-vista), matriz de
+ * textura por unidad, color de bytes, de floats o constante. El recorte, la división por w, la vista y el descarte de
+ * caras los hace el rasterizador (PA_CL_CLIP_CNTL, PA_CL_VTE_CNTL, PA_CL_VPORT_*, PA_SU_SC_MODE_CNTL). Las salidas son
+ * las del sombreador de vértices de v2 (PARAM0 color, PARAM1 especular con el factor de niebla en el alfa, PARAM2-5 los
+ * cuatro juegos de coordenadas), así el programa de píxeles de v2 (r63d_ps2_gerar) sirve tal cual.
+ * Las constantes van al «constant file» del sombreador de vértices (SET_ALU_CONST desde la 256, con SQ_CONFIG.DX9_CONSTS
+ * que ya pone el estado base), como el sombreador de vértices de xf86-video-ati (r600_shader.c, r600_exa.c). */
+#define R63D_VS3_MAX     512     /* palabras de un sombreador v3 (2 KB en la VRAM) */
+#define R63D_VS3_GPRS    14      /* R0 índice, R1 posición, R2 color, R3-R6 juegos leídos, R7 recorte, R8 ojo, R9 especular, R10-R13 juegos transformados */
+#define R63D_VS3_NCONST  30      /* constantes: 0-3 MVP (filas), 4-6 modelo-vista (filas 0-2), 7 niebla (a, b, 0, 0), 8 color de la niebla, 9 color
+                                  * constante, 10-13 coordenadas constantes, 14-29 matrices de textura (4 filas por unidad) */
+#define R63D_VS3_BUFS    6       /* lecturas como mucho: posición, color y cuatro juegos (recursos 160-165 del sombreador de vértices) */
+#define R63D_ALU_CONST_VS 0x31000u   /* SQ_ALU_CONSTANT0_0 + 256 * 16: la constante 0 del sombreador de vértices */
+#define R63D_V3_NEB_NADA      0
+#define R63D_V3_NEB_ESPEC     1  /* el factor en el alfa del especular (un ESTADO2 con G3D2_NEBLINA) */
+#define R63D_V3_NEB_MEZCLADA  2  /* ya mezclada: color.rgb * f, especular.rgb = color de la niebla * (1 - f) */
+/* Lo que decide el programa (no los valores: esos son constantes). Comparable con memcmp (relleno a 0). */
+typedef struct {
+    uint8_t pos_fmt;             /* G3D_AT_FLOAT2/3/4 */
+    uint8_t cor_fmt;             /* G3D_AT_NADA (constante), G3D_AT_UBYTE4N o G3D_AT_FLOAT4 */
+    uint8_t tc_fmt[4];           /* por unidad < unidades: G3D_AT_NADA (constante) o FLOAT2/3/4 */
+    uint8_t unidades;            /* juegos con valor; los demás salen (0, 0, 0, 1) */
+    uint8_t neblina;             /* R63D_V3_NEB_* */
+    uint8_t tex_mat;             /* bit u: la unidad u pasa por su matriz */
+    uint8_t reservado[3];
+} r63d_vs3_desc_t;
+typedef struct {
+    uint32_t p[R63D_VS3_MAX];
+    int      n;                  /* palabras */
+    int      grupos, clausulas_alu, lecturas;
+    uint8_t  atr[R63D_VS3_BUFS]; /* qué lee el recurso 160 + k: 0 posición, 1 color, 2 + u juego u */
+    bool     erro;               /* no cabe o una regla de los puertos no se cumple: el dibujo va por la CPU */
+} r63d_vs3_t;
+void r63d_vs3_gerar(r63d_vs3_t *vs, const r63d_vs3_desc_t *d, bool r7xx);
+/* Las constantes de una transformación para ese programa (R63D_VS3_NCONST x 4 palabras, bits de float). */
+void r63d_vs3_constantes(uint32_t c[R63D_VS3_NCONST * 4], const gpu3d_transf_t *t);
+void r63d_vs3_consts_emitir(r6_lote_t *l, const uint32_t c[R63D_VS3_NCONST * 4]);
+/* El rasterizador para v3: recorte (espacio de GL), vista y w de verdad. Y lo de v1/v2 otra vez (sin recorte, vértices
+ * ya en la pantalla, sin descarte). */
+void r63d_v3_entrar(r6_lote_t *l);
+void r63d_v3_vista(r6_lote_t *l, const gpu3d_transf_t *t);
+void r63d_v3_sair(r6_lote_t *l);
+/* PA_SU_SC_MODE_CNTL para G3D_DESC_*: la cara de delante es la de las agujas del reloj en la pantalla (FACE = 1, la
+ * del estado base) y G3D_DESC_POS (área > 0 con la y hacia abajo: en el sentido de las agujas) quita esa. «inv»
+ * (diagnóstico) la otra convención. */
+uint32_t r63d_v3_descarte(uint8_t descarte, bool inv);
+/* Sombreadores de un dibujo v3: el de vértices generado (vs_bytes de largo) y uno de píxeles de v2. */
+void r63d_programas3(r6_lote_t *l, uint32_t mc_vs, uint32_t vs_bytes, uint32_t mc_ps, int gprs_ps, uint32_t bytes_ps);
+/* Los recursos de lectura de vértices (k = 0..nb-1: el 160 + k) y el dibujo: «n» vértices (sin índices) o «n» índices
+ * de 16 bits desde mc_idx. prim: G3D_PRIM_*. */
+typedef struct { uint32_t mc, bytes, passo; } r63d_vbuf_t;
+void r63d_desenhar3(r6_lote_t *l, const r63d_vbuf_t *b, int nb, int prim, uint32_t n, bool com_indices, uint32_t mc_idx);
+/* SURFACE_SYNC de la caché de vértices (o de la de texturas en las que no la tienen) sobre un rango. */
+void r63d_sync_vertices(r6_lote_t *l, uint32_t mc, uint32_t bytes, bool sem_cache_vertices);
 
 #endif

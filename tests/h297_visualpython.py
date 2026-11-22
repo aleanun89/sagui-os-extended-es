@@ -21,6 +21,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from qemu import Maquina, verificar, ler_ppm, SAIDA  # noqa: E402
+from h60_barra_tareas import painel, submenu_pelo_mouse, clicar_aqui  # noqa: E402
 
 BORDA, TITULO = 2, 24
 
@@ -42,7 +43,9 @@ def janela(m, titulo, desde=0, tempo=40):
 def esperar(m, texto, desde=0, tempo=40):
     fim = time.time() + tempo
     while time.time() < fim:
-        if texto in m.serial()[desde:]:
+        # el kernel puede escribir su «[SAGUI] processo N terminou» en mitad de una línea del programa
+        s = m.serial()[desde:]
+        if texto in s or texto in re.sub(r"\[SAGUI\][^\n]*\n", "", s):
             return True
         time.sleep(0.3)
     print(m.serial()[desde:][-1800:])
@@ -257,16 +260,14 @@ def principal():
         time.sleep(1)
 
         # ---------------------------------------------------------- 6. lanzar la app generada desde el menú Inicio
+        marca9 = len(m.serial())
         m.clique(40, 12)                                               # el botón Inicio
-        time.sleep(1.0)
-        m.clique(60, 288)                                              # Mis aplicaciones (tras los grupos)
-        time.sleep(1.0)
+        p = painel(m, marca9)
+        sub = submenu_pelo_mouse(m, p, "Mis aplicaciones", "MiProyecto")   # posiciones del log, no fijas
+        time.sleep(0.5)
         m.captura("H297-4-menu-inicio")
         marca9 = len(m.serial())
-        m.mouse_mover(350, 288)                                        # en horizontal, sin pasar por otros grupos
-        m.monitor("mouse_button 1")
-        time.sleep(0.05)
-        m.monitor("mouse_button 0")                                    # la aplicación generada
+        clicar_aqui(m)                                                 # la aplicación generada
         gen = janela(m, "Formulario", marca9)
         time.sleep(1.5)
         antes = region(m, "antes", gen["x"] + 16, gen["y"] + 72, 80, 20)

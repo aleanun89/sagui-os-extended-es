@@ -23,8 +23,10 @@ bool draw_capture(const char *path, int width, int height);
 unsigned draw_error(void);
 #define VIEW_DISTANCE_MIN 32
 #define VIEW_DISTANCE_MAX 104
+#define VIEW_DISTANCE_DEFAULT 64   /* la de serie fuera de SaguiOS (en SaguiOS se elige segun el equipo, ajustes.h) */
 void draw_set_view_distance(int distance);
 int draw_get_view_distance(void);
+const char *draw_renderer(void);   /* glGetString(GL_RENDERER), tras draw_init */
 void ui_pointer(int window_w, int window_h, int x, int y, float *ux, float *uy);
 
 /* Interface reference coordinates. Rescaled to fit a window at any aspect ratio. */

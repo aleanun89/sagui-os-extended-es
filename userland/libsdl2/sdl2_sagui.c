@@ -26,12 +26,14 @@
  *              puntero del sistema sobre la ventana (D230); los cursores de
  *              los programas se aceptan y no se dibujan.
  *   - audio:   el programa mezcla en su llamada de vuelta o pone datos en la
- *              cola (SDL_QueueAudio); aquí se pasan al flujo de sonido del
- *              sistema cuando cabe otro bloque, en SDL_PollEvent, SDL_Delay
- *              y SDL_RenderPresent del hilo principal (los hilos de la D393
- *              no lo mueven). Sin tarjeta, mudo.
- *              Esos mismos puntos hacen avanzar la OpenAL del SaguiOS
- *              (userland/libopenal) si el programa la enlaza.
+ *              cola (SDL_QueueAudio); un HILO DE AUDIO propio (D393, arranca
+ *              con SDL_PauseAudio(0)) los pasa al flujo de sonido del sistema
+ *              al ritmo de la tarjeta y llama desde él a la llamada de vuelta,
+ *              con el cerrojo del dispositivo. SDL_SAGUI_AUDIO_HILO=0 vuelve
+ *              al modo de antes: SDL_PollEvent, SDL_Delay y SDL_RenderPresent
+ *              del hilo principal lo mueven. Sin tarjeta, mudo.
+ *              SDL_PollEvent, SDL_Delay y SDL_RenderPresent hacen avanzar la
+ *              OpenAL del SaguiOS (userland/libopenal) si el programa la enlaza.
  *   - reloj:   SDL_GetTicks y SDL_Delay sobre tempo_ms() y dormir().
  */
 #include "SDL.h"
@@ -1952,6 +1954,8 @@ static unsigned fnv32(const uint32_t *p, size_t n)
 unsigned sagui_sdl2_hash_janela(void) { return janela && janela->px ? fnv32(janela->px, (size_t)janela->jl * janela->ja) : 0; }
 unsigned sagui_sdl2_hash_lienzo(void) { return janela && janela->tela ? fnv32(janela->tela, (size_t)janela->l * janela->a) : 0; }
 
+static int hay_hilos;   /* se creó algún hilo (también el de audio): es_principal() distingue al principal */
+static int hay_hilos_programa;   /* el programa creó hilos suyos (SDL_CreateThread); el de audio no cuenta */
 static void bombear_audio(void);
 static int es_principal(void);   /* D393: el audio solo se mueve en el hilo principal */
 
@@ -2719,48 +2723,134 @@ SDL_bool SDL_RemoveTimer(SDL_TimerID id) { (void)id; return SDL_FALSE; }
 
 /* ------------------------------------------------------------------ audio */
 
-static SDL_AudioSpec audio_spec;
+/* D393 (hilo de audio de la SDL, 2026-11-22). Hasta ahora el audio se movía desde el hilo principal (SDL_PollEvent,
+ * SDL_Delay, SDL_RenderPresent): un juego que se atascaba 400 ms en un cuadro (trozos nuevos en Brumacanto) dejaba la
+ * tarjeta sin datos y el sonido se cortaba. Ahora SDL_PauseAudio(0) arranca un HILO DE AUDIO propio, como en la SDL de
+ * verdad: alimenta el flujo del sistema al ritmo de la tarjeta, por delante de la latencia del kernel (D436: latencia + 60 ms,
+ * como mínimo 120), opcionalmente con «alta prioridad de audio» (PLAN_AUDIO, D436, SDL_SAGUI_AUDIO_PRIO=1)
+ * y llama a la llamada de vuelta del programa DESDE ESE HILO, con el cerrojo del dispositivo tomado (SDL_LockAudio y
+ * SDL_LockAudioDevice son ahora de verdad; recursivos). La cola de SDL_QueueAudio lleva su propio cerrojo corto.
+ *   - SDL_SAGUI_AUDIO_HILO=0 (variable de entorno, o la pista del mismo nombre) vuelve al modo de antes: el principal
+ *     mueve el audio. SDL_SAGUI_AUDIO_PRIO=1 (o la pista) pide la alta prioridad (de serie NO: con ella Freeciv se quedaba
+ *     sin contestar al servidor, ver D393).
+ *   - El hilo solo toca el flujo de audio y la llamada de vuelta: nada de vídeo ni de eventos (regla de D393).
+ *   - Formato: el sistema toca U8 y S16; si el programa pide otro (S8, U16, S32, F32) y no permite cambiarlo, la SDL se lo
+ *     deja tal cual y convierte aquí al escribir (como la SDL de verdad); si lo permite, se le da S16 como antes. */
+
+static int fmt_bytes(SDL_AudioFormat f);
+static double leer_muestra(const Uint8 *p, SDL_AudioFormat f);
+static void escribir_muestra(Uint8 *p, SDL_AudioFormat f, double v);
+
+static SDL_AudioSpec audio_spec;              /* lo que ve el programa (su formato, aunque se convierta) */
+static SDL_AudioFormat audio_fmt_sis;         /* lo que se escribe en el flujo del sistema: U8 o S16 */
+static int audio_conv;                        /* el formato del programa no es el del sistema */
 static int audio_fd = -1;
 static int audio_aberto = 0, audio_pausado = 1;
-static Uint8 *audio_buf = NULL;
-static unsigned audio_bloco = 0;
-/* La cola de SDL_QueueAudio (si no hay llamada de vuelta). */
-static Uint32 audio_mudo_marca = 0;     /* sin tarjeta: el reloj del último bloque dado */
-static Uint64 audio_mudo_credito = 0;   /* y los bytes que ya tocaba haber pedido */
+static Uint8 *audio_buf = NULL;               /* un bloque en el formato del programa */
+static Uint8 *audio_buf_sis = NULL;           /* y convertido al del sistema (solo con conversión) */
+static unsigned audio_bloco = 0;              /* bytes del bloque en el formato del programa */
+static Uint32 audio_mudo_marca = 0;           /* sin tarjeta: el reloj del último bloque dado */
+static Uint64 audio_mudo_credito = 0;         /* y los bytes que ya tocaba haber pedido */
+/* La cola de SDL_QueueAudio (si no hay llamada de vuelta): bytes en el formato del programa. */
 static Uint8 *fila_audio = NULL;
-static Uint32 fila_audio_n = 0, fila_audio_cap = 0;
-#define AUDIO_ADIANTO_MS 120   /* lo que se deja por delante en el flujo del sistema */
+static Uint32 fila_audio_ini = 0, fila_audio_n = 0, fila_audio_cap = 0;
+static mutex_t fila_cerrojo;
+static int fila_cerrojo_listo;
+static SDL_mutex *audio_cerrojo;              /* el cerrojo del dispositivo (recursivo); vive hasta salir */
+#define AUDIO_ADIANTO_MS 120                  /* lo que se deja por delante en el flujo del sistema (mínimo) */
+#define AUDIO_ADIANTO_EXTRA_MS 60             /* y sobre la latencia del kernel (D436) */
+
+/* El hilo de audio y lo que anota. */
+static thread_t *audio_hilo;
+static volatile int audio_hilo_parar;
+static volatile int audio_hilo_vivo;          /* el hilo corre: el principal ya no mueve el audio */
+static int audio_lat_kernel_ms = 100;
+static struct { long bloques, vacios; unsigned hueco_max, falhas0, falhas; Uint32 ult; int prio; } audio_est;
 
 static int bits_de(SDL_AudioFormat f) { return SDL_AUDIO_BITSIZE(f); }
+
+static int audio_formato_convertible(SDL_AudioFormat f)
+{
+    return f == AUDIO_S8 || f == AUDIO_U16LSB || f == AUDIO_S16LSB || f == AUDIO_S32LSB || f == AUDIO_F32LSB;
+}
+
+/* ¿Hilo de audio? La variable manda; si no, la pista; de serie, sí. */
+static int audio_hilo_deseado(void)
+{
+    const char *e = getenv("SDL_SAGUI_AUDIO_HILO");
+    if (!e || !*e) e = SDL_GetHint("SDL_SAGUI_AUDIO_HILO");
+    return !(e && *e && (e[0] == '0' || e[0] == 'n' || e[0] == 'N' || e[0] == 'f' || e[0] == 'F'));
+}
+
+/* Alta prioridad de audio (PLAN_AUDIO, D436): de serie apagada (Freeciv, con ella y con el servidor en la misma CPU, dejaba de
+ * contestar a los pings del servidor). SDL_SAGUI_AUDIO_PRIO=1 (variable o pista) la pide. */
+static int audio_prio_deseada(void)
+{
+    const char *e = getenv("SDL_SAGUI_AUDIO_PRIO");
+    if (!e || !*e) e = SDL_GetHint("SDL_SAGUI_AUDIO_PRIO");
+    return e && *e && e[0] != '0' && e[0] != 'n' && e[0] != 'N' && e[0] != 'f' && e[0] != 'F';
+}
+
+static void audio_cerrojo_listo(void)
+{
+    if (!audio_cerrojo) audio_cerrojo = SDL_CreateMutex();
+    if (!fila_cerrojo_listo) { mutex_criar(&fila_cerrojo); fila_cerrojo_listo = 1; }
+}
+
+/* Convierte n muestras del formato del programa al del sistema. */
+static void audio_convertir(const Uint8 *o, Uint8 *d, unsigned n)
+{
+    int bo = fmt_bytes(audio_spec.format), bd = fmt_bytes(audio_fmt_sis);
+    for (unsigned i = 0; i < n; i++)
+        escribir_muestra(d + (size_t)i * bd, audio_fmt_sis, leer_muestra(o + (size_t)i * bo, audio_spec.format));
+}
 
 SDL_AudioDeviceID SDL_OpenAudioDevice(const char *nome, int captura, const SDL_AudioSpec *pedido,
                                       SDL_AudioSpec *obtido, int mudancas)
 {
-    (void)nome; (void)mudancas;
+    (void)nome;
     if (captura) { SDL_SetError("no hay grabación"); return 0; }
     if (audio_aberto) { SDL_SetError("el audio ya está abierto"); return 0; }
     if (!pedido) return 0;
+    audio_cerrojo_listo();
     audio_spec = *pedido;
-    /* El sistema toca 8 bits sin signo y 16 con signo: el resto se pide en 16. */
-    if (audio_spec.format != AUDIO_U8) audio_spec.format = AUDIO_S16SYS;
+    /* El sistema toca 8 bits sin signo y 16 con signo. Otro formato: si el programa deja cambiarlo, se le da S16; si no,
+     * se queda el suyo y se convierte al escribir. */
+    audio_fmt_sis = pedido->format == AUDIO_U8 ? AUDIO_U8 : AUDIO_S16SYS;
+    audio_conv = 0;
+    if (pedido->format != AUDIO_U8 && pedido->format != AUDIO_S16SYS) {
+        if (!(mudancas & SDL_AUDIO_ALLOW_FORMAT_CHANGE) && audio_formato_convertible(pedido->format)) audio_conv = 1;
+        else audio_spec.format = AUDIO_S16SYS;
+    }
     if (!audio_spec.channels) audio_spec.channels = 2;
     if (audio_spec.channels > 2) audio_spec.channels = 2;
     if (audio_spec.freq < 4000 || audio_spec.freq > 96000) audio_spec.freq = 22050;
     if (!audio_spec.samples) audio_spec.samples = 1024;
-    int bits = bits_de(audio_spec.format);
+    int bits = bits_de(audio_fmt_sis);
+    int bp = fmt_bytes(audio_spec.format);
     audio_spec.silence = audio_spec.format == AUDIO_U8 ? 0x80 : 0;
-    audio_spec.size = (Uint32)audio_spec.samples * audio_spec.channels * (unsigned)(bits / 8);
-    audio_bloco = audio_spec.size;
-    if (audio_bloco > 16384) audio_bloco = 16384;
-    free(audio_buf);
+    audio_spec.size = (Uint32)audio_spec.samples * audio_spec.channels * (unsigned)bp;
+    /* el bloque, en cuadros: que su tamaño en el sistema no pase de 16 KB */
+    unsigned cuadros = audio_spec.samples, maxc = 16384u / (audio_spec.channels * (unsigned)(bits / 8));
+    if (cuadros > maxc) cuadros = maxc;
+    audio_bloco = cuadros * audio_spec.channels * (unsigned)bp;
+    free(audio_buf); free(audio_buf_sis);
     audio_buf = malloc(audio_bloco);
-    if (!audio_buf) { SDL_SetError("sin memoria para el audio"); return 0; }
+    audio_buf_sis = audio_conv ? malloc(cuadros * audio_spec.channels * (unsigned)(bits / 8)) : NULL;
+    if (!audio_buf || (audio_conv && !audio_buf_sis)) {
+        free(audio_buf); free(audio_buf_sis); audio_buf = audio_buf_sis = NULL;
+        SDL_SetError("sin memoria para el audio");
+        return 0;
+    }
     audio_fd = audio_abrir(audio_spec.freq, audio_spec.channels, bits);
     if (audio_fd < 0) audio_fd = -1;   /* sin tarjeta: mudo, pero se llama igual al programa */
     audio_aberto = 1;
     audio_pausado = 1;
-    registrar("[%s] audio %d Hz, %d canales, %d bits, bloque %u (%s)", sagui_sdl2_nome, audio_spec.freq,
-              audio_spec.channels, bits, audio_bloco, audio_fd >= 0 ? "con tarjeta" : "mudo");
+    fila_audio_ini = fila_audio_n = 0;
+    memset(&audio_est, 0, sizeof audio_est);
+    registrar("[%s] audio %d Hz, %d canales, %d bits%s, bloque %u (%s)", sagui_sdl2_nome, audio_spec.freq,
+              audio_spec.channels, bits, audio_conv ? " (convertido desde el formato del programa)" : "", audio_bloco,
+              audio_fd >= 0 ? "con tarjeta" : "mudo");
     if (obtido) *obtido = audio_spec;
     return 1;
 }
@@ -2771,7 +2861,139 @@ int SDL_OpenAudio(SDL_AudioSpec *pedido, SDL_AudioSpec *obtido)
     return d ? 0 : -1;
 }
 
-void SDL_PauseAudioDevice(SDL_AudioDeviceID d, int pausa) { (void)d; audio_pausado = pausa != 0; audio_mudo_marca = 0; }
+/* ---- el bloque: de la llamada de vuelta o de la cola, convertido y al flujo del sistema ---- */
+
+/* Pasa un bloque al flujo del sistema (o, sin tarjeta, lo tira). Devuelve 0 si no había nada que dar (cola vacía). */
+static int audio_dar_bloque(int escribir)
+{
+    unsigned n = audio_bloco;   /* bytes en el formato del programa */
+    if (audio_spec.callback) {
+        memset(audio_buf, audio_spec.silence, audio_bloco);
+        SDL_LockMutex(audio_cerrojo);   /* como la SDL: la llamada de vuelta va con el cerrojo del dispositivo tomado */
+        audio_spec.callback(audio_spec.userdata, audio_buf, (int)audio_bloco);
+        SDL_UnlockMutex(audio_cerrojo);
+    } else {
+        unsigned marco = (unsigned)fmt_bytes(audio_spec.format) * audio_spec.channels;
+        mutex_tomar(&fila_cerrojo);
+        n = fila_audio_n < audio_bloco ? fila_audio_n : audio_bloco;
+        n -= n % marco;
+        if (n) {
+            memcpy(audio_buf, fila_audio + fila_audio_ini, n);
+            fila_audio_ini += n;
+            fila_audio_n -= n;
+            if (!fila_audio_n) fila_audio_ini = 0;
+        }
+        mutex_largar(&fila_cerrojo);
+        if (!n) return 0;
+    }
+    if (!escribir || audio_fd < 0) return 1;
+    if (audio_conv) {
+        unsigned muestras = n / (unsigned)fmt_bytes(audio_spec.format);
+        audio_convertir(audio_buf, audio_buf_sis, muestras);
+        audio_escrever(audio_fd, audio_buf_sis, muestras * (unsigned)fmt_bytes(audio_fmt_sis));
+    } else {
+        audio_escrever(audio_fd, audio_buf, n);
+    }
+    return 1;
+}
+
+/* Sin tarjeta (o sin sonido en el sistema): el programa que mezcla en su llamada de vuelta espera que se la llame al ritmo
+ * del dispositivo (gnuboy espera cada bloque) y el de la cola, que se vacíe: se hace al ritmo del reloj y se tira lo que sale. */
+static void audio_dar_mudo(void)
+{
+    Uint32 ahora = tempo_ms();
+    if (!audio_mudo_marca) { audio_mudo_marca = ahora ? ahora : 1; audio_mudo_credito = 0; }
+    Uint32 bytes_s = (Uint32)audio_spec.freq * audio_spec.channels * (Uint32)fmt_bytes(audio_spec.format);
+    audio_mudo_credito += (Uint64)(ahora - audio_mudo_marca) * bytes_s / 1000;
+    audio_mudo_marca = ahora;
+    for (int vezes = 0; vezes < 8 && audio_mudo_credito >= audio_bloco; vezes++) {
+        if (!audio_dar_bloque(0)) { audio_mudo_credito = 0; break; }
+        audio_mudo_credito -= audio_bloco;
+    }
+    if (audio_mudo_credito > 4u * audio_bloco) audio_mudo_credito = 0;   /* se paró mucho: no se recupera */
+}
+
+static int audio_adelanto_ms(void)
+{
+    int a = audio_lat_kernel_ms + AUDIO_ADIANTO_EXTRA_MS;
+    return a > AUDIO_ADIANTO_MS ? a : AUDIO_ADIANTO_MS;
+}
+
+static void audio_leer_kernel(void)
+{
+    static info_audio_t ia;   /* grande (los flujos y las salidas): fuera de la pila del hilo */
+    if (info_sistema(INFO_AUDIO, &ia, sizeof ia) < 0 || ia.estado != AUDIO_FUNCIONANDO) return;
+    audio_lat_kernel_ms = ia.latencia_ms < 10 ? 10 : ia.latencia_ms > 1000 ? 1000 : (int)ia.latencia_ms;
+    if (!audio_est.falhas0) audio_est.falhas0 = ia.falhas + 1;
+    audio_est.falhas = ia.falhas + 1 - audio_est.falhas0;
+}
+
+/* El hilo: da bloques en cuanto la tarjeta tiene sitio, sin esperar a ningún cuadro del juego. */
+static void *audio_hilo_fn(void *arg)
+{
+    (void)arg;
+    int prio = 0, lleno = 0, vacio_antes = 0;
+    if (audio_prio_deseada()) {
+        int r = planificador_hilo_audio(1);   /* solo vale para el hilo que llama; el kernel la quita a quien gasta mucho */
+        prio = r >= 0;
+        audio_est.prio = r < 0 ? -1 : 1;
+    }
+    Uint32 lat_visto = 0;
+    while (!audio_hilo_parar) {
+        if (audio_pausado) { audio_mudo_marca = 0; dormir(5); continue; }
+        if (audio_fd < 0) { audio_dar_mudo(); dormir(5); continue; }
+        Uint32 ahora = tempo_ms();
+        if (!lat_visto || ahora - lat_visto >= 500) { audio_leer_kernel(); lat_visto = ahora ? ahora : 1; }
+        int pend = audio_pendente(audio_fd);
+        if (pend >= audio_adelanto_ms() || audio_livre(audio_fd) < (int)(audio_bloco * (unsigned)fmt_bytes(audio_fmt_sis) / (unsigned)fmt_bytes(audio_spec.format))) {
+            lleno = 1;
+            dormir(5);
+            continue;
+        }
+        /* el flujo propio vacío (lo pendiente no llega ni a la latencia del kernel): el kernel ya mete silencio; una vez por racha */
+        int vacio = lleno && pend + 5 < audio_lat_kernel_ms;
+        if (vacio && !vacio_antes) audio_est.vacios++;
+        vacio_antes = vacio;
+        if (audio_est.ult && ahora - audio_est.ult > audio_est.hueco_max) audio_est.hueco_max = ahora - audio_est.ult;
+        audio_est.ult = ahora;
+        if (!audio_dar_bloque(1)) { dormir(5); continue; }   /* cola vacía: nada que dar */
+        audio_est.bloques++;
+    }
+    if (prio) planificador_hilo_audio(0);
+    return NULL;
+}
+
+static void audio_hilo_arrancar(void)
+{
+    if (audio_hilo || audio_hilo_vivo || !audio_hilo_deseado()) return;
+    audio_hilo_parar = 0;
+    hay_hilos = 1; atomico_barreira();   /* desde ahora hay hilos: es_principal() distingue al principal */
+    audio_hilo = thread_create(audio_hilo_fn, NULL, 0);
+    if (!audio_hilo) { registrar("[%s] audio: no se pudo crear el hilo, el principal mueve el audio", sagui_sdl2_nome); return; }
+    audio_hilo_vivo = 1;
+    registrar("[%s] audio: hilo propio (latencia del kernel + %d ms por delante, alta prioridad %s)", sagui_sdl2_nome,
+              AUDIO_ADIANTO_EXTRA_MS, audio_prio_deseada() ? "pedida" : "no pedida");
+}
+
+static void audio_hilo_parar_y_esperar(void)
+{
+    if (!audio_hilo) return;
+    audio_hilo_parar = 1;
+    thread_join(audio_hilo);
+    audio_hilo = NULL;
+    audio_hilo_vivo = 0;
+    registrar("[%s] audio: hilo parado; %ld bloques, sin datos %ld veces, hueco máximo %u ms, alta prioridad %s, cortes de la tarjeta %u",
+              sagui_sdl2_nome, audio_est.bloques, audio_est.vacios, audio_est.hueco_max,
+              audio_est.prio > 0 ? "sí" : audio_est.prio < 0 ? "no disponible" : "no", audio_est.falhas);
+}
+
+void SDL_PauseAudioDevice(SDL_AudioDeviceID d, int pausa)
+{
+    (void)d;
+    audio_pausado = pausa != 0;
+    audio_mudo_marca = 0;
+    if (!pausa && audio_aberto) audio_hilo_arrancar();
+}
 void SDL_PauseAudio(int pausa) { SDL_PauseAudioDevice(1, pausa); }
 SDL_AudioStatus SDL_GetAudioDeviceStatus(SDL_AudioDeviceID d)
 {
@@ -2779,21 +3001,30 @@ SDL_AudioStatus SDL_GetAudioDeviceStatus(SDL_AudioDeviceID d)
     return !audio_aberto ? SDL_AUDIO_STOPPED : audio_pausado ? SDL_AUDIO_PAUSED : SDL_AUDIO_PLAYING;
 }
 SDL_AudioStatus SDL_GetAudioStatus(void) { return SDL_GetAudioDeviceStatus(1); }
-void SDL_LockAudio(void) {}
-void SDL_UnlockAudio(void) {}
-void SDL_LockAudioDevice(SDL_AudioDeviceID d) { (void)d; }
-void SDL_UnlockAudioDevice(SDL_AudioDeviceID d) { (void)d; }
+
+/* El cerrojo del dispositivo: lo toma la llamada de vuelta del programa; el programa lo toma para tocar lo que comparte con ella. */
+void SDL_LockAudio(void) { if (audio_cerrojo) SDL_LockMutex(audio_cerrojo); }
+void SDL_UnlockAudio(void) { if (audio_cerrojo) SDL_UnlockMutex(audio_cerrojo); }
+void SDL_LockAudioDevice(SDL_AudioDeviceID d) { (void)d; SDL_LockAudio(); }
+void SDL_UnlockAudioDevice(SDL_AudioDeviceID d) { (void)d; SDL_UnlockAudio(); }
 
 void SDL_CloseAudioDevice(SDL_AudioDeviceID d)
 {
     (void)d;
+    if (!audio_aberto) return;
+    audio_pausado = 1;
+    audio_hilo_parar_y_esperar();
     if (audio_fd >= 0) { audio_fechar(audio_fd, 0); audio_fd = -1; }
     audio_aberto = 0;
     free(audio_buf);
     audio_buf = NULL;
+    free(audio_buf_sis);
+    audio_buf_sis = NULL;
+    mutex_tomar(&fila_cerrojo);
     free(fila_audio);
     fila_audio = NULL;
-    fila_audio_n = fila_audio_cap = 0;
+    fila_audio_ini = fila_audio_n = fila_audio_cap = 0;
+    mutex_largar(&fila_cerrojo);
 }
 void SDL_CloseAudio(void) { SDL_CloseAudioDevice(1); }
 
@@ -2802,21 +3033,46 @@ int SDL_QueueAudio(SDL_AudioDeviceID d, const void *dados, Uint32 n)
     (void)d;
     if (!audio_aberto) return SDL_SetError("el audio no está abierto");
     if (audio_spec.callback) return SDL_SetError("SDL_QueueAudio con llamada de vuelta");
-    if (fila_audio_n + n > fila_audio_cap) {
+    int r = 0;
+    mutex_tomar(&fila_cerrojo);
+    if (fila_audio_ini && fila_audio_ini + fila_audio_n + n > fila_audio_cap) {   /* hueco delante: se compacta */
+        memmove(fila_audio, fila_audio + fila_audio_ini, fila_audio_n);
+        fila_audio_ini = 0;
+    }
+    if (fila_audio_ini + fila_audio_n + n > fila_audio_cap) {
         Uint32 c = fila_audio_cap ? fila_audio_cap * 2 : 65536;
         while (c < fila_audio_n + n) c *= 2;
         Uint8 *novo = realloc(fila_audio, c);
-        if (!novo) return SDL_SetError("sin memoria para la cola de audio");
-        fila_audio = novo;
-        fila_audio_cap = c;
+        if (!novo) r = SDL_SetError("sin memoria para la cola de audio");
+        else { fila_audio = novo; fila_audio_cap = c; }
     }
-    memcpy(fila_audio + fila_audio_n, dados, n);
-    fila_audio_n += n;
+    if (!r) {
+        memcpy(fila_audio + fila_audio_ini + fila_audio_n, dados, n);
+        fila_audio_n += n;
+    }
+    mutex_largar(&fila_cerrojo);
+    if (r) return r;
     bombear_audio();
     return 0;
 }
-Uint32 SDL_GetQueuedAudioSize(SDL_AudioDeviceID d) { (void)d; bombear_audio(); return fila_audio_n; }
-void SDL_ClearQueuedAudio(SDL_AudioDeviceID d) { (void)d; fila_audio_n = 0; }
+Uint32 SDL_GetQueuedAudioSize(SDL_AudioDeviceID d)
+{
+    (void)d;
+    bombear_audio();
+    if (!fila_cerrojo_listo) return 0;
+    mutex_tomar(&fila_cerrojo);
+    Uint32 n = fila_audio_n;
+    mutex_largar(&fila_cerrojo);
+    return n;
+}
+void SDL_ClearQueuedAudio(SDL_AudioDeviceID d)
+{
+    (void)d;
+    if (!fila_cerrojo_listo) return;
+    mutex_tomar(&fila_cerrojo);
+    fila_audio_ini = fila_audio_n = 0;
+    mutex_largar(&fila_cerrojo);
+}
 
 void SDL_MixAudioFormat(Uint8 *d, const Uint8 *o, SDL_AudioFormat formato, Uint32 n, int volume)
 {
@@ -2848,45 +3104,21 @@ int SDL_GetNumAudioDevices(int captura) { return captura ? 0 : 1; }
 const char *SDL_GetAudioDeviceName(int i, int captura) { (void)i; return captura ? NULL : "SaguiOS"; }
 const char *SDL_GetCurrentAudioDriver(void) { return "saguios"; }
 
-/* Pasa audio al flujo del sistema mientras quede menos de AUDIO_ADIANTO_MS
- * por tocar y quepa otro bloque. Y hace avanzar la OpenAL, si está. */
+/* Modo de antes (SDL_SAGUI_AUDIO_HILO=0, o si no se pudo crear el hilo): pasa audio al flujo del sistema desde el hilo
+ * principal mientras quede menos de AUDIO_ADIANTO_MS por tocar y quepa otro bloque. Con el hilo de audio en marcha, no
+ * hace nada de audio. En los dos casos hace avanzar la OpenAL, si está. */
 static void bombear_audio(void)
 {
     if (!es_principal()) return;   /* D393: un hilo de trabajo no mueve el audio */
     if (sagui_al_bombear) sagui_al_bombear();
+    if (audio_hilo_vivo) return;   /* lo mueve el hilo de audio */
     if (!audio_aberto || audio_pausado || !audio_buf) return;
-    if (audio_fd < 0) {
-        /* Sin tarjeta (o sin sonido en el sistema): el programa que mezcla en su llamada de
-         * vuelta espera que se la llame al ritmo del dispositivo (gnuboy espera cada bloque);
-         * se la llama al ritmo del reloj y se tira lo que mezcla. Con cola no hay nadie que espere. */
-        Uint32 ahora = tempo_ms();
-        if (!audio_spec.callback) return;
-        if (!audio_mudo_marca) { audio_mudo_marca = ahora ? ahora : 1; audio_mudo_credito = 0; }
-        Uint32 bytes_s = (Uint32)audio_spec.freq * audio_spec.channels * (Uint32)(bits_de(audio_spec.format) / 8);
-        audio_mudo_credito += (Uint64)(ahora - audio_mudo_marca) * bytes_s / 1000;
-        audio_mudo_marca = ahora;
-        for (int vezes = 0; vezes < 8 && audio_mudo_credito >= audio_bloco; vezes++) {
-            memset(audio_buf, audio_spec.silence, audio_bloco);
-            audio_spec.callback(audio_spec.userdata, audio_buf, (int)audio_bloco);
-            audio_mudo_credito -= audio_bloco;
-        }
-        if (audio_mudo_credito > 4u * audio_bloco) audio_mudo_credito = 0;   /* se paró mucho: no se recupera */
-        return;
-    }
+    if (audio_fd < 0) { audio_dar_mudo(); return; }
+    unsigned sis = audio_bloco * (unsigned)fmt_bytes(audio_fmt_sis) / (unsigned)fmt_bytes(audio_spec.format);
     for (int vezes = 0; vezes < 8; vezes++) {
         if (audio_pendente(audio_fd) >= AUDIO_ADIANTO_MS) return;
-        if (audio_livre(audio_fd) < (int)audio_bloco) return;
-        if (audio_spec.callback) {
-            memset(audio_buf, audio_spec.silence, audio_bloco);
-            audio_spec.callback(audio_spec.userdata, audio_buf, (int)audio_bloco);
-            audio_escrever(audio_fd, audio_buf, audio_bloco);
-        } else {
-            if (!fila_audio_n) return;
-            Uint32 n = fila_audio_n < audio_bloco ? fila_audio_n : audio_bloco;
-            audio_escrever(audio_fd, fila_audio, n);
-            memmove(fila_audio, fila_audio + n, fila_audio_n - n);
-            fila_audio_n -= n;
-        }
+        if (audio_livre(audio_fd) < (int)sis) return;
+        if (!audio_dar_bloque(1)) return;
     }
 }
 
@@ -3444,8 +3676,6 @@ void SDL_Quit(void)
  *   - el semáforo es el de la libsagui con espera con plazo;
  *   - SDL_GetCPUCount cuenta las CPU arrancadas (INFO_NUCLEOS, D157): sin --smp, una. */
 
-static int hay_hilos;   /* se creó algún hilo: desde entonces el audio solo se mueve en el principal */
-
 static int pid_proceso;  /* el tid del hilo principal es el pid del proceso */
 
 static int hilo_actual(void) { return thread_id(); }
@@ -3543,7 +3773,7 @@ int SDL_CondWaitTimeout(SDL_cond *c, SDL_mutex *m, Uint32 ms)
             if (c->avisos != visto) break;
             bombear_audio();
             if (c->avisos != visto) break;
-            if (ms == SDL_MUTEX_MAXWAIT && !hay_hilos) break;   /* sin hilos solo el audio avisa: se vuelve a mirar */
+            if (ms == SDL_MUTEX_MAXWAIT && !hay_hilos_programa) break;   /* sin hilos del programa nadie avisa: se vuelve a mirar (como antes del hilo de audio) */
         }
     } else if (ms == SDL_MUTEX_MAXWAIT) {
         while (c->avisos == visto) futex_esperar(&c->avisos, visto, 0);
@@ -3633,6 +3863,7 @@ SDL_Thread *SDL_CreateThreadWithStackSize(SDL_ThreadFunction fn, const char *nom
     h->fn = fn; h->datos = datos;
     sagui_sdl_strlcpy(h->nombre, nombre ? nombre : "SDL", sizeof h->nombre);
     if (!hay_hilos) { hay_hilos = 1; atomico_barreira(); }
+    hay_hilos_programa = 1;
     /* pila 0: la del kernel (1 MB con guarda, D186); si se pide más, una propia */
     h->t = thread_create(inicio_hilo_sdl, h, pila > 960u * 1024u ? (unsigned)pila : 0u);
     if (!h->t) { free(h); SDL_SetError("no se pudo crear el hilo"); return NULL; }

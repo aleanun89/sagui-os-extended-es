@@ -1,0 +1,17 @@
+# Un avión enemigo. Las variables var.patron, var.modelo y var.vida las pone partida.lua al crearlo.
+[Cuerpo Enemigo]
+forma = "circulo" 10
+capa = 4
+mascara = 0
+z = 2
+grupo = "enemigos"
+guion = "guiones/enemigo.lua"
+var.vida = 2
+[Sprite Dibujo padre=.]
+textura = "img/naves.png"
+cuadricula = 4 6
+fotograma = 5
+espejo_v = si
+[Area Choque padre=.]
+forma = "circulo" 9
+mascara = 2

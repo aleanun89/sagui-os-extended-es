@@ -323,6 +323,24 @@ int principal(int argc, char **argv)
         imprimir("  presentar en la pantalla (D432): %s; %u cuadros directos, %u por la RAM; pantalla en exclusiva: %s\n",
                  v.reservado[1] & G3D_CAP_APRESENTAR ? "si" : "no", v.reservado[3], v.reservado[4],
                  v.reservado[5] ? "una ventana la tiene" : "nadie");
+    /* D457: gpu3d v3 (la GPU guarda y transforma los vértices). */
+    if (v.estado == GPU3D_ATIVO) {
+        gpu3d_capas_t k;
+        gpu3d_pedido_t q;
+        memset(&k, 0, sizeof k); memset(&q, 0, sizeof q);
+        q.op = GPU3D_OP_CAPACIDADES; q.ptr = (unsigned)&k;
+        if (info_sistema(INFO_GPU3D_OP, &q, sizeof q) == 0) {
+            unsigned prova = k.reservado[0] & 0xFF, cena = (k.reservado[0] >> 8) & 0xFF, anunciado = k.reservado[0] >> 16;
+            if (!anunciado) imprimir("  vertices por la GPU (v3, D457): este driver no lo tiene; los transforma la CPU\n");
+            else if (prova == 1)
+                imprimir("  vertices por la GPU (v3, D457): si (bits 0x%x); %u buferes en la GPU (%u KB), %u expulsiones, %u dibujos desde buferes\n",
+                         k.bits3, k.reservado[1], k.reservado[2], k.reservado[3], k.reservado[4]);
+            else if (prova == 2)
+                imprimir("  vertices por la GPU (v3, D457): NO: su autoprueba fallo en la escena %u (el driver anuncia 0x%x): los transforma la CPU; "
+                         "\"gpu3d probar --detalle\" y dmesg dicen que pixel\n", cena, anunciado);
+            else imprimir("  vertices por la GPU (v3, D457): sin probar (el driver anuncia 0x%x)\n", anunciado);
+        }
+    }
     if (v.pontos) imprimir("  ultima medida: %u triangulos/s, %u kpix/s, %u puntos\n", v.tri_s, v.kpix_s, v.pontos);
     return 0;
 }

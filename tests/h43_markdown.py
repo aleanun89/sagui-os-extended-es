@@ -191,16 +191,50 @@ def parte_grafica():
         esperar_n(m, "markdown: fechado", 2)
 
         # ---- Archivos abre .md com o markdown
-        m.comando("arquivos /ejemplos")
+        # Una carpeta propia con un solo archivo: la fila es siempre la primera (en /ejemplos las carpetas
+        # nuevas empujan ejemplo.md fuera de la vista y una posición fija fallaba).
+        m.comando("mkdir -p /tmp/mdprueba")
+        m.comando("cp /ejemplos/ejemplo.md /tmp/mdprueba/ejemplo.md")
+        m.comando("arquivos /tmp/mdprueba")
         m.esperar_serial("arquivos: pronto", 20)
         time.sleep(0.5)
         a = janela(m.serial(), "Archivos")
-        base = os.path.join(RAIZ, "rootfs", "ejemplos")   # o Archivos põe as pastas primeiro (/ejemplos/mico, D075)
-        arqs = sorted(os.listdir(base), key=lambda n: (not os.path.isdir(os.path.join(base, n)), n))
-        i = arqs.index("ejemplo.md")
-        m.clique(a["x"] + 146 + 120, a["y"] + 70 + 2 + i * 20 + 8, duplo=True)
-        esperar_n(m, "markdown: aberto /ejemplos/ejemplo.md", 3)
+        m.clique(a["x"] + 146 + 120, a["y"] + 110, duplo=True)   # fila 0 (debajo de las dos barras y la ruta)
+        esperar_n(m, "markdown: aberto /tmp/mdprueba/ejemplo.md", 1)
         verificar(True, "duplo clique num .md no Archivos abre o markdown")
+        time.sleep(0.5)
+        m.tecla("alt-f4")            # cierra el markdown, luego el Archivos, y el foco vuelve al Terminal
+        time.sleep(0.8)
+        m.tecla("alt-f4")
+        time.sleep(0.8)
+        t = janela(m.serial(), "Terminal")
+        m.clique(t["x"] + 200, t["y"] + 200)
+        time.sleep(0.5)
+
+        # ---- imágenes (D455): un párrafo que es solo ![texto](ruta) se dibuja; si falta, queda el texto
+        m.comando("echo '# Prueba de imagenes' > /tmp/imgs.md")
+        m.comando("echo '' >> /tmp/imgs.md")
+        m.comando("echo '![Arranque de SaguiOS](/ayuda/sistemas-operativos/img/arranque.png)' >> /tmp/imgs.md")
+        m.comando("echo '' >> /tmp/imgs.md")
+        m.comando("echo '![Falta](/ayuda/sistemas-operativos/img/no-existe.png)' >> /tmp/imgs.md")
+        m.comando("echo '' >> /tmp/imgs.md")
+        m.comando("echo 'Texto despues de las imagenes.' >> /tmp/imgs.md")
+        m.comando("markdown /tmp/imgs.md")
+        esperar_n(m, "markdown: pronto (modo visor)", 3, 30)
+        s = m.serial()
+        r = re.findall(r"markdown: imagen /ayuda/sistemas-operativos/img/arranque\.png (\d+)x(\d+) dibujada a (\d+)x(\d+) en (\d+),(\d+)", s)
+        verificar(len(r) >= 1, "la imagen PNG se lee y se maqueta")
+        nl, na, dl, da, ix, iy = map(int, r[-1])
+        verificar(dl <= nl and dl <= 800 and da * nl == na * dl or abs(da * nl - na * dl) <= nl,
+                  f"escalada al ancho de la columna sin agrandar ({nl}x{na} -> {dl}x{da})")
+        verificar("markdown: imagen no legible /ayuda/sistemas-operativos/img/no-existe.png" in s,
+                  "una imagen que falta se queda como texto [imagen: ...]")
+        j = janela(s, "Markdown - sin nombre") if "Markdown - sin nombre" in s else janela(s, "Markdown - imgs.md")
+        m.mouse_para(j["x"] + 790, j["y"] + 300)
+        time.sleep(0.5)
+        m.captura("H43-imagenes")
+        m.tecla("alt-f4")
+        time.sleep(0.5)
 
 
 def main():

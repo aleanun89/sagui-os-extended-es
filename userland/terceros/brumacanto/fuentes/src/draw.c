@@ -113,6 +113,7 @@ static void flush(Batch *batch, GLenum mode)
     batch->count=0;
 }
 
+static char renderer_name[64];
 bool draw_init(const char *asset_dir)
 {
 #define LOAD(type,name,params) do { \
@@ -123,7 +124,9 @@ bool draw_init(const char *asset_dir)
     GL_FUNCTIONS(LOAD)
 #undef LOAD
     const char *version=(const char *)gl.GetString(GL_VERSION);
-    SDL_Log("Renderizador: %s (%s)", gl.GetString(GL_RENDERER), version ? version : "?");
+    const char *renderer=(const char *)gl.GetString(GL_RENDERER);
+    snprintf(renderer_name,sizeof(renderer_name),"%s",renderer ? renderer : "");
+    SDL_Log("Renderizador: %s (%s)", renderer ? renderer : "?", version ? version : "?");
     if (!version || strncmp(version,"OpenGL ES-CM 1.1",16)!=0) {
         SDL_SetError("Se necesita un contexto OpenGL ES-CM 1.1.");
         return false;
@@ -166,12 +169,13 @@ void draw_close(void)
     free(dynamic.data);
 }
 
-static int view_distance=VIEW_DISTANCE_MAX;
+static int view_distance=VIEW_DISTANCE_DEFAULT;
 void draw_set_view_distance(int distance)
 {
     view_distance=distance<VIEW_DISTANCE_MIN?VIEW_DISTANCE_MIN:distance>VIEW_DISTANCE_MAX?VIEW_DISTANCE_MAX:distance;
 }
 int draw_get_view_distance(void) { return view_distance; }
+const char *draw_renderer(void) { return renderer_name; }
 
 unsigned draw_error(void)
 {

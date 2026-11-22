@@ -8,6 +8,9 @@
  * ("America/Sao_Paulo") o una regla POSIX ("<-03>3"). */
 #include "sagui.h"
 
+#ifdef SAGUI_PORTABLE
+/* D459: en la capa portable (SDL 2) estas seis salen de janelas_sdl.c / sistema_sdl.c, sin llamadas al kernel. */
+#else
 static inline int chamar(unsigned n, unsigned a, unsigned b, unsigned c)
 {
     int r;
@@ -21,6 +24,7 @@ int  ler_rtc(data_t *d)            { return chamar(SIS_HORA, HORA_LER_RTC, (unsi
 int  ler_zona(config_zona_t *z)    { return chamar(SIS_ZONA, ZONA_LER, (unsigned)z, 0); }
 int  fixar_zona(const config_zona_t *z) { return chamar(SIS_ZONA, ZONA_FIXAR, (unsigned)z, 0); }
 int  datas_arquivo(const char *c, datas_arquivo_t *d) { return chamar(SIS_DATAS_ARQUIVO, (unsigned)c, (unsigned)d, 0); }
+#endif
 
 /* La zona del proceso, guardada hasta que cambien la TZ o la zona del sistema. */
 static fuso_t fuso;

@@ -47,19 +47,20 @@ $(B)/userland/bin/luac: $(B)/$(LUA_F)/luac.o $(B)/$(LUA_DIR)/principal_main.o $(
 	@$(PY) $(CHECK_ELF32) $@.elf
 
 # liblua.so.5.4 (enlace dinámico D378, para programas dinámicos que incrusten Lua): la misma biblioteca compilada
-# como PIC y enlazada contra libc.so.1 y libsagui.so.1; va a /apps/lib con las demás. /apps/lua/lua-din es el
+# como PIC y enlazada contra libc.so.1 y libsagui.so.1 (de /lib desde D462); va a /apps/lib. /apps/lua/lua-din es el
 # propio intérprete enlazado dinámicamente con ella (lo ejecuta h440).
 LUA_SO_PIC := $(patsubst %.o,%.pic.o,$(LUA_LIB_OBJ))
-LUA_SO := $(B)/lib-apps/liblua.so.5.4
+LUA_SO := $(SO_APPS_DIR)/liblua.so.5.4
+SO_APPS += $(LUA_SO)
 $(LUA_SO_PIC) $(B)/$(LUA_F)/lua.pic.o: $(B)/%.pic.o: %.c $(LUA_HDR) $(LIBC_HDR) $(LUA_DIR)/lua.mk
 	@mkdir -p $(dir $@)
 	$(CC) $(filter-out -fno-pic -fno-pie,$(LUA_FLAGS)) -fPIC -fno-tree-loop-distribute-patterns -c -o $@ $<
-$(LUA_SO): $(LUA_SO_PIC) $(B)/lib-apps/libc.so.1 $(B)/lib-apps/libsagui.so.1
+$(LUA_SO): $(LUA_SO_PIC) $(LIBC_SO) $(LIBSAGUI_SO)
 	@mkdir -p $(dir $@)
-	$(LD) $(SO_LDFLAGS) -soname liblua.so.5.4 -o $(B)/pic/liblua.so.5.4.elf $(LUA_SO_PIC) $(B)/lib-apps/libc.so.1 $(B)/lib-apps/libsagui.so.1
+	$(LD) $(SO_LDFLAGS) -soname liblua.so.5.4 -o $(B)/pic/liblua.so.5.4.elf $(LUA_SO_PIC) $(LIBC_SO) $(LIBSAGUI_SO)
 	strip --strip-unneeded -o $@ $(B)/pic/liblua.so.5.4.elf
 $(B)/lua-din/lua-din: $(B)/$(LUA_F)/lua.pic.o $(B)/$(LUA_DIR)/principal_main.o $(B)/userland/libsagui/inicio.asm.o $(LUA_SO)
-	$(call enlazar_dinamico,$(B)/$(LUA_F)/lua.pic.o $(B)/$(LUA_DIR)/principal_main.o,$(LUA_SO) $(B)/lib-apps/libc.so.1 $(B)/lib-apps/libsagui.so.1)
+	$(call enlazar_dinamico,$(B)/$(LUA_F)/lua.pic.o $(B)/$(LUA_DIR)/principal_main.o,$(LUA_SO) $(LIBC_SO) $(LIBSAGUI_SO))
 $(B)/apps/.feito: $(LUA_SO)
 
 # /apps/lua: ejemplos, léeme y licencia (el árbol de /apps lo arma APPS_RECURSOS)

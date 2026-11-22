@@ -1,0 +1,158 @@
+# Nivel 1 del ejemplo de plataformas (generado por tools/generar_nivel_plataformas.py y editable a mano).
+# Las casillas son índices de img/tilemap.png (18x18, 20 columnas); «.» es una celda vacía.
+[Nodo2D Nivel]
+guion = "guiones/nivel.lua"
+var.monedas_total = 24
+[Nodo2D Mundo padre=.]
+[MapaCasillas Terreno padre=Mundo]
+textura = "img/tilemap.png"
+casilla = 18 18
+tamano = 80 14
+solidas = 0 1 2 3 20 21 22 23 4 5 24 25
+capa = 1
+mascara = 1
+[capa decoracion solida=no]
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 125 . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . 85 . 126 . . . . 124 . . . 128 . . . . . . . . . . 125 . . . . . . 126 . . . . 87 . . . 127 . . . . . . . . . 124 . . 126 . . . . . . . 128 . . . . . . . . . . . . . . 126 . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+[capa suelo solida=si]
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 0 1 2 1 3 . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . 0 1 2 3 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20 21 21 22 23 . . . . . . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . 20 22 21 23 . . . . . . . . . . . . . . 0 1 2 3 . . . . . . . . . . . . . . . . . . . . . . . 0 2 3 . . . . . .
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20 21 21 23 . . . . . . . . . . . . . . . . . . . . . . . 20 21 23 . . . . . .
+0 1 2 1 2 1 2 1 2 1 2 1 2 1 2 1 2 3 . . . 0 2 1 2 1 2 1 2 1 2 1 2 1 3 . . . 0 1 2 1 2 1 20 21 22 23 2 1 2 1 2 1 2 3 . . . 0 2 1 2 1 2 1 2 1 2 1 2 1 2 1 2 1 2 1 2 3
+20 21 21 22 21 21 22 21 21 22 21 21 22 21 21 22 21 23 . . . 20 21 21 22 21 21 22 21 21 22 21 21 22 23 . . . 20 22 21 21 22 21 20 22 21 23 22 21 21 22 21 21 22 23 . . . 20 22 21 21 22 21 21 22 21 21 22 21 21 22 21 21 22 21 21 22 23
+20 21 22 21 21 22 21 21 22 21 21 22 21 21 22 21 21 23 . . . 20 21 22 21 21 22 21 21 22 21 21 22 21 23 . . . 20 21 21 22 21 21 20 21 21 23 21 21 22 21 21 22 21 23 . . . 20 21 21 22 21 21 22 21 21 22 21 21 22 21 21 22 21 21 22 21 23
+[Instancia Jugador escena="escenas/jugador.esc" padre=Mundo]
+posicion = 30 170
+[Instancia Moneda1 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 117 171
+[Instancia Moneda2 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 135 171
+[Instancia Moneda3 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 153 171
+[Instancia Moneda4 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 279 171
+[Instancia Moneda5 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 351 153
+[Instancia Moneda6 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 369 153
+[Instancia Moneda7 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 441 135
+[Instancia Moneda8 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 495 117
+[Instancia Moneda9 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 513 117
+[Instancia Moneda10 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 549 171
+[Instancia Moneda11 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 603 171
+[Instancia Moneda12 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 657 153
+[Instancia Moneda13 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 747 171
+[Instancia Moneda14 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 819 135
+[Instancia Moneda15 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 837 135
+[Instancia Moneda16 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 945 171
+[Instancia Moneda17 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 1035 153
+[Instancia Moneda18 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 1125 171
+[Instancia Moneda19 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 1179 99
+[Instancia Moneda20 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 1197 99
+[Instancia Moneda21 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 1215 99
+[Instancia Moneda22 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 1305 135
+[Instancia Moneda23 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 1341 171
+[Instancia Moneda24 escena="escenas/moneda.esc" padre=Mundo]
+posicion = 1359 171
+[Instancia Limo1 escena="escenas/enemigo.esc" padre=Mundo]
+posicion = 513 186
+[Instancia Limo2 escena="escenas/enemigo.esc" padre=Mundo]
+posicion = 855 150
+[Instancia Limo3 escena="escenas/enemigo.esc" padre=Mundo]
+posicion = 909 186
+[Instancia Limo4 escena="escenas/enemigo.esc" padre=Mundo]
+posicion = 1125 186
+[Instancia Limo5 escena="escenas/enemigo.esc" padre=Mundo]
+posicion = 1269 186
+[Instancia Murcielago1 escena="escenas/murcielago.esc" padre=Mundo]
+posicion = 405 117
+[Instancia Murcielago2 escena="escenas/murcielago.esc" padre=Mundo]
+posicion = 765 117
+[Instancia Murcielago3 escena="escenas/murcielago.esc" padre=Mundo]
+posicion = 1035 99
+[Area Meta padre=Mundo]
+posicion = 1377 162
+forma = "caja" 18 60
+mascara = 1
+guion = "guiones/meta.lua"
+[Sprite Bandera padre=Mundo/Meta]
+textura = "img/tilemap.png"
+cuadricula = 20 9
+fotograma = 111
+posicion = 0 18
+animacion = "ondear" 3 si 111 112
+animar = "ondear"
+[Camara2D Camara padre=Mundo]
+actual = si
+posicion = 160 126
+seguir = "../Jugador"
+suavizado = 6
+usar_limites = si
+limites = 0 0 1440 252
+[ReproductorAudio Musica padre=.]
+sonido = "audio/musica.wav"
+musica = si
+bucle = si
+volumen = 0.35
+autoreproducir = si
+[Etiqueta Puntos padre=.]
+posicion = 6 5
+texto = "Monedas: 0"
+fijo = si
+z = 10
+[Etiqueta Vidas padre=.]
+posicion = 6 17
+texto = "Vidas: 3"
+fijo = si
+z = 10
+[Etiqueta Mensaje padre=.]
+posicion = 160 70
+texto = ""
+alineado = "centro"
+escala_texto = 2
+fijo = si
+z = 10
+[Boton Reiniciar padre=.]
+posicion = 120 100
+tamano = 80 20
+texto = "Reiniciar"
+visible = no
+z = 10
+[Conexion desde=Reiniciar senal=presionado hacia=. metodo=_reiniciar]
