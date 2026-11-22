@@ -13,7 +13,55 @@ Hecho por Claude (Anthropic) para el proyecto de **Eli Rigobeli**,
 y mantenido por **Alejandro Anuncibay**, con mejoras escritas con Claude
 (Anthropic) y con un agente de IA (MiniMax Code).
 
+**SaguiOS-Extended: un proyecto de Alejandro Anuncibay** · [Sobre el proyecto y su autor](#el-proyecto-de-alejandro-anuncibay)
+
 </div>
+
+## El proyecto de Alejandro Anuncibay
+
+SaguiOS-Extended empezó en noviembre de 2026 como una traducción del SaguiOS de Eli Rigobeli, y hoy es
+otro sistema. El original, que sigue siendo la base y el punto de partida (y al que hay que visitar),
+era un sistema de seis fases con unas 17.000 líneas de código que arrancaba en un Lenovo G470.
+**SaguiOS-Extended lo idea, lo dirige y lo prueba Alejandro Anuncibay**: él decide qué se hace, en qué
+orden y cómo tiene que funcionar, y lo comprueba en sus propios ordenadores antes de darlo por bueno.
+El código de las mejoras se escribe con Claude (Anthropic) bajo su dirección.
+
+**En cifras** (v8.5.6):
+
+| | SaguiOS original | SaguiOS-Extended |
+| --- | --- | --- |
+| Código propio (arranque, kernel, programas) | unas 17.000 líneas | más de 450.000 líneas |
+| Decisiones de diseño escritas ([`docs/decisoes.md`](docs/decisoes.md)) | las de las seis fases | más de 440 |
+| Pruebas automáticas en QEMU | 39 | casi 400 ([`tests/`](tests/)) |
+| Hardware | un portátil (Lenovo G470) | portátiles y PC de 2006 a hoy, por BIOS y UEFI |
+
+**Lo que ha traído su dirección**, entre otras cosas:
+
+- **Hardware real**: arranque por UEFI, discos NVMe y AHCI, USB 3, varios núcleos, ACPI con batería, brillo
+  y teclas de los portátiles, red Ethernet y Wi-Fi, sonido, y **drivers de GPU con aceleración 2D y 3D**
+  para Radeon (X1000, HD 2000-7000) e Intel, probados uno a uno en sus portátiles (Fujitsu Amilo, HP dv7,
+  Dell, Lenovo, Toshiba…). Con un foco claro: **que los equipos antiguos vuelvan a ser útiles**.
+- **Un sistema para usar**: suite de oficina (Pluma, Macaco), Archivos renovado, correo, navegador, IA
+  local, estilos de escritorio, usuarios y permisos, instalador, y aplicaciones que se publican también por
+  separado para Linux.
+- **Un sistema para aprender y programar**: C (TCC y un compilador propio), Python, Lua, Java, Pascal,
+  Go, la programación por bloques de Jabuti, la aplicación **Ayuda** con manuales y un **curso de
+  Fundamentos de Sistemas Operativos** explicado con el propio código de SaguiOS.
+- **Juegos y motores propios**: **AoEN**, su motor de estrategia en tiempo real estilo Age of Empires (con
+  dibujo por la GPU y multijugador en red local); **Brumacanto**, un juego de vóxeles; y **Capibara**, un
+  motor de juegos 2D con su editor visual. Además de los juegos libres portados (Quake, DOOM, Freeciv…).
+- **Una forma de trabajar**: cada cambio con su decisión escrita, su prueba automática y su prueba en
+  hardware real; publicaciones con licencia GPL v3 y código fuente completo.
+
+**Aplicaciones del proyecto en repositorios propios** (GPL v3, también para Linux):
+[Brumacanto](https://github.com/aleanun89/brumacanto), [Mico](https://github.com/aleanun89/mico),
+[Pluma](https://github.com/aleanun89/pluma), [Macaco](https://github.com/aleanun89/macaco),
+[Tucán](https://github.com/aleanun89/tucan), [Paint](https://github.com/aleanun89/paint),
+[PlanoMini](https://github.com/aleanun89/planomini), [GebraMini](https://github.com/aleanun89/gebramini) (a
+partir de un prototipo suyo en C++) y [VisualPythonS](https://github.com/aleanun89/visualpythons).
+
+Para hablar del proyecto, proponer ideas o avisar de fallos: las
+[Issues](https://github.com/aleanun89/sagui-os-extended-es/issues) de este repositorio.
 
 ## Empezar en 5 minutos
 

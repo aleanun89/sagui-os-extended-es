@@ -1,4 +1,4 @@
-<!-- Traducción de README.md en el commit 7ed8bff4 (sincronía: tools/readme_sincronia.py) -->
+<!-- Traducción de README.md en el commit af8795a4 (sincronía: tools/readme_sincronia.py) -->
 <div align="center">
 
 # 🐒 SaguiOS-Extended
@@ -14,7 +14,55 @@ Feito pelo Claude (Anthropic) para o projeto de **Eli Rigobeli**,
 e mantido por **Alejandro Anuncibay**, com melhorias escritas com o Claude
 (Anthropic) e com um agente de IA (MiniMax Code).
 
+**SaguiOS-Extended: um projeto de Alejandro Anuncibay** · [Sobre o projeto e seu autor](#o-projeto-de-alejandro-anuncibay)
+
 </div>
+
+## O projeto de Alejandro Anuncibay
+
+SaguiOS-Extended começou em novembro de 2026 como uma tradução do SaguiOS de Eli Rigobeli, e hoje é outro
+sistema. O original, que continua sendo a base e o ponto de partida (e vale a pena visitá-lo), era um sistema
+de seis fases com umas 17.000 linhas de código que iniciava em um Lenovo G470.
+**SaguiOS-Extended é idealizado, dirigido e testado por Alejandro Anuncibay**: ele decide o que se faz, em que
+ordem e como tem que funcionar, e verifica nos seus próprios computadores antes de dar como bom.
+O código das melhorias é escrito com o Claude (Anthropic) sob a sua direção.
+
+**Em números** (v8.5.6):
+
+| | SaguiOS original | SaguiOS-Extended |
+| --- | --- | --- |
+| Código próprio (inicialização, kernel, programas) | umas 17.000 linhas | mais de 450.000 linhas |
+| Decisões de projeto escritas ([`docs/decisoes.md`](docs/decisoes.md)) | as das seis fases | mais de 440 |
+| Testes automáticos no QEMU | 39 | quase 400 ([`tests/`](tests/)) |
+| Hardware | um notebook (Lenovo G470) | notebooks e PCs de 2006 até hoje, por BIOS e UEFI |
+
+**O que trouxe a sua direção**, entre outras coisas:
+
+- **Hardware real**: inicialização por UEFI, discos NVMe e AHCI, USB 3, vários núcleos, ACPI com bateria, brilho
+  e teclas dos notebooks, rede Ethernet e Wi-Fi, som, e **drivers de GPU com aceleração 2D e 3D** para Radeon
+  (X1000, HD 2000-7000) e Intel, testados um a um nos seus notebooks (Fujitsu Amilo, HP dv7, Dell, Lenovo,
+  Toshiba…). Com um foco claro: **que os equipamentos antigos voltem a ser úteis**.
+- **Um sistema para usar**: suíte de escritório (Pluma, Macaco), Archivos renovado, e-mail, navegador, IA
+  local, estilos de área de trabalho, usuários e permissões, instalador, e aplicativos que também são publicados
+  separadamente para Linux.
+- **Um sistema para aprender e programar**: C (TCC e um compilador próprio), Python, Lua, Java, Pascal,
+  Go, a programação por blocos Jabuti, o aplicativo **Ajuda** com manuais e um **curso de
+  Fundamentos de Sistemas Operacionais** explicado com o próprio código do SaguiOS.
+- **Jogos e motores próprios**: **AoEN**, seu motor de estratégia em tempo real estilo Age of Empires (com
+  desenho pela GPU e multijogador em rede local); **Brumacanto**, um jogo de voxels; e **Capibara**, um
+  motor de jogos 2D com seu editor visual. Além dos jogos livres portados (Quake, DOOM, Freeciv…).
+- **Uma forma de trabalhar**: cada mudança com sua decisão escrita, seu teste automático e seu teste em
+  hardware real; publicações com licença GPL v3 e código-fonte completo.
+
+**Aplicativos do projeto em repositórios próprios** (GPL v3, também para Linux):
+[Brumacanto](https://github.com/aleanun89/brumacanto), [Mico](https://github.com/aleanun89/mico),
+[Pluma](https://github.com/aleanun89/pluma), [Macaco](https://github.com/aleanun89/macaco),
+[Tucán](https://github.com/aleanun89/tucan), [Paint](https://github.com/aleanun89/paint),
+[PlanoMini](https://github.com/aleanun89/planomini), [GebraMini](https://github.com/aleanun89/gebramini) (a
+partir de um protótipo seu em C++) e [VisualPythonS](https://github.com/aleanun89/visualpythons).
+
+Para falar do projeto, propor ideias ou avisar de falhas: as
+[Issues](https://github.com/aleanun89/sagui-os-extended-es/issues) deste repositório.
 
 ## Começar em 5 minutos
 
