@@ -53,6 +53,7 @@ typedef struct {
     unsigned  estilo;
     int       min_l, min_a;
     int       estado;   /* JAN_ESTADO_* */
+    unsigned  ordem;    /* orden de creación (la ventana de encima es la de mayor ordem) */
     menu_t    menu;
 } jan_sis_t;
 
@@ -415,6 +416,8 @@ int criar_janela(const char *titulo, int largura, int altura, uint32_t **pixels)
     j->vis = aloca_zerado((size_t)largura * (size_t)altura * 4);
     if (!j->px || !j->vis) { libera(j->px); libera(j->vis); SDL_DestroyRenderer(j->r); SDL_DestroyWindow(j->w); return ERRO_SEM_MEMORIA; }
     textura_nova(j);
+    static unsigned seq;
+    j->ordem = ++seq;
     j->usada = 1;
     if (pixels) *pixels = j->px;
     return i + 1;
@@ -696,6 +699,14 @@ static int roteiro_proximo(jan_sis_t *j, evento_t *e)
         roteiro_pend[roteiro_pend_n++] = (evento_t){ .tipo = EV_SOLTOU, .x = a, .y = b, .botoes = bt };   /* el soltar sale justo después */
         return 1;
     }
+    if (sscanf(l, "duplo %d %d %d", &a, &b, &c) >= 2) {   /* doble clic: dos pulsaciones, la segunda con cliques = 2 */
+        unsigned bt = sscanf(l, "duplo %d %d %d", &a, &b, &c) == 3 ? (unsigned)c : 1u;
+        e->tipo = EV_CLIQUE; e->x = a; e->y = b; e->cliques = 1; e->botoes = bt;
+        roteiro_pend[roteiro_pend_n++] = (evento_t){ .tipo = EV_SOLTOU, .x = a, .y = b, .botoes = bt };
+        roteiro_pend[roteiro_pend_n++] = (evento_t){ .tipo = EV_CLIQUE, .x = a, .y = b, .cliques = 2, .botoes = bt };
+        roteiro_pend[roteiro_pend_n++] = (evento_t){ .tipo = EV_SOLTOU, .x = a, .y = b, .botoes = bt };
+        return 1;
+    }
     {   /* arrastar x1 y1 x2 y2 [boton]: pulsar, 8 movimientos con el botón apretado y soltar */
         int x1, y1, x2, y2, bt = 1;
         if (sscanf(l, "arrastar %d %d %d %d %d", &x1, &y1, &x2, &y2, &bt) >= 4) {
@@ -729,6 +740,19 @@ static int sacar(jan_sis_t *j, evento_t *e)
 
 static int algum_evento(int id, evento_t *e)
 {
+    if (id == 0) {
+        /* id 0 en la ABI: el evento de cualquier ventana del programa (el MicroPython de SaguiOS, D459/VisualPythonS).
+         * Primero lo que ya esta en las colas; el guion habla con la ventana de encima (la ultima creada). */
+        bombear();
+        jan_sis_t *top = NULL;
+        for (int i = 0; i < JAN_MAX; i++) {
+            if (!J[i].usada) continue;
+            if (sacar(&J[i], e)) { e->janela = i + 1; return 1; }
+            if (!top || J[i].ordem > top->ordem) top = &J[i];
+        }
+        if (!top) return 0;
+        id = (int)(top - J) + 1;
+    }
     jan_sis_t *j = por_id(id);
     if (!j) return 0;
     bombear();

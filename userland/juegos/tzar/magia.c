@@ -90,6 +90,14 @@ static void parametros(const TzMundo *m, const TzObj *o, const char *k, int *alc
 	*alc = a; *mana = mn;
 }
 
+/* D470: el alcance y el maná de un hechizo para la unidad (la IA decide con ellos) */
+void tz_feitico_parametros(const TzMundo *m, TzId i, const char *k, int *alc, int *mana)
+{
+	const TzObj *o = tz_mundo_obj((TzMundo *)m, i);
+	*alc = 0; *mana = 0;
+	if (o && k) parametros(m, o, k, alc, mana);
+}
+
 int tz_efeito(const TzMundo *m, const TzObj *o, int ef)
 {
 	return o->ator && o->ator->efeito == ef && m->tic < o->ator->efeito_ate;
@@ -102,6 +110,46 @@ static void por_efeito(TzMundo *m, TzId j, int ef, uint32_t tics)
 	t->ator->efeito = (uint8_t)ef;
 	t->ator->efeito_ate = m->tic + tics;
 	tz_recalcular(m, j);
+}
+
+/* spell_soulbind (0x473403): el objetivo sigue siendo de su dueño y una piedra del alma ligada a él aparece en el inventario de
+ * quien lo lanza (si no cabe, no pasa nada) */
+static void ligar_alma(TzMundo *m, TzId i, TzId j)
+{
+	TzObj *o = &m->obj[i];
+	if (!o->ator || j == i || o->ator->nitens >= tz_mundo_capacidade_itens(m, i)) return;
+	TzId g = tz_novo_obj(m, TZC_ITEM_ALMA, o->civ, 0, o->cx, o->cy, 0);
+	if (g < 0) return;
+	o = &m->obj[i];
+	TzObj *s = &m->obj[g];
+	s->item.ligado = j + 1;
+	s->flags |= TZ_F_CARREGADO;
+	s->dentro_de = i;
+	o->ator->nitens++;
+	tz_ev(m, TZ_EV_ITEM, o->dono, i, g, o->cx, o->cy, TZC_ITEM_ALMA, 1);
+}
+
+/* las piedras ligadas a una unidad que muere desaparecen (0x4e219f, 0x465440) */
+void tz_almas_morrer(TzMundo *m, TzId i)
+{
+	for (int q = 0; q < m->nobj; ++q) {
+		TzObj *s = &m->obj[q];
+		if (s->classe == TZC_ITEM_ALMA && s->item.ligado == i + 1 && !(s->flags & TZ_F_INATIVO)) tz_item_gastar(m, q);
+	}
+}
+
+/* órdenes de la piedra (0x465340): actúan sobre la unidad ligada, con la piedra llevada o en el suelo; quien la lleva da el golpe */
+void tz_alma_comando(TzMundo *m, const TzComando *c)
+{
+	if (c->nids < 1 || c->ids[0] < 0 || c->ids[0] >= m->nobj) return;
+	TzObj *s = &m->obj[c->ids[0]];
+	if (s->classe != TZC_ITEM_ALMA || (s->flags & (TZ_F_INATIVO | TZ_F_MORTO))) return;
+	TzId h = (s->flags & TZ_F_CARREGADO) ? s->dentro_de : TZ_NENHUM;
+	if (h >= 0 && m->obj[h].dono != c->reino) { tz_falha("el inventario no es de tu reino"); return; }
+	TzId b = s->item.ligado - 1;
+	if (b < 0 || b >= m->nobj || !tz_obj_vivo(&m->obj[b])) { tz_falha("el alma ligada ya no existe"); return; }
+	if (c->arg == 0) tz_dano(m, b, 10000, 3, h);
+	else por_efeito(m, b, TZ_EF_FURIA, 30 * TZ_TICS_SEG);
 }
 
 static void ferir_area(TzMundo *m, TzId de, int cx, int cy, int raio, uint32_t dano)
@@ -378,6 +426,7 @@ void tz_hechizo_tic(TzMundo *m, TzId i)
 		TzObj *t = &m->obj[j];
 		if (t->ator && tz_obj_unidade(t)) { t->ator->invisivel_ate = m->tic + (o->classe == TZC_NINJA ? 40u : 900u); tz_recalcular(m, j); }
 	} else if (!strcmp(k, "spell_whirlpool")) remoinho(m, i, tx, ty);
+	else if (!strcmp(k, "spell_soulbind") && j >= 0) ligar_alma(m, i, j);
 	else if (!strcmp(k, "spell_raisedead")) alzar_mortos(m, i);
 	else if (!strcmp(k, "spell_raiseexp") && j >= 0) {
 		const TzObj *t = &m->obj[j];

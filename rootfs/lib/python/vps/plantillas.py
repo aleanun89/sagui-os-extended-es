@@ -3,14 +3,14 @@
 # Cada plantilla es (formularios, código): el modelo de proyecto.leer_vpf y el codigo.py.
 
 
-def _c(tipo, nombre, x, y, ancho=None, alto=None, padre=None, **props):
+def _c(clase, nombre, x, y, ancho=None, alto=None, padre=None, **props):
     import vps
     p = dict(props)
     p["x"], p["y"] = x, y
-    tam = vps.TIPOS[tipo].TAM
+    tam = vps.TIPOS[clase].TAM
     p["ancho"] = ancho if ancho is not None else tam[0]
     p["alto"] = alto if alto is not None else tam[1]
-    return {"tipo": tipo, "nombre": nombre, "padre": padre, "props": p}
+    return {"tipo": clase, "nombre": nombre, "padre": padre, "props": p}
 
 
 def _f(texto, ancho, alto, controles, nombre="Formulario"):
@@ -661,6 +661,212 @@ def CuadroTexto2_intro():
     return _f("Validar al perder el foco", 330, 200, c), codigo
 
 
+def ejemplo_notificaciones():
+    c = [_c("Etiqueta", "Etiqueta1", 12, 12, 60, 20, texto="Nota:"),
+         _c("CuadroTexto", "CuadroTexto1", 76, 8, 292, 22, texto="Comprar pan"),
+         _c("Boton", "Boton1", 12, 44, 110, 28, texto="Guardar"),
+         _c("Boton", "Boton2", 130, 44, 110, 28, texto="Guardar mal"),
+         _c("Boton", "Boton3", 12, 80, 110, 28, texto="Aviso"),
+         _c("Boton", "Boton4", 130, 80, 110, 28, texto="Informar"),
+         _c("Etiqueta", "Etiqueta2", 12, 124, 356, 20, texto="Último aviso cerrado: ninguno"),
+         _c("Notificacion", "Notificacion1", 340, 76, tipo="exito", titulo="Guardado", duracion=8000,
+            accion="Deshacer", texto="Nota guardada")]
+    codigo = '''# Notificaciones: avisos tipo toast, no modales, que aparecen en una esquina del formulario, se apilan
+# y se van solos. notificar(texto, tipo, duracion, titulo) los crea desde el código; el control
+# Notificacion los deja ya configurados (con un botón «Deshacer» que dispara su evento accion).
+import os
+
+ARCHIVO = "/home/nota-toast.txt" if os.path.isdir("/home") else "/tmp/nota-toast.txt"
+anterior = ""
+
+
+def leer():
+    try:
+        f = open(ARCHIVO)
+        t = f.read()
+        f.close()
+        return t
+    except OSError:
+        return ""
+
+
+def escribir(ruta, texto):
+    f = open(ruta, "w")
+    f.write(texto)
+    f.close()
+
+
+def Boton1_click():
+    global anterior
+    anterior = leer()
+    escribir(ARCHIVO, CuadroTexto1.texto)
+    Notificacion1.mostrar("Nota guardada")
+
+
+def Boton2_click():
+    try:
+        escribir("/no-existe/nota.txt", CuadroTexto1.texto)
+    except Exception:
+        notificar("No se pudo guardar la nota", "error", 0, "Error al guardar")
+
+
+def Boton3_click():
+    notificar("La nota está vacía", "aviso", 6000, "Atención")
+
+
+def Boton4_click():
+    notificar("Los avisos se apilan en la esquina", "info", 4000)
+
+
+def Notificacion1_accion():
+    escribir(ARCHIVO, anterior)
+    CuadroTexto1.texto = anterior
+    notificar("Cambio deshecho", "info", 2000)
+
+
+def Notificacion1_cerrado():
+    Etiqueta2.texto = "Último aviso cerrado: " + Notificacion1.motivo
+'''
+    return _f("Notificaciones", 384, 280, c), codigo
+
+
+def ejemplo_agenda_carpetas():
+    c = [_c("Arbol", "Arbol1", 8, 8, 170, 176,
+            nodos=["Trabajo", "  Reuniones", "  Informes", "Personal", "  Familia", "  Salud"]),
+         _c("Boton", "Boton2", 8, 190, 170, 26, texto="Carpeta nueva..."),
+         _c("Calendario", "Calendario1", 186, 8, 196, 170, minimo="2026-01-01"),
+         _c("Boton", "Boton1", 186, 190, 196, 26, texto="Guardar nota"),
+         _c("Etiqueta", "Etiqueta1", 392, 8, 160, 20, texto="Elige una carpeta"),
+         _c("Etiqueta", "Etiqueta2", 392, 28, 160, 20),
+         _c("CuadroTexto", "CuadroTexto1", 392, 52, 160, 164, multilinea=True),
+         _c("BarraEstado", "BarraEstado1", 0, 240, 560, 22, texto="Notas guardadas: 0")]
+    codigo = '''# Agenda por carpetas: un Arbol con las carpetas, un Calendario con el día y una nota por cada pareja.
+notas = {}
+
+
+def clave_nota():
+    return "%s|%s" % (Arbol1.clave, Calendario1.valor)
+
+
+def mostrar_nota():
+    if Arbol1.clave is None:
+        Etiqueta1.texto = "Elige una carpeta"
+        Etiqueta2.texto = ""
+        CuadroTexto1.texto = ""
+        return
+    Etiqueta1.texto = Arbol1.ruta()
+    Etiqueta2.texto = Calendario1.valor
+    CuadroTexto1.texto = notas.get(clave_nota(), "")
+    BarraEstado1.texto = "Notas guardadas: %d" % len(notas)
+
+
+def Formulario_cargar():
+    Calendario1.hoy()
+    Arbol1.elegir("Reuniones")
+    mostrar_nota()
+
+
+def Arbol1_seleccion():
+    mostrar_nota()
+
+
+def Arbol1_doble_click():
+    Arbol1.alternar(Arbol1.clave)
+
+
+def Calendario1_cambio():
+    mostrar_nota()
+
+
+def Boton1_click():
+    if Arbol1.clave is None:
+        notificar("Elige una carpeta primero", "aviso")
+        return
+    texto = CuadroTexto1.texto.strip()
+    if texto:
+        notas[clave_nota()] = texto
+        notificar("Nota guardada en " + Arbol1.ruta(), "exito")
+    else:
+        notas.pop(clave_nota(), None)
+        notificar("Nota vacía: no se guarda", "info")
+    mostrar_nota()
+
+
+def Boton2_click():
+    nombre = inputbox("Nombre de la carpeta nueva:", "Carpeta nueva")
+    if nombre:
+        Arbol1.elegir(Arbol1.agregar(Arbol1.clave, nombre))
+        mostrar_nota()
+'''
+    return _f("Agenda por carpetas", 560, 262, c), codigo
+
+
+def ejemplo_graficos():
+    c = [_c("Grafico", "Grafico1", 8, 8, 350, 240, tipo="barras", titulo="Ventas por mes",
+            categorias=["Ene", "Feb", "Mar", "Abr", "May", "Jun"], formato="#,##0",
+            series=["2025: 120; 150; 90; 180; 140; 200", "2026: 150; 170; 130; 210; 190; 240"]),
+         _c("Grafico", "Grafico2", 366, 8, 340, 240, tipo="lineas", titulo="Evolución", suave=True,
+            categorias=["L", "M", "X", "J", "V", "S", "D"],
+            series=["Visitas: 20; 35; 30; 50; 45; 70; 65", "Altas: 5; 12; 9; 20; 18; 30; 28"]),
+         _c("Grafico", "Grafico3", 8, 256, 350, 220, tipo="tarta", titulo="Reparto por zona", valores=True,
+            leyenda="derecha", duracion=2500, categorias=["Norte", "Sur", "Este", "Oeste"], series=["Reparto: 40; 25; 20; 15"]),
+         _c("Grafico", "Grafico4", 366, 256, 340, 180, tipo="area", titulo="En vivo", ventana=30, puntos=False,
+            leyenda="ninguna", minimo="0", maximo="100", series=["Carga: 10"]),
+         _c("Etiqueta", "Etiqueta1", 366, 444, 340, 20, texto="Pulsa una barra, un punto o una porción"),
+         _c("Boton", "Boton1", 366, 468, 100, 26, texto="Exportar"),
+         _c("Boton", "Boton2", 474, 468, 120, 26, texto="Nuevos datos"),
+         _c("Temporizador", "Temporizador1", 640, 468, intervalo=400, activo=True)]
+    codigo = '''# Gráficos: cuatro Grafico (barras, líneas suaves, tarta y un monitor en vivo con ventana deslizante).
+# Cada Grafico se anima solo al aparecer y al cambiar los datos; el ratón resalta y enseña un tooltip, un clic
+# lanza «click» con serie, indice, valor y categoria, y pulsar la leyenda oculta o muestra una serie.
+vivo = [12, 18, 25, 40, 55, 70, 62, 48, 35, 30, 44, 60, 82, 90, 76, 58, 41, 28, 20, 33]
+paso = 0
+juego = 0
+JUEGOS = [[200, 120, 260, 90, 300, 150], [90, 180, 120, 240, 160, 220]]
+
+
+def Grafico1_click():
+    Etiqueta1.texto = "%s, %s: %s" % (Grafico1.nombre_serie, Grafico1.categoria, Grafico1.valor)
+    print("grafico-click: %s %d %d %g" % (Grafico1.nombre, Grafico1.serie, Grafico1.indice, Grafico1.valor))
+
+
+def Grafico2_click():
+    Etiqueta1.texto = "%s el %s: %s" % (Grafico2.nombre_serie, Grafico2.categoria, Grafico2.valor)
+
+
+def Grafico3_click():
+    Etiqueta1.texto = "%s: %s" % (Grafico3.categoria, Grafico3.valor)
+
+
+def Grafico1_pasar():
+    Etiqueta1.texto = "Sobre %s (%s)" % (Grafico1.categoria, Grafico1.nombre_serie)
+
+
+def Grafico1_leyenda():
+    print("grafico-leyenda: serie %d oculta=%s" % (Grafico1.serie, Grafico1.oculta))
+
+
+def Temporizador1_tic():
+    global paso
+    Grafico4.agregar_punto(vivo[paso % len(vivo)])
+    paso += 1
+
+
+def Boton1_click():
+    Grafico1.exportar("/tmp/grafico-ventas.png", 640, 400)
+    Etiqueta1.texto = "Exportado a /tmp/grafico-ventas.png"
+    print("grafico-exportado")
+
+
+def Boton2_click():
+    global juego
+    juego = 1 - juego
+    Grafico1.poner_datos(JUEGOS[juego], 1)
+    Grafico3.poner_datos([10 + 30 * juego, 25, 20 + 20 * (1 - juego), 15])
+'''
+    return _f("Gráficos", 720, 520, c), codigo
+
+
 PLANTILLAS = [("Proyecto vacío", vacia), ("Hola mundo", hola_mundo),
               ("Calculadora sencilla", calculadora), ("Lista de tareas", lista_tareas),
               ("Cronómetro", cronometro), ("Visor de imágenes", visor_imagenes),
@@ -671,4 +877,6 @@ PLANTILLAS = [("Proyecto vacío", vacia), ("Hola mundo", hola_mundo),
               ("Selector de color", ejemplo_selector_color), ("Reloj", ejemplo_reloj), ("Archivo", ejemplo_archivo),
               ("Guardar al cerrar", ejemplo_guardar_cerrar), ("Botón y ratón", ejemplo_boton_raton),
               ("Validar al perder el foco", ejemplo_validar_foco), ("Editor de notas", ejemplo_selectores),
-              ("Fecha y fuente", ejemplo_fecha_fuente)]
+              ("Fecha y fuente", ejemplo_fecha_fuente),
+              ("Notificaciones", ejemplo_notificaciones), ("Agenda por carpetas", ejemplo_agenda_carpetas),
+              ("Gráficos", ejemplo_graficos)]

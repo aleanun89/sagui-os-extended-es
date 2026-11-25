@@ -1045,6 +1045,22 @@ static void converter(Ctx *c, int at)
 	oferecer(c, inicios, n);
 }
 
+int tz_guiao_historia_texto(TzGuiao *g, const char *texto, const char *retrato, const char *som, const char *musica, uint32_t ms, int fecha)
+{
+	if (g->modal) return -1;
+	TzMensagem *ms_ = &g->msg;
+	memset(ms_, 0, sizeof *ms_);
+	copiar(ms_->texto, sizeof ms_->texto, texto);
+	copiar(ms_->retrato, sizeof ms_->retrato, retrato);
+	TzPedido *p = pedir(g, TZ_PD_HISTORIA);
+	copiar(p->som, sizeof p->som, som);
+	copiar(p->musica, sizeof p->musica, musica);
+	p->ms = ms;
+	p->fecha = fecha;
+	g->modal = 1;
+	return 0;
+}
+
 void tz_guiao_fechar(TzMundo *m, TzGuiao *g)
 {
 	(void)m;

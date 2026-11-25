@@ -275,7 +275,7 @@ void tz_experiencia(TzMundo *m, TzId i, int pontos, int propagar)
 		int bb = 5 * tz_pesquisas(m, k, "te_bodybuilding");
 		if (bb) { o->vida_max += bb; o->vida += bb; if (o->vida > o->vida_max) o->vida = o->vida_max; }
 	}
-	if (!(o->flags & TZ_F_HEROI)) { if (o->nivel >= 12) o->flags |= TZ_F_HEROI; }
+	if (!(o->flags & TZ_F_HEROI)) { if (o->nivel >= 12) tz_heroi_promover(m, i); }
 	else if (propagar && k >= 1 && k <= 8 && tz_pesquisas(m, k, "te_nobility")) {
 		int vis = o->visao;
 		for (int q = 0; q < m->nobj; ++q) {
@@ -712,6 +712,7 @@ void tz_matar(TzMundo *m, TzId i, TzId por)
 	}
 	tz_marcar(m, i, 0);
 	tz_largar_itens(m, i);
+	tz_almas_morrer(m, i);
 	/* los que van dentro mueren con él (barco) o salen (edificio) */
 	for (int j = 0; j < m->nobj; ++j) {
 		TzObj *q = &m->obj[j];
@@ -1014,10 +1015,36 @@ int tz_mundo_area(const TzMundo *m, int x0, int y0, int x1, int y1, int filtro, 
 	return n;
 }
 
+/* Promoción (0x506d60, 0x4999d0): la marca de héroe y, sin nombre aún, el primer nombre de la tabla que sirva a su civilización y
+ * no se haya dado ya (los nombres no se repiten en la partida). Sin tabla o agotada, queda sin nombre («Héroe»). */
+void tz_heroi_promover(TzMundo *m, TzId i)
+{
+	TzObj *o = &m->obj[i];
+	o->flags |= TZ_F_HEROI;
+	if (o->heroi_nome || !m->cat) return;
+	uint16_t civs = o->civ >= 1 && o->civ <= 3 ? (uint16_t)(1u << o->civ) : 0xffff;
+	for (int q = 0; q < m->cat->nherois; ++q) {
+		if (m->herois_usados[q >> 3] & (1u << (q & 7)) || !(m->cat->herois[q].civs & civs)) continue;
+		m->herois_usados[q >> 3] |= (uint8_t)(1u << (q & 7));
+		o->heroi_nome = (uint8_t)(q + 1);
+		return;
+	}
+}
+
+const char *tz_heroi_nome(const TzMundo *m, const TzObj *o)
+{
+	return o && o->heroi_nome && m->cat && o->heroi_nome <= m->cat->nherois ? m->cat->herois[o->heroi_nome - 1].nome : NULL;
+}
+
 /* coste con las rebajas de las investigaciones (gameplay.rs Catalog::stats) */
 void tz_mundo_custo_classe(const TzMundo *m, int k, int classe, uint32_t custo[TZ_NREC], uint32_t *tempo_ms)
 {
-	int civ = k >= 1 && k <= 8 ? m->reino[k].civ : 1;
+	tz_mundo_custo_classe_civ(m, k, classe, k >= 1 && k <= 8 ? m->reino[k].civ : 1, custo, tempo_ms);
+}
+
+/* igual con la civilización de la unidad (las ofertas de la taberna son de cualquiera) */
+void tz_mundo_custo_classe_civ(const TzMundo *m, int k, int classe, int civ, uint32_t custo[TZ_NREC], uint32_t *tempo_ms)
+{
 	const TzAtributos *a = tz_catalogo_at(m->cat, classe, civ);
 	memcpy(custo, a->custo, sizeof a->custo);
 	uint32_t t = a->tempo_ms;
@@ -1247,6 +1274,7 @@ void tz_mundo_objeto_mapa(const TzMundo *m, TzId i, TzObjeto *out)
 	out->y = (uint16_t)(o->cy < 0 ? 0 : o->cy);
 	out->dono = o->dono;
 	if (tz_obj_unidade(o)) out->variante = (uint16_t)(0x8000 | (o->direcao & 7));
+	if (o->item.imagem[0]) snprintf(out->imagem, sizeof out->imagem, "%s", o->item.imagem);
 	out->vida = (uint16_t)(o->vida > 65535 ? 65535 : o->vida < 0 ? 0 : o->vida);
 	out->vida_max = (uint16_t)(o->vida_max > 65535 ? 65535 : o->vida_max);
 }

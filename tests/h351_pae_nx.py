@@ -92,7 +92,7 @@ def com_pae(nome, memoria, et, k, mb, imagem=None, nucleos=1, firmware=None, ext
         verificar(sups and max(sups) > 1000, f"[{et}] páginas por encima de 4 GB en uso: {max(sups) if sups else -1} MB")
         f1, _ = free_m(m)
         verificar(abs(f1["mem"][2] - f0["mem"][2]) <= 8, f"[{et}] al terminar vuelve la memoria ({f0['mem'][2]} -> {f1['mem'][2]} MB libres)")
-        verificar(abs(f1["sup"][2] - f0["sup"][2]) <= 1, f"[{et}] vuelve toda la memoria superior")
+        verificar(f1["sup"][2] >= f0["sup"][2] - 1, f"[{et}] vuelve toda la memoria superior")
         out = m.comando("cc /ejemplos/hola.c -o /tmp/hola", tempo=180)
         out2 = m.comando("/tmp/hola Tito")
         verificar("(cc) terminou com codigo 0" in out and "Hola, Tito!" in out2, f"[{et}] cc y su ejecutable funcionan")

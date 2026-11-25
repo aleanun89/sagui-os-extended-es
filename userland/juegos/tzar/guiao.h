@@ -201,6 +201,8 @@ void tz_guiao_tic(TzMundo *m, TzGuiao *g);
 int tz_guiao_pedido(TzGuiao *g, TzPedido *out);                /* saca el siguiente; 0 si no hay */
 int tz_guiao_modal(const TzGuiao *g);                          /* una ventana del guion espera al jugador */
 const TzMensagem *tz_guiao_mensagem(const TzGuiao *g);         /* lo que muestra la ventana abierta */
+/* una historia que no es del guion (el texto de un pergamino); no hace nada si ya hay una ventana abierta */
+int tz_guiao_historia_texto(TzGuiao *g, const char *texto, const char *retrato, const char *som, const char *musica, uint32_t ms, int fecha);
 void tz_guiao_fechar(TzMundo *m, TzGuiao *g);                  /* el jugador cerró la historia o el aviso */
 /* La conversación sigue: con escolhas ofrecidas elige la número «escolha»; con una línea, pasa a las siguientes. */
 void tz_guiao_responder(TzMundo *m, TzGuiao *g, int escolha);

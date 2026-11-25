@@ -15,7 +15,7 @@ import struct
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from tzar_sintetico import contenedor, casilla, ERVA  # noqa: E402
+from tzar_sintetico import contenedor, casilla, ERVA, AGUA  # noqa: E402
 
 LADO = 48
 
@@ -25,6 +25,10 @@ Peon\tpeon\t50f\t6\t5\t\t50\t3\t0\t4\t3\tCastle\t*
 Footman\tfootman\t"40f, 20g"\t8\t5\t\t60\t6\t2\t4\t5\tBarracks\t*
 Archer\tarcher\t"30f, 30w"\t8\t8\t6\t45\t5\t0\t4\t4\tBarracks\t*
 Cow\tcow\t50f\t10\t3\t\t80\t0\t0\t2\t1\tFarm\t*
+Mage\tmage\t"60g, 40f"\t10\t8\t6\t40\t2\t0\t4\t4\tCastle\t*
+Priest\tpriest\t"40g, 40f"\t10\t8\t\t40\t1\t0\t4\t4\tCastle\t*
+Galleon\tgalleon\t"150w, 50g"\t20\t8\t\t600\t0\t5\t5\t4\tHarbor\t*
+Fishing Boat\tfishing_boat\t60w\t10\t5\t\t200\t0\t2\t5\t4\tHarbor\t*
 """
 
 EDIFICIOS = """BUILDING\tCLASS\tCOST\tTIME\tSIGHT\tRESISTANCE\tHEALTH\tEMIT (own/other)\tDEPENDS ON
@@ -37,6 +41,8 @@ Farm\tfarm\t120w\t12\t5\t80\t600\t*\t*
 Barracks\tbarrack\t"150w,50s"\t20\t5\t100\t900\t*\t*
 Field\tfield\t40w\t6\t2\t10\t100\t*\t*
 Wooden Tower\ttower_wood\t100w\t15\t8\t80\t500\t*\t*
+Harbor\tharbor\t150w\t20\t6\t80\t800\t*\t*
+Stone Wall\twall_stone\t5s\t2\t1\t100\t300\t*\t*
 """
 
 # huellas (object = x, y, ancho, alto en píxeles; casillas de 32)
@@ -60,6 +66,8 @@ object=0,0,64,64
 object=0,0,64,64
 [s_res_stone]
 object=0,0,64,64
+[s_harbor]
+object=0,0,96,96
 """
 
 OBJETOS = {
@@ -77,6 +85,13 @@ OBJETOS = {
     "TOWER_WOOD": "[general]\nclass=tower_wood\n[comm]\nimage=s_tower_wood\n",
     "RES_GOLD": "[general]\nclass=res_gold\n[comm]\nimage=s_res_gold\n",
     "RES_STONE": "[general]\nclass=res_stone\n[comm]\nimage=s_res_stone\n",
+    # D470: magos, flota y muros (los usan el mapa IA2 y tests/tzar_ia_casos.c)
+    "MAGE": "[general]\nclass=mage\n[comm]\nmenu=s_mage\nmax_manna=200\n",
+    "PRIEST": "[general]\nclass=priest\n[comm]\nmenu=s_priest\nmax_manna=100\n",
+    "GALLEON": "[general]\nclass=galleon\n[comm]\nmenu=s_navio\nmax_obj_in_holder=8\n",
+    "FISHING_BOAT": "[general]\nclass=fishing_boat\n[comm]\nmenu=s_soldado\n",
+    "HARBOR": "[general]\nclass=harbor\n[comm]\nimage=s_harbor\nmenu=s_harbor\n",
+    "WALL_STONE": "[general]\nclass=wall_stone\n[comm]\n",
 }
 
 MENU = """[s_peon]
@@ -95,8 +110,26 @@ s_barrack = B
 s_field = I
 s_tower = T
 s_castle_b = C
+s_harbor_b = P
 [s_castle]
 s_peon_c = P
+s_mage_c = M
+s_priest_c = R
+[s_harbor]
+s_galleon = G
+s_fboat = F
+[s_mage]
+move = M
+attack = A
+spell_firerain = R
+spell_lightning = L
+[s_priest]
+move = M
+spell_heal = H
+spell_bless = B
+[s_navio]
+move = M
+unload = U
 [s_barrack]
 s_footman = F
 s_archer = A
@@ -118,6 +151,8 @@ ACTION = attack
 ACTION = repair
 [stop]
 ACTION = stop
+[unload]
+ACTION = unload
 [s_build]
 ACTION =
 SUBMENU = s_build
@@ -127,7 +162,13 @@ for chave, acao, classe in (("s_house", "BUILD house", "house"), ("s_lumber", "B
                             ("s_barrack", "BUILD barrack", "barrack"), ("s_field", "BUILD field", "field"),
                             ("s_tower", "BUILD tower_wood", "tower_wood"), ("s_castle_b", "BUILD castle", "castle"),
                             ("s_peon_c", "CREATE peon", "peon"), ("s_footman", "CREATE footman", "footman"),
-                            ("s_archer", "CREATE archer", "archer"), ("te_sierra", "technology", "te_sierra")):
+                            ("s_archer", "CREATE archer", "archer"), ("te_sierra", "technology", "te_sierra"),
+                            ("s_harbor_b", "BUILD harbor", "harbor"), ("s_mage_c", "CREATE mage", "mage"),
+                            ("s_priest_c", "CREATE priest", "priest"), ("s_galleon", "CREATE galleon", "galleon"),
+                            ("s_fboat", "CREATE fishing_boat", "fishing_boat"),
+                            ("spell_firerain", "spell spell_firerain", "spell_firerain"),
+                            ("spell_lightning", "spell spell_lightning", "spell_lightning"),
+                            ("spell_heal", "spell spell_heal", "spell_heal"), ("spell_bless", "spell spell_bless", "spell_bless")):
     ORDENS += "[%s]\nACTION = %s\nCLASSNAME = %s\n" % (chave, acao, classe)
 
 TECNOLOGIAS = "[te_sierra]\nwood = 50\nfood = 50\ntime = 8000\n"
@@ -157,6 +198,13 @@ rule have castle end
 CASAS = """; las casas cuando falta población
 rule Casa when peon 3 have 2 house end
 rule when rule Casa, units 12 have 4 houses end
+"""
+
+
+# D470: un guion que se rinde en cuanto no tiene campesinos (como resign.ai: el grupo con HAVE RESIGN)
+RENDIR = """; rendición (pruebas de SaguiOS)
+{ rule when not peon have resign end
+}
 """
 
 
@@ -216,6 +264,46 @@ def mapa():
     })
 
 
+def mapa_agua():
+    """D470: 64x64, dos islas separadas por un canal de agua (x 27-36, con costa en 26 y 37); los reinos 1 (izquierda) y
+    2 (derecha) con su castillo y el 1 con tres campesinos. Lo demás (barcos, muros, magos) lo pone tests/tzar_ia_casos.c."""
+    lado = 64
+    c = []
+    for y in range(lado):
+        for x in range(lado):
+            if 27 <= x <= 36:
+                v = casilla(AGUA, AGUA)
+            elif x in (26, 37):
+                v = casilla(AGUA, ERVA, (x + y) % 16)   # costa: ni barcos ni unidades de tierra
+            else:
+                v = casilla(ERVA, ERVA)
+            c.append(v)
+    tiles = b"".join(struct.pack("<H", v) for v in c)
+    objs = [objeto(44, 1, 4, 4, 1, vida=2000), objeto(44, 2, 50, 8, 2, vida=2000)]
+    for j in range(3):
+        objs.append(objeto(1, 1, 10 + j, 6, 3 + j, vida=50))
+    cab = bytearray(0x200)
+    cab[0:4] = b"2mzt"
+    struct.pack_into("<HI", cab, 6, lado, len(objs))
+    cab[0x4c], cab[0x4d] = 2, 2
+    cab[0xd6:0xd6 + 5] = b"grass"
+    reinos = bytearray()
+    for i in range(8):
+        r = bytearray(152)
+        r[0:7] = b"Reino %d" % (i + 1)
+        r[64] = 1 if i < 2 else 0
+        r[66] = i + 1
+        struct.pack_into("<IIII", r, 68, 3000, 3000, 3000, 3000)
+        r[88] = 1
+        reinos += r
+    return contenedor({
+        "MAPS/IA2.header": bytes(cab),
+        "MAPS/IA2.tiles": tiles,
+        "MAPS/IA2.objects": b"".join(objs),
+        "MAPS/IA2.kingdominfo": bytes(reinos),
+    })
+
+
 def escribir(ruta, dados):
     os.makedirs(os.path.dirname(ruta), exist_ok=True)
     with open(ruta, "wb") as f:
@@ -241,6 +329,8 @@ def main():
     escribir(os.path.join(d, "DATA", "AI", "RANDOM.AIS"), GUIAO)
     escribir(os.path.join(d, "DATA", "AI", "CASAS.AI"), CASAS)
     escribir(os.path.join(d, "Maps", "IA.wmp"), mapa())
+    escribir(os.path.join(d, "Maps", "IA2.wmp"), mapa_agua())
+    escribir(os.path.join(d, "DATA", "AI", "RENDIR.AIS"), RENDIR)
     print("instalación sintética de la IA de Tzar en", d)
     return 0
 

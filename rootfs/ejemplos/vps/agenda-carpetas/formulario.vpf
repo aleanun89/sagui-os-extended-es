@@ -1,0 +1,44 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Agenda por carpetas'
+  ancho = 560
+  alto = 262
+control Arbol Arbol1
+  x = 8
+  y = 8
+  ancho = 170
+  alto = 176
+  nodos = ['Trabajo', '  Reuniones', '  Informes', 'Personal', '  Familia', '  Salud']
+control Boton Boton2
+  x = 8
+  y = 190
+  ancho = 170
+  texto = 'Carpeta nueva...'
+control Calendario Calendario1
+  x = 186
+  y = 8
+  minimo = '2026-01-01'
+control Boton Boton1
+  x = 186
+  y = 190
+  ancho = 196
+  texto = 'Guardar nota'
+control Etiqueta Etiqueta1
+  x = 392
+  y = 8
+  ancho = 160
+  texto = 'Elige una carpeta'
+control Etiqueta Etiqueta2
+  x = 392
+  y = 28
+  ancho = 160
+control CuadroTexto CuadroTexto1
+  x = 392
+  y = 52
+  ancho = 160
+  alto = 164
+  multilinea = True
+control BarraEstado BarraEstado1
+  y = 240
+  ancho = 560
+  texto = 'Notas guardadas: 0'

@@ -123,6 +123,9 @@ static void estado(const TzMundo *m, TzIa **ias, int nia, const char *pre)
 		TzIaContas c = tz_ia_contas(ias[j]);
 		printf("[IA] %s ia %d: miradas %u comandos %u obras %u entrenadas %u investigaciones %u grupos %u suma %08x\n", pre, j,
 		       c.olhares, c.comandos, c.construidos, c.treinados, c.pesquisas, c.grupos, tz_ia_suma(ias[j]));
+		TzIaContasD470 d = tz_ia_contas_d470(ias[j]);
+		printf("[IA] %s ia %d d470: transportes %u desembarques %u barcos %u hechizos %u invocaciones %u curas %u yihad %u cruzadas %u cambios %u brechas %u capturas %u\n",
+		       pre, j, d.transportes, d.desembarques, d.navios, d.hechizos, d.invocacoes, d.curas, d.jihad, d.cruzadas, d.trocas, d.brechas, d.capturas);
 	}
 }
 

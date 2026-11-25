@@ -1111,7 +1111,9 @@ static void m1_acumula(mpeg1_t *m, const uint8_t *d, int n)
                 continue;
             }
             if (id == 0xB3) {
-                /* La cabecera de la secuencia. */
+                /* La cabecera de la secuencia (8 bytes y hasta dos matrices de 64): si llega partida entre dos paquetes del PS se
+                 * espera a tenerla entera (antes se leía a medias y se perdían las matrices o el tamaño). */
+                if (m->es_n - p - 4 < 8 + 128) { m->es_scan = p; return; }
                 m1_le_sequencia(m, m->es + p + 4, m->es_n - p - 4);
                 p += 4;
                 m->es_scan = p;
@@ -1255,13 +1257,13 @@ static bool m1_le_mais(mpeg1_t *m)
             int b = m1_arq_byte(&m->arq);
             if (b < 0) return false;
             if ((b & 0xC0) == 0x40) {
-                /* MPEG-2: 14 bytes en total (10 después del código). */
-                m1_arq_pula(&m->arq, 9);
-                for (;;) {
-                    int c = m1_arq_byte(&m->arq);
-                    if (c < 0) return false;
-                    if (c != 0xFF) break;
-                }
+                /* MPEG-2: 10 bytes fijos después del código (SCR, velocidad) y, en los 3 bits bajos del último, cuántos bytes
+                 * de relleno siguen. Antes se leía hasta el primer byte que no fuese 0xFF: sin relleno eso se comía el primer 0x00
+                 * del código siguiente y se perdía el paquete (con ello, la mayor parte de los cuadros del MPEG-PS de MPEG-2). */
+                m1_arq_pula(&m->arq, 8);
+                int ult = m1_arq_byte(&m->arq);
+                if (ult < 0) return false;
+                m1_arq_pula(&m->arq, ult & 7);
             } else {
                 /* MPEG-1: 12 bytes en total (8 después del código). */
                 m1_arq_pula(&m->arq, 7);
@@ -1333,6 +1335,8 @@ static int m1_prescan(mpeg1_t *m)
     m1_arq_t arq;
     if (!m1_arq_inicia(&arq, m->fd)) return 0;
     int quadros = 0;
+    uint8_t *junta = NULL;
+    int junta_n = 0, junta_cap = 0;
     for (;;) {
         int id = m1_arq_start(&arq);
         if (id < 0) break;
@@ -1341,12 +1345,10 @@ static int m1_prescan(mpeg1_t *m)
             int b = m1_arq_byte(&arq);
             if (b < 0) break;
             if ((b & 0xC0) == 0x40) {
-                m1_arq_pula(&arq, 9);
-                for (;;) {
-                    int c = m1_arq_byte(&arq);
-                    if (c < 0) goto fim;
-                    if (c != 0xFF) break;
-                }
+                m1_arq_pula(&arq, 8);
+                int ult = m1_arq_byte(&arq);
+                if (ult < 0) goto fim;
+                m1_arq_pula(&arq, ult & 7);
             } else m1_arq_pula(&arq, 7);
             continue;
         }
@@ -1397,13 +1399,31 @@ static int m1_prescan(mpeg1_t *m)
                 m->pacote_cap = carga;
             }
             int lidos = m1_arq_le(&arq, m->pacote, carga);
-            for (int i = 0; i + 3 < lidos; i++) {
-                if (m->pacote[i] == 0 && m->pacote[i + 1] == 0 && m->pacote[i + 2] == 1) {
-                    int c2 = m->pacote[i + 3];
+            /* Se cuentan los códigos sobre la cola del paquete anterior más este: un código o una cabecera de secuencia pueden
+             * quedar partidos entre dos paquetes. */
+            if (junta_n + lidos > junta_cap) {
+                int nc = junta_n + lidos + 256;
+                uint8_t *nj = realoca(junta, (size_t)nc);
+                if (!nj) goto fim;
+                junta = nj; junta_cap = nc;
+            }
+            memcpy(junta + junta_n, m->pacote, (size_t)lidos);
+            junta_n += lidos;
+            int i = 0;
+            for (; i + 3 < junta_n; i++) {
+                if (junta[i] == 0 && junta[i + 1] == 0 && junta[i + 2] == 1) {
+                    int c2 = junta[i + 3];
                     if (c2 == 0x00) quadros++;
-                    else if (c2 == 0xB3) m1_le_sequencia(m, m->pacote + i + 4, lidos - i - 4);
+                    else if (c2 == 0xB3) {
+                        if (junta_n - i - 4 < 8 + 128) break;   /* la cabecera sigue en el paquete siguiente */
+                        m1_le_sequencia(m, junta + i + 4, junta_n - i - 4);
+                        i += 3;
+                    }
                 }
             }
+            /* se queda lo que aún no se pudo juzgar: desde i, o los 3 últimos bytes */
+            if (junta_n - i > 0) memmove(junta, junta + i, (size_t)(junta_n - i));
+            junta_n -= i;
             continue;
         }
         if ((id & 0xE0) == 0xC0) {
@@ -1416,6 +1436,13 @@ static int m1_prescan(mpeg1_t *m)
         }
     }
 fim:
+    /* lo que quedó sin juzgar al final: la última cabecera de secuencia, aunque corta */
+    for (int i = 0; i + 3 < junta_n; i++)
+        if (junta[i] == 0 && junta[i + 1] == 0 && junta[i + 2] == 1) {
+            if (junta[i + 3] == 0x00) quadros++;
+            else if (junta[i + 3] == 0xB3) m1_le_sequencia(m, junta + i + 4, junta_n - i - 4);
+        }
+    libera(junta);
     m1_arq_liberta(&arq);
     return quadros;
 }

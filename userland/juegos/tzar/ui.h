@@ -102,6 +102,8 @@ typedef struct {
 enum { TZ_UI_NORMAL = 0, TZ_UI_COLOCAR, TZ_UI_ALVO };
 #define TZ_UI_BOTOES 8                   /* rejilla de órdenes: 2 x 4 por página */
 #define TZ_UI_PILHA 4
+#define TZ_UI_JW 64                      /* botones de ventana anotados por pasada */
+enum { TZ_PICK_NADA = 0, TZ_PICK_MERCADO0, TZ_PICK_MERCADO1, TZ_PICK_CRUZADA };
 
 typedef struct {
 	const TzOrdemDef *def;               /* la orden */
@@ -156,6 +158,19 @@ typedef struct {
 	uint32_t chat_ate;                   /* las líneas se ven sobre el mapa hasta entonces (ms) */
 	char chat_saida[80];                 /* lo que se mandó: el programa lo lee (IA) y lo vacía */
 	int pausa;
+	/* ventanas de negocio (ui_negocio.c, v8.5.6): lo que la ventana abierta recuerda y sus botones de la última pasada */
+	struct TzJan {
+		TzId obj;                         /* taberna, catedral, fábrica, mercado o unidad que manda */
+		int aba, rec[2], quant, prop, cat, item, mkt[2], dar_idx;
+		int dado_quant, dado_valor, dado_cara, dado_rec; uint32_t dado_ms;   /* dados: la puesta, el resultado y cuándo acaban de rodar */
+		int tributo_quant, fab_ouro, fab_item;
+		char msg[100]; uint32_t msg_ate;
+	} jan;
+	struct { TzRect r; int id; } jw[TZ_UI_JW]; int njw;
+	int pick, janela_pick;               /* TZ_PICK_*: se espera un clic en el mapa para la ventana (que se reabre luego) */
+	struct { int on, px, py, bandeira; uint32_t ms; } fb;   /* última orden con punto en el mapa: la cruz y la bandera animadas */
+	TzId pergaminho_pedido;              /* v8.5.6: pergamino cuya historia hay que abrir (el programa del juego lo atiende y pone -1) */
+	int pergaminho_ao_chegar;
 	int direita;                         /* el panel a la derecha (LAYOUT800R); se cambia con tz_ui_lado */
 	/* estadística para la prueba */
 	uint32_t n_comandos;
@@ -203,7 +218,27 @@ typedef struct {
 void tz_ui_mapa_desenhar(TzUi *u, TzTela *t, const TzUiMapa *mp);
 
 /* diplomacia y chat (ui_janelas.c) */
-enum { TZ_UJ_DIPLOMACIA = 1, TZ_UJ_CHAT = 2 };
+enum { TZ_UJ_DIPLOMACIA = 1, TZ_UJ_CHAT = 2,
+       /* v8.5.6 (ui_negocio.c) */
+       TZ_UJ_TABERNA, TZ_UJ_DADOS, TZ_UJ_PRESTAMOS, TZ_UJ_INTERCAMBIO, TZ_UJ_COMERCIO, TZ_UJ_OBJETOS, TZ_UJ_CRUZADA, TZ_UJ_TRIBUTO,
+       TZ_UJ_RENDICION, TZ_UJ_FABRICA, TZ_UJ_MERCADO };
+/* identificadores de botón de las ventanas de negocio (u->jw[].id) */
+enum {
+	TZ_W_FECHAR = 1, TZ_W_ABA0 = 10 /* 10..16: pestañas de la taberna */, TZ_W_REC_A = 20, TZ_W_REC_B, TZ_W_Q_MENOS, TZ_W_Q_MAIS, TZ_W_PROP, TZ_W_ACEITAR,
+	TZ_W_ESCOLHER_A, TZ_W_ESCOLHER_B, TZ_W_CAT0 = 30 /* 30..32 */, TZ_W_ITEM, TZ_W_REI, TZ_W_SEGUINTE, TZ_W_SEL_CRUZ, TZ_W_PARA, TZ_W_SIM,
+	TZ_W_LINHA = 100 /* 100..: botón principal de la fila i */, TZ_W_LINHA2 = 200 /* segundo botón de la fila i */, TZ_W_LINHA3 = 300, TZ_W_MUNDO = 1000 /* + índice de un objeto del mundo (recoger, vender) */,
+};
+/* ventanas de negocio: abrir (obj = la taberna, catedral, fábrica, mercado o unidad; TZ_NENHUM busca la del reino o la seleccionada) */
+int tz_ui_janela_abrir(TzUi *u, int janela, TzId obj);
+TzRect tz_ui_neg_rect(const TzUi *u);
+void tz_ui_neg_desenhar(TzUi *u, TzTela *t, TzRect j);
+int tz_ui_neg_entrada(TzUi *u, const TzUiEntrada *e);
+int tz_ui_neg_acao(TzUi *u, const char *acao, const char *chave, const char *submenu);   /* 1 si el botón de órdenes abrió una ventana */
+int tz_ui_neg_pick(TzUi *u, int px, int py);                       /* clic en el mapa esperado por la ventana (u->pick) */
+void tz_ui_neg_evento(TzUi *u, const TzEvento *e);
+void tz_ui_neg_tic(TzUi *u);
+void tz_ui_neg_selecionar_cruzados(TzUi *u);
+/* piezas de dibujo de ui_janelas.c que usa ui_negocio.c */
 void tz_ui_janela_desenhar(TzUi *u, TzTela *t);
 int tz_ui_janela_entrada(TzUi *u, const TzUiEntrada *e);            /* 1 si la ventana se quedó con la entrada */
 TzRect tz_ui_janela_rect(const TzUi *u);
@@ -215,6 +250,8 @@ void tz_ui_chat_recebido(TzUi *u, const char *texto);              /* una frase 
 const char *tz_ui_cursor_forma(TzUi *u);
 void tz_ui_cursor_desenhar(TzUiSkin *s, TzTela *t, const char *forma, int x, int y);
 void tz_ui_cursor_liberar(void);
+extern uint32_t tz_ui_cursor_ms;                                    /* reloj de la animación de los cursores (ms) */
+int tz_ui_cursor_indicador(TzUiSkin *s, TzTela *t, const char *chave, int slot, uint32_t ms, int bucle, int sx, int sy);
 
 /* ------------------------------------------------------------------ menús principales (ui_menu.c) */
 enum {
@@ -224,7 +261,7 @@ enum {
 	TZ_MN_ALEAT /* mapa aleatorio (S_SINGLERND, v8.5.5.2) */, TZ_MN_NTELAS
 };
 enum {
-	TZ_MR_NADA = 0, TZ_MR_JOGAR, TZ_MR_CAMPANHA, TZ_MR_CARREGAR, TZ_MR_GUARDAR, TZ_MR_SAIR, TZ_MR_CONTINUAR, TZ_MR_REINICIAR,
+	TZ_MR_NADA = 0, TZ_MR_JOGAR, TZ_MR_CAMPANHA, TZ_MR_CARREGAR, TZ_MR_GUARDAR, TZ_MR_SAIR, TZ_MR_CONTINUAR, TZ_MR_REINICIAR, TZ_MR_RENDIR /* v8.5.6: el menú de la partida pide la ventana de rendición */,
 	TZ_MR_SEGUINTE /* fin: la misión siguiente */, TZ_MR_REPETIR /* fin: otra vez la misma */, TZ_MR_ABANDONAR /* fin: al menú principal */,
 };
 
@@ -253,9 +290,13 @@ typedef struct {
 	int terreno;                          /* 0 al azar, 1 hierba, 2 verano, 3 nieve, 4 desierto */
 	int tipo;                             /* 0 al azar, 1 archipiélagos, 2 islas, 3 continente, 4 lagos, 5 tierra */
 	int recursos_mapa;                    /* minas del mapa: 0 pocas, 1 normales, 2 muchas */
-	int guardado, animais, itens, portas, penhascos;   /* penhascos (montañas): sin generador, siempre 0 */
+	int guardado, animais, itens, portas, penhascos;   /* penhascos: montañas (v8.5.6, aleatorio.c montanhas) */
 	unsigned long long semente;
 	TzMnConfig c;
+	/* D470: el comportamiento de la IA de cada reino («COMPORTAMIENTO IA», 0x48a060: un guion de DATA/AI/AI.INI, «» = el de
+	 * siempre) y la rendición de la IA (AIRESIGN, 0x5cf6d4) */
+	char ia[8][33];
+	int rendicao;
 } TzMnAleat;
 extern const int tz_mn_lados[7];
 extern const char *const tz_mn_biomas[4];
@@ -286,6 +327,10 @@ typedef struct {
 	int ampliada;                         /* mapa aleatorio: la vista previa ampliada sobre la pantalla (un clic la cierra) */
 	int aleat_mudou;                      /* 1 = la persona cambió algo: el llamador lo guarda y lo pone a 0 */
 	TzMnAleat res_aleat;                  /* TZ_MR_JOGAR en el mapa aleatorio (res_indice -1): lo elegido */
+	/* D470: la ventana «COMPORTAMIENTO IA» sobre el mapa aleatorio y los guiones de DATA/AI/AI.INI ([scripts], nombre=fichero) */
+	int escolher_ia, ia_sel;              /* fila que se elige (1..7; 0 = ventana cerrada) y el guion marcado */
+	int ia_lido, nia, rendicao_oferecida; /* rendicao_oferecida: hay IMAGES/AIRESIGN.BMP y DATA/AI/RESIGN.AI */
+	char ia_nome[24][48], ia_fich[24][33];
 	char nome_guardar[32]; int editando;
 	int volume_som, volume_musica;        /* 0-100, tela de opciones */
 	/* resultado: cuando acao != 0 el llamador lo atiende y lo pone a 0 */

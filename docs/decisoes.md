@@ -8654,7 +8654,7 @@ con KVM; y el ejemplo compilado con el `cc` del sistema con `--smp`.
   1 400-1 600). Se bisecó mezclando kernels con el mismo userland: el efecto
   sale de `chamadas_processos.c` (`sis_pid` lee el líder) y, en parte, de
   la disposición del código; ninguna llamada hace trabajo de más. Con 32
-  millones de entradas en el kernel en ~1,5 s, cada paso del cerrojo
+  millones de entradas en el kernel en ~2,5 s, cada paso del cerrojo
   general son ~50 ns, el tiempo de mover una línea de caché entre núcleos:
   la medida depende de cuánto tarda cada CPU en volver a pedir el cerrojo,
   no del trabajo dentro. Es una medida del cerrojo general (no justo, sin
@@ -16108,7 +16108,7 @@ sonido en los PC ISA. Primer driver de la serie: la **Sound Blaster 16** (DSP 4.
 `volumen 50` (0,249) y `silencio`, 10 s sin cortes (0 ventanas de 10 ms bajas), IRQ de 16 bits atendidas, `grabar`
 acaba y la salida vuelve después (el SB16 de QEMU no emula el ADC: graba 0 cuadros); y sin `-device sb16`, nada.
 **86Box** (`tests/emu_86box_sb16.py`, a petición, fuera de la batería; `p2-voodoo3`): detecta `220h: DSP 4.05, IRQ 5,
-DMA 1 y 5, OPL3`, la reproducción trae IRQ de 16 bits, la grabación trae cuadros (66346 en 1,5 s: 86Box sí emula el
+DMA 1 y 5, OPL3`, la reproducción trae IRQ de 16 bits, la grabación trae cuadros (66346 en 2,5 s: 86Box sí emula el
 ADC) y la salida vuelve después. 86Box no graba su audio a un fichero: la forma del sonido solo se mide en QEMU. El
 mezclador cuenta algunos cortes en 86Box (la emulación va a saltos de ~30 ms) y uno, a propósito, al volver la salida
 tras grabar (el anillo empieza de cero). Arreglado de paso: `emu86box.digitar` manda los signos por la tecla del
@@ -18039,7 +18039,7 @@ D318); el EHCI de QEMU por sondeo (causa 6).
 por cada doble clic; cada uno abría su propio flujo de audio y el mezclador del kernel los suma. Dentro de un mismo proceso ya
 era secuencial (`abrir_faixa`/`abrir_pista` cierran el flujo antes de abrir otro; `fechar` sin «esperar» descarta lo pendiente).
 Arreglo: `userland/programas/instancia_unica.h`: la instancia viva escribe `/tmp/<nombre>.pid`; el proceso nuevo con argumentos añade
-sus rutas a `/tmp/<nombre>.cola`, espera hasta 1,5 s a que desaparezca y sale; la viva la recoge (cada 150 ms en reposo, entre
+sus rutas a `/tmp/<nombre>.cola`, espera hasta 2,5 s a que desaparezca y sale; la viva la recoge (cada 150 ms en reposo, entre
 evento y evento al sonar), reutiliza la pista si ya está en la lista (o la añade) y toca la pedida tras parar la anterior. Si el pid
 era viejo (nadie recoge), el nuevo sigue como instancia. Sin tocar el kernel. **Prueba:** `tests/h342_dos_pistas.py` (a.wav 440 Hz,
 b.wav 880 Hz, grabación del sonido y Goertzel: tras pinchar la segunda solo suena 880 Hz; tecla P vuelve a 440 Hz; una sola ventana).
@@ -19552,7 +19552,7 @@ en `terminal_vt.h`; `rato_para_programa` en `terminal.c`, unas 25 líneas): clic
 formato SGR; Mayús+clic sigue seleccionando y la barra de pestañas no se reenvía. Antes esos modos se aceptaban sin efecto.
 Por SSH funciona igual (el cliente reenvía lo que el Terminal escribe).
 
-**Consumo y parpadeo:** el programa mantiene la rejilla de la pantalla y solo escribe las líneas que cambiaron; intervalo 1,5 s;
+**Consumo y parpadeo:** el programa mantiene la rejilla de la pantalla y solo escribe las líneas que cambiaron; intervalo 2,5 s;
 entre pulsaciones duerme 25 ms.
 
 **Alternativas descartadas:** (a) ampliar `top`: es de salida por lotes y no tiene teclas; (b) hacerlo gráfico (ya está `tareas`);
@@ -25082,7 +25082,7 @@ RESET_REG → 8042) y tres reinicios seguidos en q35 (RESET_REG E/S 0xCF9); cada
 teclado|cf9|triple`); SMP de 4 CPU con IOAPIC, NVMe y arranque por xHCI (3 de 3 secundarios parados, xHCI parado,
 NVMe con su aviso de apagado terminado) para reiniciar y apagar; uACPI (`_PTS(5)` al apagar y no al reiniciar);
 UEFI x64; `--sem-acpi`; y lo más parecido al Dell (UEFI x64, q35, SMP, IOAPIC, uACPI, escritorio: tres reinicios por
-el RESET_REG y un apagado con `_PTS(5)` y S5). Todos cierran el QEMU en 1-1,5 s desde la orden. Siguen pasando
+el RESET_REG y un apagado con `_PTS(5)` y S5). Todos cierran el QEMU en 1-2,5 s desde la orden. Siguen pasando
 h84 (ACPI y botón), h16 (shell, reiniciar), h216 (servicios) y h254 (reiniciar por SSH con SAGUI-CONF grabada).
 Un secundario que esperaba el cerrojo general con las interrupciones cerradas no veía la IPI (en la primera
 versión, «2 de 3»): ahora la espera del cerrojo mira `smp_parando` y se para también.
@@ -25730,6 +25730,15 @@ hilos: `errno` global), zlib, y las bibliotecas y cabeceras para TCC.
 
 **Segunda tanda: Tucán, Paint, PlanoMini y GebraMini (2026-11-22, rama `v8.5.6-apps-portables2`).** Las cuatro compilan con la misma capa y sin tocar ni una línea de sus fuentes ni de la libsagui; basta con enlazar lo que ya estaba (`presentacion*.c` para Tucán, el motor de `userland/planomini/` y `userland/gebramini/` con la x87 en línea, que en x86-64 funciona igual) y añadir al Makefile de la capa los cuatro objetivos. Lo que se amplió de la capa, de forma general: (1) `arrastar x1 y1 x2 y2 [boton]` en el guion `SAGUI_ROTEIRO` (pulsar, ocho movimientos con el botón apretado y soltar; la cola de eventos pendientes pasa de uno a dieciséis), para probar lo que se dibuja con el ratón; (2) las rutas `/ejemplos` e `/imagenes` se resuelven en la carpeta de datos, para el menú Ejemplos de PlanoMini y GebraMini. La IA de Tucán (`tucan_agente.h`) no lleva claves ni URLs: el servidor y el modelo se configuran en el sistema y fuera de SaguiOS no hay red, de modo que no conecta. `tools/portable_repos.py` genera ahora siete repositorios (`tucan`, `paint`, `planomini`, `gebramini` nuevos) y se le pueden nombrar solo los que se quieren regenerar, porque regenerar borra el repositorio local y cambia el commit. Prueba nueva, `tests/h459b_apps_portables.py` (sin QEMU): Tucán (demo, abrir, Ctrl+M, texto, guardar, PDF/PPTX/PNG validados), Paint (trazos con el ratón, BMP y PPM comparados píxel a píxel con la captura, reabrir y seguir), PlanoMini (órdenes, EXPORTAR pdf/png/dxf, guardar, reabrir, importar DXF) y GebraMini (puntos, recta, circunferencia, función, guardar, reabrir con raíces, PNG y PDF).
 
+**VisualPythonS y el MicroPython de SaguiOS en Linux (2026-11-22, rama `v8.5.6-visualpythons-repo`; sin decisión nueva).** El mantenedor pidió sacar VisualPythonS junto con el MicroPython modificado de SaguiOS a un repositorio propio, como los demás portables. La misma capa sirve: el módulo `sagui` de MicroPython (`janela_sagui.c`) habla con la libsagui, así que con `janelas_sdl.c` abre ventanas en Linux, y tkinter propio, `vps` (diseñador, editor, depurador, 24 ejemplos), `requests`, `urllib`, `threading`, `collections` y `basedatos` corren tal cual. Los fuentes de MicroPython (`micropython_embed`, MIT) no se tocan; el port (`userland/micropython/*_sagui.c`) se compila **con las cabeceras, la libc y la libm del PC** (no con `userland/micropython/libc` ni la `libm_dbl` de 32 bits) y la capa pone lo demás.
+- **Qué se añadió a la capa:** `userland/portable/red_sdl.c` (los sockets de SaguiOS sobre los del PC: `criar_socket`, `conectar` con plazo, `escutar`, `aceitar_conexao`, `enviar_para`, `receber_de`, `opcao_socket`, `tempo_limite`, `resolver`; los errores se traducen a `ERRO_TEMPO`, `ERRO_RECUSADA`...), `inicio_python.c` (el `principal` que llama a `mp_principal`), `disponivel()` real con `poll`/`FIONREAD` (antes devolvía 0), `ler`/`escrever` con los errores de socket, `audio_escrever`/`audio_fechar`/`teclas_seguradas` en `sistema_nulo.c`, la ruta `/lib/python` a la carpeta de datos, el **id 0 de `esperar_evento`/`proximo_evento`** (cualquier ventana del programa: el MicroPython la usa y el guion habla con la de encima) y la orden `duplo x y` del guion (doble clic).
+- **Fuera de la capa (todo en el port de MicroPython, nada en el núcleo de MicroPython ni en la libsagui):** `mpthreadport_pc.c/h` (el `_thread` sobre pthreads, con el mismo GIL justo por turnos; el recolector ve los registros y la pila de los otros hilos con una foto `getcontext` al soltar y al pedir el GIL; `mpthreadport.h/.c` solo ganan un `#ifdef SAGUI_PORTABLE`), un `#ifdef SAGUI_PORTABLE` en `mpconfigport.h` (el NLR y el recolector los elige MicroPython para x86-64 en vez de `MICROPY_NLR_X86`), en `janela_sagui.c` (el portapapeles por `copiar_texto`/`colar_texto` en vez de `int $0x80`), en `rede_sagui.c` (los pares de direcciones de `getsockname`: en 64 bits un puntero no cabe en el `unsigned` de `opcao_socket`) y en `arquivos_sagui.c` (los terminales, `sys.stdin/stdout/stderr`, son UTF-8 en el PC: los archivos de texto de `open()` siguen siendo Latin-1 por omisión, como en SaguiOS, para que los proyectos pasen de un sistema a otro). Además `os_sagui.c`: el buffer de cada variable de entorno pasa de 512 a 4096 bytes (el `PATH` de Linux lo desbordaba). `LIB_NOMES` del Makefile de la capa pasa a `?=` para que cada repositorio lleve solo lo que enlaza.
+- **Qué funciona fuera de SaguiOS:** todo lo anterior, red con sockets reales, **TLS 1.3 de la libtls propia contra OpenSSL** (con las 32 raíces del sistema en `datos/etc/ssl/certs`), `sqlite3`, `hashlib`, hilos, `json`, `re`, `math`. **Qué no:** `os.system` y lanzar procesos, sonido, `sagui.pantalla()` (0, 0), teclas mantenidas, el menú Inicio: dan `OSError` limpio (`sistema_nulo.c`). Solo Linux x86-64; Windows sin probar.
+- **Repositorio:** `visualpythons` (`tools/portable_repos.py visualpythons`; solo ese: el script regenera lo que se nombra): el `micropython_embed` con su licencia, el port, la capa, solo los 25 módulos de la libsagui que se enlazan, `datos/` (módulos de Python, ejemplos, fuentes, raíces, imágenes de muestra), manual, `visualpythons` y `python-sagui` (guiones de arranque), `make probar`, README en español con resumen en inglés y portugués, GPL v3 como obra combinada y `AVISOS-TERCEROS.md` (MicroPython MIT, SQLite, Fluent, DejaVu, raíces de Mozilla MPL 2.0). Un solo commit del autor público.
+- **Al fusionarlo con lo de la v8.5.6 (2026-11-23, rama `v8.5.6-integracion`):** la rama partía de un main de unos 190 commits antes, sin la D419 (subprocess, signal, os POSIX) ni D466/D469. La capa gana `bifurcar`, `substituir`, `sinal_op`, `descritor_op` y `sondar` nulos en `sistema_nulo.c` (fork/exec dan error limpio; sin poll, `rede_sagui.c` vuelve a mirar `disponivel()`), `sagui_hilos_pos_fork` vacío en `mpthreadport_pc.c`, y `userland/micropython/sinais_pc.c`: el módulo `signal` sobre las señales POSIX del PC (misma interfaz y mismos números que `sinais_sagui.c`, que es de i386 con `int 0x80`; SaguiOS no lo compila). `grafico_sagui`, `gui_grafico` y `grafico_calc` entran en el Python portable y en el repositorio; h459c corre también `autoprueba_toast` y `autoprueba_grafico`.
+- **Prueba:** `tests/h459c_visualpythons_portable.py [--repo] [--docs]` (sin QEMU): intérprete (UTF-8, hilos con recolección a la vez, sqlite, hashlib, HTTP y HTTPS locales, errores limpios), las autopruebas de VisualPythonS (178 + 137 comprobaciones), el diseñador (botón y etiqueta, manejador, F5 y clic: `vps-click` y la etiqueta cambia), los 24 ejemplos; con `--repo` genera el repositorio, lo clona limpio, compila con `env -u CPATH make`, pasa `make probar` y comprueba la higiene (un commit, autor público, sin binarios, sin rutas ni nombres personales, sin correos, claves ni IP privadas).
+
+
 ## D460. El editor de Capibara: editar el texto de la escena y dibujar con el propio motor (decidido el 2026-11-22; v8.5.6 (adelantado de la v8.5.6.1), rama `v8.5.6.1-capibara-editor`)
 
 **Contexto.** Capibara (D452) es un motor de juegos 2D con escenas en texto (`.esc`), guiones Lua y una tabla única de propiedades
@@ -26025,3 +26034,303 @@ fallaban dos cosas más (y las imágenes privadas, con `make priv_variantes`, no
 Ambos arreglos valen con GCC 13 (`make -j2` sigue en 0; h81 y h191 pasan). El de make está en las ramas v8.5.5.3 y v8.5.6
 (mismo cambio, la fusión no entra en conflicto); el de Capibara, en la v8.5.6. Con los dos, `make -j6 all` en la VM termina
 con 0 y `make priv_variantes PRIV_DESTINO=... INPUT_SHARE=... JOGOS_MB=1600` genera la imagen privada completa.
+
+
+## D466. VisualPythonS: notificaciones toast, `Arbol` y el `Calendario` ampliado (decidido el 2026-11-22; v8.5.6, rama `v8.5.6-vps-toast`)
+
+**Pedido.** Ampliar VisualPythonS (D297, D299, D303, D315) con avisos no modales tipo toast y con dos de los controles que la
+documentación daba como pendientes en «Límites actuales»: `Calendario` y `Arbol`.
+
+**Decisión.**
+- **El toast va en Python, no en C.** La libsagui ya tiene `toast_*` (`gui_moderno.c`), pero trabaja sobre un `jan_t` de la libsagui (guarda y
+  restaura los píxeles de la ventana) y el módulo `sagui` de MicroPython no lo exporta: ofrecerlo pide un nombre nuevo en el módulo y regenerar
+  los qstr, que D034 no permite sin el repositorio de MicroPython. Por eso `vps/_notificar.py` dibuja el aviso con un componente de `tkinter`
+  (`_ToastW`) colocado con `place` encima del formulario, con **el mismo aspecto** que el de la libsagui (fondo `dica_fundo` 0x263238, texto
+  blanco, punto de color por tipo: info 0x3CC8CF, éxito 0x3DD17F, aviso 0xF2B134, error 0xFF6B60). No usa ventanas nuevas: no roba el foco
+  (`takefocus` 0, el clic no lo toma) y se ve dentro del formulario, no del escritorio.
+- **`notificar(texto, tipo="info", duracion=3000, titulo="")`** (`vps.notificar`, también en `vps.__all__` para el código del proyecto):
+  `tipo` es `info`, `exito`, `aviso` o `error`; `duracion` en ms (0 = hasta que se cierre). Se apila en la esquina (la más nueva junto al
+  borde, las anteriores hacia dentro; se recolocan al cerrar una), se va sola, se cierra con un clic o con su «x». Argumentos extra por
+  nombre: `accion` (texto de un botón dentro del aviso) con `al_accion`, `posicion` (`abajo_derecha` por defecto, `arriba_derecha`,
+  `abajo_centro`, `arriba_centro`), `formulario` (por defecto el activo), `al_click` y `al_cerrar`. Devuelve la notificación (`cerrar()`,
+  `abierta`, `motivo`). También `notificaciones()` y `cerrar_notificaciones()`.
+- **Control `Notificacion`** (sin ventana, como `Temporizador`: icono en la caja de herramientas y bajo el formulario del diseñador):
+  propiedades `texto`, `tipo`, `duracion`, `posicion`, `titulo` y `accion`; `mostrar(texto=None)` y `cerrar()`; eventos `click`, `accion` y
+  `cerrado` (con `motivo`: `tiempo`, `click`, `boton`, `accion` o `api`). **Detalle de diseño:** `tipo` es a la vez la propiedad y el nombre
+  del tipo de control (`Control.tipo`); como MicroPython no tiene descriptores propios, la propiedad vive como atributo del objeto (`_crear`) y la
+  clase conserva su `tipo`; `Control.__repr__` pasó a usar `type(self).tipo`. En `plantillas._c` el primer parámetro se llama `clase` para que
+  `tipo=` pueda ser una propiedad.
+- **`Arbol`** (`vps/_arbol.py` y `_ArbolW` en `_widgets.py`): nodos con texto y clave (`agregar(padre, texto, clave=None)`, `quitar`, `limpiar`,
+  `expandir`, `contraer`, `alternar`, `elegir`, `hijos`, `padre_de`, `texto_de`, `ruta`, `claves`, `existe`, `contar`); propiedades `nodos` (una
+  línea por nodo, dos espacios de sangría por nivel y `texto|clave`: así se edita en el diseñador), `expandido`, `seleccion` (índice), `clave` y
+  `valor` (el nodo elegido); eventos `seleccion`, `click`, `doble_click`, `expandir` y `contraer` (estos dos solo para acciones del usuario, con
+  `nodo` = la clave) y teclado (flechas, Inicio, Fin, Intro, espacio). Con rueda y barra de posición.
+- **`Calendario` ampliado** (ya existía desde D303): `minimo` y `maximo` («AAAA-MM-DD»; los días de fuera salen en gris y no se eligen; un
+  `valor` de fuera se lleva al límite), flechas `<<` `>>` de año además de `<` `>` de mes (los clics en las de mes siguen donde estaban),
+  `doble_click` solo sobre un día, teclado (flechas mueven el día, Re Pág y Av Pág el mes), `fecha` escribible, `ir_a(anio, mes)`,
+  `mes_visible()` y `en_rango(fecha)`.
+- Todo está en la caja de herramientas (36 herramientas, las mismas 12 filas), el panel de propiedades, el autocompletado (D303: métodos,
+  propiedades, eventos y las funciones `notificar`...), el explorador del proyecto (D315) y se guarda y carga en `.vpf` y en «Generar aplicación»
+  sin cambios de formato.
+- **Ejemplos** (en Nuevo > plantillas y en `/ejemplos/vps/`): `notificaciones` (guardar con toast de éxito y «Deshacer», guardar mal con toast de
+  error que no se va, avisos apilados) y `agenda-carpetas` (un `Arbol` de carpetas, un `Calendario` y una nota por pareja carpeta-día).
+
+**Pruebas.** `rootfs/lib/python/vps/autoprueba_toast.py` (sin ratón: los cuatro tipos, apilado, cierre por tiempo, clic y «x», acción, esquinas,
+`Notificacion`, `Calendario`, `Arbol`, y el diseñador: colocar, guardar, cargar, ejecutar y generar la aplicación) y `tests/h466_vps_toast.py`
+(esa autoprueba y los dos ejemplos con clics reales, el diseñador con el ratón y F5), con capturas `VPS-manual-notificaciones-*.png`,
+`VPS-manual-agenda-*.png` y `H466-*.png`.
+
+**Límites.** El toast vive dentro de su formulario (no sobre el escritorio ni sobre otros formularios), un clic en él lo cierra (no hay
+«pausar al pasar el ratón») y no tiene animaciones. El `Arbol` no tiene iconos por nodo, arrastrar y soltar ni edición del texto.
+
+## D469. Componente de gráficos en la libsagui, módulo `sagui_grafico` y control `Grafico` de VisualPythonS (decidido el 2026-11-22; v8.5.6, rama `v8.5.6-vps-grafico`)
+
+**Pedido del mantenedor.** «Un componente de Chart avanzado, con distintos formatos, animación, etc.; añadirlo a la librería del
+sistema para reusar.» API y uso en `docs/grafico.md`.
+
+**Decisión.**
+- **El gráfico es C reutilizable de la libsagui** (`userland/inc/grafico.h`, `gui_grafico.c`, `grafico_calc.c`), no código de VisualPythonS. Dibuja
+  en un **búfer de píxeles** (no sobre una `jan_t`): sirve igual a una ventana, a una `sagui.Imagen` o a una exportación. Nueve tipos (líneas, área,
+  barras V/H agrupadas y apiladas, tarta, anillo, dispersión, histograma, velas), ejes con marcas 1-2-5, leyenda interactiva, tooltip, clic con
+  índices, datos en vivo con ventana deslizante, exportar a PNG/BMP, paleta categórica propia (12 colores, variante oscura) y el resto del color del
+  tema (`mod_tema`).
+- **Cálculo separado y probable en el PC** (`grafico_calc.c`, sin libc ni libm: seno/coseno propios, escalas, formato de números con separadores
+  `,`/`.` de España, apilado, bins, Catmull-Rom, colisiones de sector sin `atan2`); `tests/grafico_unidad.c` (72 comprobaciones).
+- **Coma flotante con la x87**: la libsagui se compila con `-mgeneral-regs-only`; las dos unidades llevan regla propia en el Makefile
+  (`-mfpmath=387 -fno-math-errno`), como el ecualizador (D201). La raíz es `fsqrt` en línea. Van a `libsagui_medios.so`, no a la base.
+- **Animación por tiempo, sin bloquear**: el que llama pasa el reloj (`grafico_avanzar(ms)`); dos progresos, entrada y cambio de datos, con curva
+  de suavizado (salida por omisión); la escala también se interpola y la ventana deslizante desplaza los puntos. El control de VisualPythonS pide
+  otro dibujo cada 30 ms con `after` mientras el gráfico diga que anima.
+- **Módulo de MicroPython `sagui_grafico`** (`grafico_sagui.c`, estilo D419; la cabecera `grafico.h` solo usa tipos básicos): el gráfico pinta en una
+  `sagui.Imagen` y tkinter la enseña con `Ventana.imagen`; el ratón pasa de tkinter al módulo con coordenadas del control. Sin el repositorio de
+  MicroPython a mano, los qstr nuevos y la entrada en `moduledefs.h` se añadieron con `tools/mp_qstr_agregar.py` (calcula el hash como
+  `makeqstrdata.py`, con autoprueba contra las 734 entradas existentes); `grafico_sagui.c` está también en `SRC_QSTR` de `micropython_embed.mk`.
+- **Control `Grafico`** (`vps/_grafico.py`, `_GraficoW` en `_widgets.py`): propiedades `tipo`, `titulo`, `series` (una línea por serie, «nombre: 1; 2; 3»,
+  dispersión «x,y,tamaño»), `categorias`, `leyenda`, `rejilla`, `animado`, `apilado`, `suave`, `puntos`, `valores`, `formato`, `colores`, `eje_x`,
+  `eje_y`, `ventana`, `duracion`, `hueco`, `bins`, `minimo`, `maximo`; métodos `agregar_serie`, `poner_datos`, `agregar_punto`, `limpiar`,
+  `ocultar_serie`, `exportar`...; eventos `click` (con `serie`, `indice`, `valor`, `categoria`), `pasar` y `leyenda`. **`tipo`** choca con `Control.tipo`
+  y se resuelve como en `Notificacion` (D466): atributo del objeto; como MicroPython no tiene `__setattr__`, un vigilante del widget (cada 150 ms)
+  aplica `Grafico1.tipo = "tarta"`. Está en la caja de herramientas (37 herramientas: 13 filas de 3), el panel de propiedades (las listas se editan con el
+  cuadro de líneas), la vista previa del diseñador, el autocompletado y el `.vpf`/«Generar aplicación» sin cambios de formato.
+- **Ejemplo** `graficos` (Nuevo > «Gráficos»): barras por mes, líneas suaves, tarta con 2,5 s de apertura y un monitor en vivo con `Temporizador`.
+
+**Pruebas.** `tests/grafico_unidad.c` (PC), `rootfs/lib/python/vps/autoprueba_grafico.py` (por píxeles, animación, ratón, leyenda, en vivo, exportar,
+control, ejemplo) y `tests/h469_grafico.py` (el ejemplo con el ratón: colores, apertura de la tarta, tooltip, clic con línea en el registro, leyenda,
+datos nuevos, en vivo, exportar), con capturas `VPS-manual-grafico-*.png` y `H469-*.png`.
+
+**Límites.** Sin texto girado (la etiqueta del eje Y va arriba, horizontal); sin zoom ni arrastre; el histograma anima solo la entrada; la leyenda de
+velas no existe; máximo 12 series y 512 puntos; `puntos` es un booleano (con muchos puntos, desactivarlo); el vigilante de `tipo` tarda hasta 150 ms.
+
+## D467. Archivos: ventana de progreso al copiar y mover, conflictos y errores (decidido el 2026-11-22; v8.5.6, rama `v8.5.6-archivos-progreso`)
+
+**Problema.** Archivos copiaba y movía sin decir cuánto llevaba ni cuánto faltaba, y sin poder parar.
+
+**Decisión.**
+- *Biblioteca* (`userland/libsagui/gui_progreso.c`, API `transf_*` en `gui.h`): una ventana general para operaciones largas
+  por bytes, sin hilos: el programa llama entre trozo y trozo y ella atiende sus eventos. Solo aparece a los 0,7 s, así que
+  una copia pequeña no parpadea. Barra por bytes, archivo actual, elementos, velocidad, tiempo restante, gráfico en «Más
+  detalles», Pausar/Reanudar y Cancelar. `dialogo_opciones` añade un diálogo de varios botones con casilla.
+- *Cálculo* (`transf_calc.h`): solo enteros; la velocidad es la media móvil de 6 s con una muestra cada 250 ms, y hasta
+  tener 1 s de historial dice «Calculando...». Se compila también en el anfitrión para probarlo.
+- *Archivos*: un recorrido previo cuenta archivos y bytes, y se copia por trozos de 128 KB. Si el destino existe:
+  Reemplazar, Omitir o Mantener los dos («nombre (2)»), con «Aplicar a todos»; en la misma carpeta se pone el «(2)» sin
+  preguntar. Un error pregunta Reintentar, Omitir o Cancelar. Cancelar borra el archivo a medias y no toca el origen.
+
+**Depuración.** `/tmp/.transf_lento` (milisegundos por trozo) frena la copia: solo para la prueba.
+
+**Pruebas.** `tests/h467_progreso_transferencia.py` y `tests/progreso_unidad.c` (el cálculo, en el anfitrión).
+
+## D468. Pendrives más rápidos: órdenes grandes, fases encadenadas y lectura anticipada (decidido el 2026-11-22; v8.5.6, rama `v8.5.6-usb-trozos`)
+
+**Problema** (pedido del mantenedor). Un pendrive USB 3.0 en un puerto USB 2.0 iba lento. `armazenamento.c` mandaba
+READ/WRITE(10) de 128 KB como mucho (`MAX_SETORES_POR_COMANDO 256`), una cada vez y con tres esperas por orden (CBW,
+datos, CSW), por el buffer de rebote de 128 KB del EHCI (D095) y del xHCI (D214); el xHCI además partía cada transferencia
+en TD de 64 KB y esperaba a cada uno. Encima, la capa de bloques nunca pedía más de 128 KB: la racha de FAT32/exFAT
+(`RACHA_MAX`), el lote y la ventana de lectura anticipada de la caché (`LOTE_BLOCOS`, `RA_MAX`) y el `cp` (128 KB por
+petición) estaban todos en 128 KB.
+
+**1. Trozos más grandes.**
+- *Tamaño por pendrive* (`usb_disp_t.armaz_trozo`, en sectores): 128 KB en USB 1.1 (UHCI/OHCI o detrás de un TT), 240 KB en
+  alta velocidad (el máximo prudente que pidió el mantenedor para BOT) y 1 MB en USB 3.0 (lo que hace Linux con los
+  SuperSpeed). La página Block Limits (VPD B0, «transferencia máxima») lo baja si es menor y, en alta velocidad, puede
+  subirlo hasta 1 MB. Solo se piden páginas VPD a los que dicen cumplir SPC-3 o más (versión 5+ del INQUIRY), primero la
+  lista (página 00) y B0 solo si está: Linux no pide VPD a los pendrives porque alguno se cuelga. Nunca más de lo que da el
+  controlador (`usb_bulk_max`). El registro lo dice al conectar: `[USB] armazenamento: ordenes de hasta N KB (motivo, SCSI v)`.
+- *Si falla*: una orden de más de 128 KB que falla baja el trozo de ESE pendrive a la mitad (no menos de 128 KB, lo de
+  siempre), lo anota (`[USB] usbN: una orden de X KB ha fallado ...`) y se repite la misma orden más pequeña.
+- *EHCI*: buffer de 1 MB si hay al menos 64 MB de memoria baja (si no, o si no hay 1 MB contiguo, 128 KB como antes) y una
+  cola propia de 128 qTD por controlador (dos páginas); cada qTD lleva hasta 20 KB (5 páginas) si empieza alineado a página
+  y 16 KB si no, siempre múltiplos de 4 KB (un número entero de paquetes, sea cual sea el mps). Sin la cola larga, 64 KB.
+- *xHCI*: un TD por transferencia con TRB encadenados (CH) que no cruzan 64 KB, IOC solo en el último, ISP en todos y
+  TD Size calculado (paquetes que quedan en 1.0+, KB en 0.96). Buffer de 1 MB con las mismas condiciones.
+- *Sin copia cuando se puede (scatter-gather a medias)*: si el búfer de quien llama es memoria baja del kernel
+  (`[1 MB, MEMFIS_LIMITE)`, vista 1:1 por D008: la dirección virtual es la física y las páginas seguidas son contiguas) y
+  tiene al menos una página, el DMA va directo a él. Es el caso del lote de la caché (por donde pasan casi todas las
+  lecturas de pendrive) y de la ventana de FAT32. El DMA directo a la memoria de un programa NO se hace: sus páginas pueden
+  estar en la alta (por encima de lo que se ve 1:1), comprimidas o en la swap, o cambiar (copia al escribir) mientras el
+  proceso duerme esperando el DMA; habría que fijarlas y traducirlas página a página. Para eso queda el buffer de rebote
+  (copiar 1 MB cuesta unos 0,1-0,3 ms frente a los 25-35 ms que tarda en el bus de un USB 2.0). Lo pequeño (CBW, CSW)
+  va por una página aparte (512 bytes por parte).
+
+**2. Dos órdenes encadenadas: hasta dónde llega.** Las fases del Bulk-Only son secuenciales por dispositivo (el pendrive
+no acepta el CBW siguiente hasta mandar el CSW), así que no se pueden tener dos órdenes en vuelo. Lo que sí se solapa:
+- Las fases que van por el MISMO endpoint se entregan juntas al controlador (`usb_bulk_cadeia`): escritura = CBW + datos
+  (salida) en una cola y luego el CSW. (La lectura, datos + CSW, se probó junta y se deshizo: ver «Correcciones».) Dos esperas
+  (IRQ, despertar, planificar) por orden en vez de tres. En el EHCI la alternancia del CSW se calcula de antemano (los
+  datos llegan enteros) y, si la entrada viene corta, el qTD corto salta (puntero alternativo) a un qTD de parada inactivo:
+  la espera termina y el CSW se pide aparte con la alternancia buena (antes, una entrada corta dejaba los qTD siguientes
+  activos hasta el plazo de 5 s). En el xHCI, un TD por parte en el anillo y un solo timbre; un paquete corto termina su TD y
+  el controlador sigue con el CSW; se ignora un posible segundo evento del mismo TD (hay controladores que avisan también
+  del último TRB tras uno corto).
+- No se hace: tener a la vez la salida (CBW) y la entrada (datos + CSW) colgadas en el anillo asíncrono del EHCI. En la
+  lectura ahorraría otra espera, pero en la escritura la QH de entrada estaría pidiendo el CSW (NAK tras NAK) durante toda
+  la fase de datos, robando bus, y con un STALL del CBW habría que cancelar la otra cola. Queda como siguiente paso, solo
+  para lecturas, si las medidas en hardware lo justifican.
+- La copia al/del buffer de rebote no se solapa con el bus (necesitaría dos órdenes en vuelo): con el DMA directo de la
+  caché casi no hay copia, y la que queda es un 1 % del tiempo del bus.
+
+**3. Lectura anticipada.** La caché de bloques (D281; los pendrives ya leían por ella desde D379, la escritura sigue
+directa) tenía lectura anticipada de hasta 128 KB. Ahora `disco_t.trozo` (lo rellena `armazenamento.c` con el trozo del
+pendrive y lo actualiza si baja) hace que en ESE disco la ventana de lectura anticipada, el lote por orden al driver y el
+umbral de «pedido grande, directo» lleguen al trozo (lote de 1 MB con 64 MB de memoria baja o más; si no, 128 KB). Los
+discos internos (ATA, AHCI, NVMe: `trozo` = 0) siguen exactamente igual. Coherencia con las escrituras: la de un pendrive
+va directa y pone al día los bloques presentes en la caché (como antes); la ventana propia de FAT32 se invalida al grabar.
+Además: `RACHA_MAX` de FAT32 y exFAT pasa a 1 MB (una lectura o grabación grande de clústeres seguidos es una sola
+petición, que el driver parte en órdenes de su trozo) y `cp` lee y escribe de 1 MB en 1 MB (la escritura en un pendrive
+es directa: el tamaño de la petición es el de las órdenes).
+
+**Contadores.** `sync -v` (que ya anotaba `[CACHE] ... anticipados N`) anota también una línea por pendrive:
+`[USB] usb0: lectura N ordenes, K KB, media M KB; escritura ...; mayor X KB, trozo T KB, reducciones R, encadenadas E, VPD B0|no|fallo`.
+
+**Correcciones tras las primeras pruebas (2026-11-23).**
+- *La entrada no se encadena* (`usb_bulk_cadeia`, todos los controladores): con el QEMU, un CSW puesto detrás de unos datos
+  que el disco entrega de forma asíncrona no se hacía nunca en el xHCI (ni tocando el timbre otra vez: h214 y h227 no
+  leían nada) y en el EHCI se quedaba hasta el plazo de 5 s en las lecturas que no son múltiplo de 128 KB (h73: una orden
+  de 132 KB «fallaba» y bajaba el trozo). Un pendrive de verdad hace lo mismo (el CSW llega al acabar la orden), así que la
+  lectura queda CBW, datos y CSW, como antes; con órdenes de 1 MB, la espera de más no se nota. La salida sí va junta
+  (CBW + datos). El punto 2 se queda, pues, en la escritura.
+- *Varios flujos de lectura anticipada por disco* (`anticipo` en `cache_disco.c`): el FAT32 lee la tabla FAT entre una
+  ventana de datos y la siguiente, y con un flujo por disco esa lectura cortaba la secuencia (h468: media de 125 KB). Ahora
+  un pedido sigue al flujo que acababa donde él empieza (8 flujos, se reutiliza el más viejo).
+- *FAT32: caché de 64 sectores (antes 16) y, al expulsar uno sucio, se graba todo lo sucio junto.* Con clústeres de 512
+  bytes, grabar 1 MB ensucia 16 sectores de la FAT, que se iban grabando de uno en uno y dos veces (las dos FAT): 870
+  órdenes para 24 MB. Ahora, 102.
+- *h73*: la parte de robustez frena su pendrive en el QEMU (`throttling.bps-total=8000000`): con órdenes de 1 MB la copia
+  de 24 MB acababa antes de poder escribir `matar`.
+
+**Medidas** (QEMU con KVM; `build/testes/h468-resultados.txt` y h73). En el QEMU la velocidad no es la de un pendrive real;
+lo que cuenta es el número y el tamaño de las órdenes.
+
+| Prueba | Antes (v8.5.6, o la primera versión de esta rama donde se dice) | Después |
+|---|---|---|
+| h468 EHCI, `sha256sum` de 24 MB (peticiones de 16 KB) | órdenes de 128 KB como mucho (~200) | 28 órdenes, media 915 KB, 0,45 s |
+| h468 EHCI, `cp` de 24 MB del pendrive | ídem | 24 órdenes de 1 MB, 0,40 s (61 MB/s) |
+| h468 EHCI, `cp` de 24 MB al pendrive | primera versión: 870 órdenes, media 28 KB, 6,0 s (trozos grandes, FAT de antes) | 102 órdenes, media 245 KB, 0,65 s (37 MB/s) |
+| h468 xHCI, lectura / escritura `cp` de 24 MB | — | 24 órdenes de 1 MB, 0,20 s / 102 órdenes, 0,20 s |
+| h73 (EHCI), leer `g8.bin` de 8 MB | primera versión: 6,0 s (1,4 MB/s: la orden de 132 KB al plazo) | 0,25 s (32 MB/s) |
+| h73 (EHCI), grabar `g8.bin` | primera versión: 1,8 s (4,6 MB/s) | 0,35 s (23 MB/s) |
+
+**Qué medir en hardware real** (puerto USB 2.0 y puerto USB 3.0, el mismo pendrive USB 3.0 y, si se puede, uno USB 2.0
+barato):
+- La línea `[USB] armazenamento: ordenes de hasta ...` al conectar (y `[USB] VPD B0: ...` si sale) y, tras copiar,
+  `sync -v`: media y mayor de las órdenes, `reducciones` (si no es 0, el pendrive falló con trozos grandes: anotar el
+  modelo) y `encadenadas`.
+- Velocidad de lectura: `time cp /usb/grande.bin /tmp/` y `time sha256sum /usb/grande.bin` con un fichero de 500 MB o más
+  (lo segundo usa la lectura anticipada); y de escritura: `time cp /tmp/grande.bin /usb/copia.bin` seguido de `sync`.
+  También copiando con Archivos. Comparar con la v8.5.6 publicada en el mismo puerto.
+- Que desenchufar tras «Ya puedes retirar el pendrive» (o tras `sync`) deja el fichero íntegro (sha256sum en otro PC).
+- En máquinas con poca RAM (64-128 MB), que arranca y que el registro dice `buffer de datos de 1024 KB` o `128 KB`.
+
+**Corrección (2026-11-25, al revisar la rama).** (1) Al repetir una orden con un trozo menor sin un CSW que cerrara la
+anterior (plazo o error de transmisión), el pendrive podía seguir en la fase de datos y tomar el CBW nuevo como datos: ahora
+se hace antes el reset de recuperación del Bulk-Only (con un CSW de estado 1 no hace falta) y, si tampoco contesta a ese reset
+(retirado en mitad de una copia), no se repite: el aviso de retirada sale antes. (2) En el xHCI ese reset ponía a
+cero la alternancia (o la secuencia de USB 3.0) solo en el dispositivo; en el controlador solo se ponía a cero si el
+endpoint estaba «halted», no tras un plazo. `xhci_reiniciar_ep` lo hace con Configure Endpoint (Drop y Add del mismo
+endpoint); el QEMU no comprueba la secuencia, así que esto **queda por probar en hardware**. (3) EHCI: la página pequeña se
+pide antes que el buffer, para que un segundo controlador no siga sin ella. h468 gana la parte `plazo`.
+
+**Riesgos.** (a) Un pendrive que se cuelgue con el INQUIRY de VPD (solo se pide a los SPC-3+): se vería como fallo al
+conectar; el arreglo sería no pedirla a ese fabricante. (b) Un pendrive que acepte la orden grande pero la estropee sin
+dar error: no se detectaría (Linux usa 240 sectores = 120 KB por defecto en alta velocidad precisamente por eso; aquí
+240 KB a petición del mantenedor). (c) Controladores EHCI que traten mal el salto al qTD de parada: solo afecta a
+entradas cortas (casi nunca en READ(10)).
+
+**Pruebas.** `tests/h468_usb_rapido.py` (EHCI y xHCI): trozo elegido, buffer de 1 MB, lectura de 24 MB con sha256sum
+(lectura anticipada: «anticipados» crece) y con cp, escritura con cp, medias de más de 128 KB, fases encadenadas, sin
+reducciones, y desenchufe en caliente tras `sync` con el fichero idéntico en el PC (mtools). Deben seguir pasando h29_ehci,
+h214_xhci, h227_usb_caliente, h267_usb11 (USB 1.1 y compañero: trozo de 128 KB), h73_usb_rapido y h352_cache_alta.
+
+## D470. Tzar: la IA completa (flota y transporte, hechizos, brechas, metas propias, captura, rendición y comportamiento por reino) (decidido el 2026-11-23; v8.5.6, rama `v8.5.6-tzar-ia2`)
+
+**Contexto.** La IA de Tzar (D417, fase 6, `userland/juegos/tzar/ia/`) dejaba sin traducir de ReTzar (`cf2af88`) la flota y
+el transporte (`navy.rs`, `transport.rs`, `reach.rs`), los hechizos (`spells.rs`), las brechas (`breach.rs`), las metas con
+rutina propia (`goals.rs`: invocaciones, cruzada, yihad), `CONVERT`, `RESIGN` y la captura con campesinos; y en el mapa
+aleatorio todos los reinos usaban el guion estándar (D435). Pedido del mantenedor: completarla.
+
+**Decisiones.**
+- **La IA sigue siendo un jugador (D417, regla 2):** todo lo nuevo se hace con comandos y con lo que ve. Donde ReTzar mete
+  la IA dentro de la simulación (el programa Transport del barco, el hechizo antes de cada golpe, el gancho de la busca de
+  caminos de las brechas), aquí lo lleva el jugador en cada mirada: transportes en su propio estado (subir con
+  `TZ_O_ENTRAR`, acercar el barco, descargar con `TZ_O_DESCARREGAR`, seguir andando), hechizos para sus unidades que están
+  atacando (y el ataque vuelve a la cola) y brechas con unas islas «sin los muros enemigos» calculadas por la IA. Así la
+  simulación no cambia de forma (solo dos añadidos pequeños: subir a un barco desde dos casillas, como `MEET` de
+  `transport.rs`, porque entre la tierra y el agua hay una casilla de costa; y `tz_feitico_parametros` para que la IA sepa
+  el maná de un hechizo).
+- **Regiones de agua propias de la IA**, hechas una vez del bit de agua de las casillas (el agua no cambia): son las que el
+  original guarda en sus islas; las de tierra ya las da la simulación juntando tierra y puentes.
+- **Exploración por mar (nuestra, como la exploración de la fase 6):** con la niebla la IA no sabe dónde está el enemigo de
+  otra isla; si en la suya no queda nada por ver, el explorador cruza en barco, y los sectores con el centro en el agua se
+  exploran desde la casilla de tierra más cercana al centro. Sin esto la IA nunca hacía puerto ni cruzaba.
+- **Rendición:** `TzRegras.ia_rendicao` (solo se añade a `mundo.h`), la pone la pantalla del mapa aleatorio y la IA la guarda
+  en su bloque de la partida (no cambia `TZSV`). Con ella, `HAVE RESIGN` manda `TZ_C_RENDIR`; como en ReTzar, las reglas del
+  grupo que lo pide se releen en cada fase de construir.
+- **Comportamiento por reino:** el icono de la IA de cada fila de `S_SINGLERND` abre «COMPORTAMIENTO IA» con los guiones de
+  `DATA/AI/AI.INI` (`[scripts]`), y la bandera de rendición sale si están `IMAGES/AIRESIGN.BMP` y `DATA/AI/RESIGN.AI`, como
+  `menu.rs`. Van al guion del reino del mapa generado (`TzReino.ia_guiao`), a `tzar.cfg` y a la línea `ALEAT` de la partida
+  guardada, en una cola opcional `IA rendición guion[8]` (las líneas de antes siguen valiendo; un guion con carpeta se
+  rechaza).
+- **Guardar:** el bloque `IA<k>` pasa a la versión 3 (rendición, barcos y puertos queridos por agua, transportes, muros
+  marcados); se siguen cargando las de la versión 2.
+
+**Diferencias que quedan** (docs/tzar.md, «La IA»): el transporte espera a cada pasajero 30 miradas; el sitio del puerto se
+busca en las posiciones a 64 casillas de la casa en vez de recorrer la costa; la brecha solo se abre cuando no hay camino
+(no cuando el camino es más del doble de la distancia); las listas y los lugares se siguen rehaciendo en cada mirada y no hay
+«fuerzas hostiles que llegan».
+
+**Pruebas:** h417 `ia` (batería, datos sintéticos, ASan/UBSan): `tests/tzar_ia_casos.c` (32 comprobaciones: por dónde se
+llega, transporte de una isla a otra, el barco que pide el agua, el sitio del puerto, lluvia de fuego sobre un grupo, rayo,
+sacerdote, brecha, yihad, taberna, captura, rendición permitida o no) y una partida en el mapa de dos islas `IA2` (puertos,
+barcos, desembarcos y combate; determinista y guardar/cargar igual); h417 `ui` (la ventana, la rendición y la línea con la
+IA) y la ampliación de `campanhas` (la línea `ALEAT` con la IA llega al mapa). A mano, `privado_ia` con los datos reales
+(MP2, MP3, MP5: deterministas y guardar/cargar igual; en MP3, con barcos del mapa, las dos IA desembarcan).
+
+## D471. Tzar: objetos, ventanas de negocio y detalles que faltaban, y arreglos de MPEG-PS en la libsagui (decidido el 2026-11-23; v8.5.6, rama `v8.5.6-tzar-objetos`)
+
+**Qué.** Se completa lo que la simulación completa de la D430 dejó sin interfaz ni simulación: nombres de héroe (`HEROES.INI`), precios de la
+taberna con las rebajas, dados, piedras del alma, objetos de la fábrica mágica, joyas del mercado asiático, pergaminos que abren su historia y
+la elección de blanco con los contadores de atacantes de `combat.rs`; ventanas propias para taberna, dados, préstamos, intercambio, comercio,
+objetos, cruzada, tributos, rendición, fábrica y mercado (`ui_negocio.c`); cursores e indicadores de orden animados, sonido del trabajo con
+`TZ_EV_TRABALHO` y montañas en el mapa aleatorio. Detalle y tablas en `docs/tzar.md`, «Objetos, ventanas y detalles».
+
+**Decisiones.** (1) Las ventanas usan el estilo de `ui_janelas.c` (marco dibujado, fuentes y textos del juego) y no copian el arte de cada
+diálogo original: los diálogos de ReTzar (`dialogs.rs`) viven en la rejilla de órdenes y no tienen etiquetas, y el encargo era ventanas como
+las de diplomacia y chat; los dados sí usan `zarove` y `winlose`. Un botón de órdenes que antes solo avisaba ahora abre su ventana. (2) Los
+comandos nuevos son pequeños y aditivos (`TZ_C_APOSTAR`, `ALMA`, `FABRICAR`, `COMPRAR`, `TRIBUTO`; eventos `TZ_EV_APOSTA`, `TRIBUTO`,
+`PERGAMINHO`); la rama `v8.5.6-tzar-ia2` hace la IA (cruzada, `CONVERT`, rendición de la IA) y no usa estos; no hubo que añadir ningún
+comando que la otra rama también necesite. (3) `TZSV` pasa a la versión 6 (nombres de héroe, piedras ligadas, dibujo de los objetos hechos
+en la partida, joyas de cada reino): las partidas guardadas de la v8.5.5.2 no se cargan. (4) Las **montañas** sí se generan: la nota de la
+D435 («ReTzar no las genera») era un error; `random_map.rs` las tiene (`mountains` y `native_cliffs`, de 0x4b33b0) y solo su menú las dejaba
+apagadas. (5) **MPEG-PS** (mejora en la libsagui, que también usan los demás programas de vídeo): la cabecera de paquete de MPEG-2 se
+leía mal (9 de 50 cuadros), los códigos y la cabecera de secuencia partidos entre paquetes se perdían, y el archivo que no empezaba en
+`0xBA` no se reconocía; no se pudo probar con el `intro.MPG` real (no está en la instalación de pruebas), solo con MPEG-PS generados con el
+ffmpeg de cuatro formas (prueba `h471`). Los vídeos sin GOP ya se leían bien.
+
+**No toca el núcleo del kernel.** Solo `userland/juegos/tzar/`, `userland/libsagui/mpeg1.c` y `video.c`, pruebas y documentación.
+No cambia `README.md`.
+
+**Pruebas.** h417 `extras` (153 comprobaciones nuevas y antiguas con ASan/UBSan), `negocio` (53: se abre y dibuja cada ventana y se pulsan
+sus botones con la simulación real), `janelas_saguios` (las 11 ventanas dentro de SaguiOS), `ui`, `campanhas` (montañas, sonido del trabajo,
+guardar y cargar la opción) y h471 (MPEG-PS). Pasaron también h115 y h100 (vídeo de la libsagui, en el PC y en SaguiOS). En la máquina donde se hizo faltaba `sdl2-config`, así que `pc`,
+`saguios` y la compilación de `campanhas` del script no corrían: `campanhas` se compiló a mano contra las cabeceras de `userland/libsdl2` (167
+comprobaciones, 0 fallos). Con los datos reales (`privado_*`) no se probó (la instalación de esta máquina no trae `intro.MPG`).

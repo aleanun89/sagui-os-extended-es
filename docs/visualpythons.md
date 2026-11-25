@@ -302,6 +302,11 @@ Los constructores admiten por posición `(padre, texto, x, y, ancho, alto)` y el
 | `SelectorColor` | `valor` (`0xRRGGBB`) | `cambio`, `click` | Abre una paleta; `elegir()` la abre por código |
 | `Reloj` | `intervalo`, `activo`; solo lectura: `anio`, `mes`, `dia`, `hora`, `minuto`, `segundo`, `dia_semana`, `fecha`, `hora_texto`, `nombre_dia`, `nombre_mes` | `tic` | Sin ventana. `ahora()`, `formatear("%d/%m/%Y %H:%M")` |
 | `Archivo` | `ruta`, `separador` | | Sin ventana. `existe()`, `leer()`, `escribir(t)`, `agregar(t)`, `leer_lineas()`, `escribir_lineas(l)`, `leer_csv()`, `escribir_csv(filas)`, `borrar()` |
+| `Calendario` | `valor` (o `fecha`, «AAAA-MM-DD»), `anio`, `mes`, `dia`, `minimo` y `maximo` («AAAA-MM-DD», vacío = sin límite) | `cambio`, `doble_click` | Un mes con flechas: `<` `>` cambian de mes y `<<` `>>` de año (también Re Pág y Av Pág); un clic elige el día, un doble clic dispara `doble_click`, las flechas del teclado mueven el día. Los días fuera de `minimo`/`maximo` salen en gris y no se eligen. `hoy()`, `ir_a(anio, mes)`, `mes_visible()`, `en_rango(fecha)` |
+| `SelectorFecha` | `valor` («AAAA-MM-DD») | `cambio` | Cuadro con la fecha y un botón que despliega un calendario; `desplegar()` |
+| `Arbol` | `nodos` (una línea por nodo, dos espacios de sangría por nivel, `texto\|clave`), `expandido` (si los nodos empiezan abiertos), `seleccion` (índice en el orden de recorrido, -1 si ninguno); `clave` y `valor` (texto) del nodo elegido; `nodo` (el último abierto o cerrado) | `seleccion`, `click`, `doble_click`, `expandir`, `contraer` | Vista en árbol. `agregar(padre, texto, clave=None)` (padre `None` = primer nivel; devuelve la clave), `quitar(clave)` (con sus hijos), `limpiar()`, `expandir(clave=None)`, `contraer(clave=None)`, `alternar(clave)`, `elegir(clave)` (sin eventos), `contar()`, `claves()`, `existe(clave)`, `texto_de(clave)`, `padre_de(clave)`, `hijos(clave=None)`, `ruta(clave=None)` («Trabajo/Reuniones»). Un clic en el cuadrito `[+]`/`[-]` abre o cierra; con el teclado, arriba/abajo recorren, derecha/izquierda abren, cierran o suben al padre, Intro dispara `doble_click` |
+| `Notificacion` | `texto`, `tipo` (`info`, `exito`, `aviso`, `error`), `duracion` (ms; 0 = hasta cerrarla), `posicion` (`abajo_derecha`, `arriba_derecha`, `abajo_centro`, `arriba_centro`), `titulo`, `accion` (texto de un botón dentro del aviso); solo lectura: `motivo` | `click`, `accion`, `cerrado` | Sin ventana: `mostrar(texto=None)` enseña un toast con esas propiedades; `cerrar()`. `click` salta al pulsar el aviso, `accion` al pulsar su botón y `cerrado` al irse (`motivo`: `tiempo`, `click`, `boton`, `accion` o `api`) |
+| `Grafico` | `tipo` (`lineas`, `area`, `barras`, `barras_h`, `tarta`, `anillo`, `dispersion`, `histograma`, `velas`), `titulo`, `series` (una línea por serie: `nombre: 1; 2; 3`; en dispersión `x,y[,tamaño]`; en velas cuatro series: apertura, máximo, mínimo, cierre), `categorias`, `leyenda` (`ninguna`, `abajo`, `arriba`, `derecha`, `izquierda`), `rejilla`, `animado`, `apilado`, `suave`, `puntos`, `valores`, `formato` (`auto`, `0.0`, `#,##0`, `0%`, `$0.00`...), `colores`, `eje_x`, `eje_y`, `ventana`, `duracion`, `hueco`, `bins`, `minimo`, `maximo`; datos del evento: `serie`, `indice`, `valor`, `categoria`, `nombre_serie`, `oculta` | `click`, `pasar`, `leyenda` | Gráficos con animación, tooltip y leyenda interactiva. `agregar_serie(nombre, datos=None, color=None, xs=None, tam=None)`, `poner_datos(datos, serie=0)`, `agregar_punto(valor, serie=0)` (en vivo), `limpiar()`, `ocultar_serie(i)`, `serie_oculta(i)`, `reiniciar_animacion()`, `valores_de(i)`, `exportar(ruta, ancho=None, alto=None)` (.png o .bmp), `tooltip()` |
 
 ### Eventos comunes (v8.4.1, D315)
 
@@ -326,6 +331,38 @@ La tabla completa por control y los ejemplos (guardar al cerrar, botón con el r
 | `dialogo_carpeta(titulo, carpeta)` | El de elegir carpeta |
 | `pausa(ms)` | Espera sin congelar la ventana |
 | `depurar(variables=None)` | Para el programa y enseña las variables en la ventana del depurador |
+| `notificar(texto, tipo="info", duracion=3000, titulo="")` | Aviso tipo toast, no modal, en una esquina del formulario activo (abajo a la derecha). `tipo`: `info`, `exito`, `aviso`, `error`; `duracion` en ms (0 = hasta que se cierre). Se apila si hay varios, se va solo, se cierra con un clic o con su «x» y no roba el foco. Otros argumentos por nombre: `accion="Deshacer"` con `al_accion=funcion`, `posicion="arriba_centro"`, `formulario=Formulario2`, `al_click=` y `al_cerrar=`. Devuelve la notificación (`.cerrar()`, `.abierta`, `.motivo`) |
+| `notificaciones(formulario=None)` | Las notificaciones que se ven ahora (la más antigua primero) |
+| `cerrar_notificaciones(formulario=None)` | Las cierra todas |
+
+### Notificaciones (toast)
+
+`notificar()` y el control `Notificacion` (v8.5.6, D466) dan avisos que no bloquean la ventana, a diferencia de `msgbox`. El
+aspecto es el del toast de la libsagui (fondo oscuro del tema y un punto de color por tipo). La libsagui lo tiene en C
+(`toast_*`), pero el módulo `sagui` de MicroPython no lo ofrece y añadir nombres pide regenerar los qstr (D034): por eso se dibuja
+desde Python con un componente de `tkinter` puesto encima del formulario.
+
+```python
+notificar("Guardado", "exito")                                  # se va solo a los 3 segundos
+notificar("No se pudo guardar", "error", 0, "Fallo")            # se queda hasta que se cierre
+notificar("Nota borrada", accion="Deshacer", al_accion=deshacer)
+```
+
+### Gráficos
+
+`Grafico` (v8.5.6, D469) dibuja con el componente de C de la libsagui (`docs/grafico.md`) a través del módulo `sagui_grafico`: el
+gráfico pinta en una `Imagen` del tamaño del control y el control la enseña; la animación avanza por tiempo con `after` (no bloquea).
+
+```python
+Grafico1 = Grafico(f, 8, 8, 360, 220, tipo="barras", titulo="Ventas por mes", categorias=["Ene", "Feb", "Mar"])
+Grafico1.agregar_serie("2026", [120, 150, 90])
+def Grafico1_click(): Etiqueta1.texto = "%s: %s" % (Grafico1.categoria, Grafico1.valor)
+Grafico4.agregar_punto(carga)          # en vivo: con ventana=30 conserva los últimos 30 puntos
+Grafico1.exportar("/home/ventas.png")
+```
+
+`tipo` es a la vez la propiedad y el nombre del tipo de control (como en `Notificacion`, D466): vive en el objeto y un cambio por
+código (`Grafico1.tipo = "tarta"`) se aplica en menos de 150 ms (un vigilante del control). Ejemplo en Nuevo > «Gráficos».
 
 ### Sobre tkinter
 
@@ -352,7 +389,7 @@ trozos de texto, tipos de letra vectoriales) tampoco está en `vps`.
   `tkinter`).
 - La `Tabla` (v8.3.2) es una rejilla sencilla de texto: sin columnas redimensionables, sin tipos de dato
   por columna y sin enlace a una base de datos (para eso está la `RejillaDatos`, ver «Bases de datos» al final; BaseDatos, Descarga
-  y AgenteIA son de la fase 2, mejora 124). Todavía no hay `Calendario`, `Arbol` ni `Pestanas` anidadas dentro de un `Marco` que
+  y AgenteIA son de la fase 2, mejora 124). Todavía no hay `Pestanas` anidadas dentro de un `Marco` que
   esté en otra página (los controles de una página oculta se esconden con ella, pero el diseñador solo
   deja elegir la página de las Pestanas de primer nivel).
 - Las **Pestanas** y la **Tabla** no están hechas con ventanas del sistema sino con componentes de

@@ -23,9 +23,14 @@ Partes (por defecto: git lectores ui simulacao extras campanhas ia cuelgue pc sa
             pasan de una misión a otra, guardar y cargar, registros dañados, catálogo y progreso de campañas, mapas aleatorios
             (castillos, minas, determinismo) y la mezcladora de sonido (atenuación, huecos, habla, película, eventos) con el
             sintetizador MIDI del sistema.
+  negocio   las ventanas de negocio de la v8.5.6 (ui_negocio.c: taberna, dados, préstamos, intercambio, comercio, objetos, cruzada, tributos,
+            rendición, fábrica mágica, mercado) con la simulación real y datos sintéticos (ASan/UBSan): se abren, se dibujan y se pulsan sus botones.
+  janelas_saguios  las once ventanas dentro de SaguiOS (QEMU): se abren y se dibujan con la SDL del sistema (TZAR_PRUEBA_JANELAS).
   ia        la IA original (fase 6): el compilador de guiones con casos sintéticos y una partida IA contra IA con la
             simulación real sobre la instalación sintética de tools/tzar_ia_sintetico.py (ASan/UBSan): sin fallos,
-            determinista, guardar/cargar igual, y las dos IA construyen, entrenan, investigan y pelean.
+            determinista, guardar/cargar igual, y las dos IA construyen, entrenan, investigan y pelean. D470: los casos
+            de tests/tzar_ia_casos.c (por dónde se llega, transporte, flota, puerto, hechizos, sacerdote, brecha, yihad,
+            taberna, rendición) y una partida en el mapa de dos islas (IA2): puertos, barcos, desembarcos y combate.
   privado_ia (a mano) los guiones de IA reales compilan y partidas IA contra IA en mapas reales.
   cuelgue   el «cuelgue» de las campañas (v8.5.5.2): una frase de conversación sin elecciones no se cerraba con un clic
             (tz_guiao_fechar no cierra conversaciones) y la partida se quedaba parada para siempre con la frase en pantalla y la
@@ -58,7 +63,7 @@ LECTORES = ["wdt.c", "hpfs.c", "recursos.c", "imagem.c", "mapa.c", "terreno.c", 
 # interfaz (fase 4): los .c con partes traducidas de ReTzar citan su origen y licencia; los otros son código propio
 UI_TRADUCIDOS = ["ui_fonte.c", "ui_skin.c", "ui_hud.c", "ui_jogo.c", "ui_menu.c", "ui_selecao.c"]
 UI_FUENTES = ["ui_fonte.c", "ui_hud.c", "ui_jogo.c", "ui_lienzo.c", "ui_mapa.c", "ui_menu.c", "ui_selecao.c", "ui_skin.c", "ui_janelas.c",
-              "ui_cursor.c", "opcoes.c"]
+              "ui_cursor.c", "ui_negocio.c", "opcoes.c"]
 # simulación (fase 5): traducida de ReTzar; demo.c y partida.c son propios
 SIM_TRADUCIDOS = ["catalogo.c", "mundo.c", "acoes.c", "caminho.c", "gravar.c", "magia.c", "comercio.c", "itens.c"]
 SIM_FUENTES = SIM_TRADUCIDOS + ["demo.c"]
@@ -271,6 +276,37 @@ def suma_visor(exe, d, frames):
     return (g.group(1), g.group(2)) if g else None, r.stderr
 
 
+def compilar_negocio():
+    s = saida()
+    fonte = os.path.join(s, "tzar_fonte.c")
+    subprocess.run([sys.executable, os.path.join(RAIZ, "tools", "mkfonte.py"), os.path.join(RAIZ, "tools", "fonte", "sagui8x16.txt"), fonte],
+                   check=True, stdout=subprocess.DEVNULL)
+    exe = os.path.join(s, "tzar_negocio")
+    fuentes = [os.path.join(D0, f) for f in UI_FUENTES + LECTORES + SIM_TRADUCIDOS]
+    subprocess.run(["gcc", "-std=gnu99", "-g", "-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=undefined", "-Wall", "-Wno-format-truncation",
+                    "-I", D0, "-o", exe, os.path.join(RAIZ, "tests", "tzar_negocio.c")] + fuentes + [fonte, "-lm"], check=True)
+    return exe
+
+
+def negocio():
+    """Las ventanas de negocio de la v8.5.6 (ui_negocio.c) con la simulación real y datos sintéticos (ASan/UBSan): se abre cada
+    ventana (taberna, dados, préstamos, intercambio, comercio, objetos, cruzada, tributos, rendición, fábrica mágica y mercado), se
+    dibuja y se pulsan sus botones como un jugador; contratar, apostar, pedir y devolver un préstamo, cambiar recursos, mandar una
+    ruta, dar, soltar y recoger un objeto, convocar la cruzada, enviar tributo y rendirse tienen su efecto en el mundo."""
+    from qemu import verificar
+    exe = compilar_negocio()
+    d = sintetico()
+    caps = os.path.join(saida(), "negocio")
+    os.makedirs(caps, exist_ok=True)
+    r = subprocess.run([exe, d, caps], capture_output=True, text=True, errors="replace", env=dict(os.environ, ASAN_OPTIONS="detect_leaks=1"), timeout=900)
+    for l in r.stdout.splitlines():
+        if l.startswith("FALLO"):
+            print("   ", l)
+    oks = len(re.findall(r"^OK ", r.stdout, re.M))
+    verificar(r.returncode == 0 and "0 fallos" in r.stdout and oks >= 40,
+              "ventanas de negocio con la simulación real: %d comprobaciones bien%s" % (oks, "" if r.returncode == 0 else "\n" + r.stdout[-2500:] + r.stderr[-2500:]))
+
+
 def compilar_campanhas():
     """El arnés de la fase 7 (con el mundo falso) y el sintetizador MIDI de la libsagui del anfitrión (sin UBSan: lo suyo no es de aquí)."""
     s = saida()
@@ -354,7 +390,7 @@ def pc():
               "el mapa aleatorio del juego sale con los reinos y el tamaño elegidos" + ("" if rj.returncode == 0 else "\n" + rj.stderr[-1500:]))
     verificar("[TZAR] prueba guardar/cargar aleatorio: igual" in rj.stderr, "guardar y cargar la partida en mapa aleatorio da el mismo mapa y las mismas opciones" + ("" if "igual" in rj.stderr else "\n" + rj.stderr[-1500:]))
     txt = io.open(os.path.join(pg, "prueba.txt"), encoding="latin-1").read().splitlines() if os.path.exists(os.path.join(pg, "prueba.txt")) else []
-    verificar(len(txt) >= 7 and txt[6] == "ALEAT 96 4 0 3 1 1 1 1 grass 417 0 1 1 2 0 0 0 0 0 2 0 0 0 0 0 0 1 1",
+    verificar(len(txt) >= 7 and txt[6] == "ALEAT 96 4 0 3 1 1 1 1 grass 417 0 1 1 2 0 0 0 0 0 2 0 0 0 0 0 0 1 1 0",
               "la partida guardada lleva la línea ALEAT con tamaño, reinos, tipo y equipos (%s)" % (txt[6][:70] if len(txt) > 6 else "falta"))
     r = subprocess.run([exe, "--visor", "/no/existe"], capture_output=True, text=True, env=env, timeout=60)
     verificar(r.returncode == 1 and "[TZAR] sin datos del juego" in r.stderr, "sin datos explica qué falta y sale con 1")
@@ -461,6 +497,29 @@ def saguios():
                   "en SaguiOS la conversación se cierra y la partida sigue (tic %s)" % g)
 
 
+def janelas_saguios():
+    """Las ventanas de negocio de la v8.5.6 dentro de SaguiOS (QEMU): el juego crea la taberna, el mercado, la catedral, la fábrica mágica,
+    un mercader y un infante (TZAR_PRUEBA_JANELAS), abre las once ventanas una a una y las dibuja con la SDL del sistema; todas salen."""
+    from qemu import Maquina, imagem_de_teste, verificar, APPS_RAIZ
+    from h60_barra_tareas import esperar
+    import h136_opentyrian as h136
+    if not os.path.isfile(os.path.join(APPS_RAIZ, "bin", "tzar")):
+        print("AVISO: la imagen no lleva tzar (make): se salta la parte «janelas_saguios»")
+        return
+    d = instalacion_juego()
+    jogos = os.path.dirname(d)
+    img = imagem_de_teste("h417j", ["--vesa", "--apps", APPS_RAIZ, "--jogos", jogos, "--jogos-mb", "32"])
+    with Maquina("h417j", "ide", imagem=img, memoria="256M") as m:
+        esperar(m, r"sagui:/\$", 150)
+        time.sleep(4)
+        h136.focar_terminal(m)
+        marca = len(m.serial())
+        m.digitar("TZAR_SEM_INTRO=1 TZAR_SEM_IA=1 TZAR_AUTO=escaramuza TZAR_PRUEBA_JANELAS=1 TZAR_FRAMES=100 TZAR_W=800 TZAR_H=600 /apps/bin/tzar", 0.04)
+        m.tecla("ret")
+        g = esperar(m, r"\[TZAR\] prueba ventanas: (\d+) abiertas de (\d+), (\d+) dibujadas", 400, desde=marca)
+        verificar(g[0] == "11" and g[1] == "11" and g[2] == "11", "en SaguiOS se abren y se dibujan las 11 ventanas de negocio (%s abiertas, %s dibujadas)" % (g[0], g[2]))
+
+
 def compilar_ia():
     s = saida()
     prova = os.path.join(s, "tzar_ia_prova")
@@ -472,13 +531,16 @@ def compilar_ia():
     sim = [os.path.join(D0, f) for f in LECTORES + SIM_TRADUCIDOS]
     partida = os.path.join(s, "tzar_ia_partida")
     subprocess.run(flags + ["-o", partida, os.path.join(RAIZ, "tests", "tzar_ia_partida.c")] + sim + ia + ["-lm"], check=True)
-    return prova, partida
+    # D470: los casos de agua, magia, brechas, metas y rendición
+    casos = os.path.join(s, "tzar_ia_casos")
+    subprocess.run(flags + ["-o", casos, os.path.join(RAIZ, "tests", "tzar_ia_casos.c")] + sim + ia + ["-lm"], check=True)
+    return prova, partida, casos
 
 
 def ia():
     """Fase 6: el compilador de guiones (unidad) y una partida IA contra IA con la simulación real y datos sintéticos."""
     from qemu import verificar
-    prova, partida = compilar_ia()
+    prova, partida, casos = compilar_ia()
     r = subprocess.run([prova], capture_output=True, text=True, errors="replace", env=dict(os.environ, ASAN_OPTIONS="detect_leaks=1"))
     m = re.search(r"tzar_ia_prova: (\d+) comprobaciones, (\d+) fallos", r.stdout)
     verificar(r.returncode == 0 and m is not None and m.group(2) == "0" and int(m.group(1)) >= 90,
@@ -498,6 +560,24 @@ def ia():
     verificar(len(cont) == 2 and all(c[2] >= 3 and c[3] >= 5 and c[4] >= 1 for c in cont),
               "las dos IA construyen, entrenan e investigan: %s" % cont)
     verificar(any(c[5] >= 1 for c in cont) and re.search(r"matadas [1-9]", out) is not None, "la IA manda grupos y pelea")
+    # D470: casos sintéticos (por dónde se llega, transporte, flota, puerto, hechizos, sacerdote, brecha, yihad, taberna, rendición)
+    r = subprocess.run([casos, d], capture_output=True, text=True, errors="replace", env=dict(os.environ, ASAN_OPTIONS="detect_leaks=1"), timeout=900)
+    m = re.search(r"tzar_ia_casos: (\d+) comprobaciones, (\d+) fallos", r.stdout)
+    verificar(r.returncode == 0 and m is not None and m.group(2) == "0" and int(m.group(1)) >= 32,
+              "casos de la IA (agua, magia, brechas, metas, rendición): %s%s" % (m.group(0) if m else "?", "" if r.returncode == 0 else
+              "\n" + "\n".join(l for l in r.stdout.splitlines() if l.startswith("FALLO")) + r.stderr[-2000:]))
+    # D470: dos islas: la IA hace puerto y barcos, cruza el canal y pelea; determinista y guardar/cargar igual
+    r = subprocess.run([partida, d, "Maps/IA2.wmp", "12000", "--gravar", os.path.join(d, "ia2.sav")], capture_output=True, text=True,
+                       errors="replace", env=dict(os.environ, ASAN_OPTIONS="detect_leaks=1"), timeout=1500)
+    out = r.stdout
+    for l in out.splitlines():
+        if l.startswith("[IA] final") or "determinismo" in l or "guardar/cargar" in l:
+            print("   ", l)
+    agua = [tuple(map(int, x)) for x in re.findall(r"\[IA\] final ia \d+ d470: transportes (\d+) desembarques (\d+) barcos (\d+)", out)]
+    verificar(r.returncode == 0 and "las dos partidas dan las mismas sumas" in out and re.search(r"guardar/cargar en el tic \d+: .*: igual", out),
+              "mapa de dos islas: sin fallos, determinista y guardar/cargar igual%s" % ("" if r.returncode == 0 else "\n" + out[-2000:] + r.stderr[-3000:]))
+    verificar(len(agua) == 2 and all(a[2] >= 1 for a in agua) and any(a[1] >= 1 for a in agua) and re.search(r"matadas [1-9]", out),
+              "las IA hacen barcos, desembarcan en la otra isla y pelean: %s" % agua)
 
 
 def privado_ia():
@@ -506,7 +586,7 @@ def privado_ia():
     if not os.path.isdir(REAL):
         print("AVISO: no está la instalación real (%s): se salta «privado_ia»" % REAL)
         return
-    prova, partida = compilar_ia()
+    prova, partida, _ = compilar_ia()
     r = subprocess.run([prova, "real", REAL], capture_output=True, text=True, errors="replace", env=dict(os.environ, ASAN_OPTIONS="detect_leaks=0"))
     print("   ", r.stdout.strip().splitlines()[-1] if r.stdout.strip() else r.stderr[-500:])
     verificar(r.returncode == 0, "todos los guiones de IA reales compilan")
@@ -714,10 +794,10 @@ def privado_aleat():
         esperar(m, r"\[TZAR\] fin", 600, desde=marca)
 
 
-PARTES = {"git": git, "lectores": lectores, "ui": ui, "simulacao": simulacao, "extras": extras, "cuelgue": cuelgue, "campanhas": campanhas, "ia": ia, "pc": pc, "saguios": saguios, "privado": privado, "privado_ia": privado_ia, "privado_saguios": privado_saguios, "privado_aleat": privado_aleat}
+PARTES = {"git": git, "lectores": lectores, "ui": ui, "simulacao": simulacao, "extras": extras, "negocio": negocio, "cuelgue": cuelgue, "campanhas": campanhas, "ia": ia, "pc": pc, "saguios": saguios, "janelas_saguios": janelas_saguios, "privado": privado, "privado_ia": privado_ia, "privado_saguios": privado_saguios, "privado_aleat": privado_aleat}
 
 if __name__ == "__main__":
-    pedidas = sys.argv[1:] or ["git", "lectores", "ui", "simulacao", "extras", "campanhas", "ia", "cuelgue", "pc", "saguios"]
+    pedidas = sys.argv[1:] or ["git", "lectores", "ui", "simulacao", "extras", "negocio", "campanhas", "ia", "cuelgue", "pc", "saguios"]
     for p in pedidas:
         print("== H417", p)
         PARTES[p]()

@@ -20,9 +20,13 @@
  *   - el tiempo se mide con el contador de microcuadros del propio controlador
  *     (FRINDEX, 8 por milisegundo), que anda incluso con las interrupciones de
  *     la CPU desactivadas;
- *   - los datos pasan por un buffer de 128 KB en memoria física contigua del
- *     kernel (el controlador necesita direcciones físicas; en SaguiOS el
- *     kernel ve la memoria física 1:1, D008).
+ *   - los datos pasan por un buffer de 1 MB (128 KB con poca memoria, D468) en memoria
+ *     física contigua del kernel (el controlador necesita direcciones físicas; en SaguiOS
+ *     el kernel ve la memoria física 1:1, D008). D468: si quien llama da un búfer del
+ *     propio kernel (memoria baja, 1:1 y por tanto contigua), el DMA va directo a él, sin
+ *     copia; los trozos pequeños (CBW, CSW) van por una página aparte;
+ *   - D468: varias transferencias seguidas del mismo endpoint (CBW + datos, datos + CSW)
+ *     se entregan en una sola cola de qTD, sin esperar a la IRQ entre una y otra.
  * Antes de todo, el sistema pide el controlador a la BIOS (que lo usaba para el
  * pendrive de arranque), por el procedimiento "BIOS/OS handoff" de la especificación. */
 #include "usb.h"
@@ -116,6 +120,14 @@ _Static_assert(sizeof(qh_t) == 96, "QH no formato de 64 bits ocupa 96 bytes");
 #define MAX_QTD      8
 #define QTD_MAX_BYTES 16384
 #define BUFFER_BYTES  131072      /* 8 qTD de 16 KB (cada uno aceptaría hasta 20 KB con 5 páginas) */
+/* D468: transferencias bulk largas. Buffer de 1 MB si hay al menos 64 MB de memoria baja (si no,
+ * o si no hay 1 MB contiguo, el de 128 KB de siempre); 128 qTD por controlador en dos páginas
+ * propias (20 KB por qTD con el buffer alineado a página, 16 KB si no: 1 MB son 52 o 64 qTD). El
+ * último qTD de la cola es el de «parada»: inactivo, adonde salta una entrada que viene corta. */
+#define BULK_MAX      (1024u * 1024u)
+#define QTDS_BULK_PAGS 2u
+#define QTDS_BULK_N   (QTDS_BULK_PAGS * PAGINA / 64u)
+#define PEQ_MAX       512u        /* las partes de hasta 512 bytes van por la página "pequeno" */
 #define ESPERAS_SEM_IRQ 6         /* esperas seguidas despertadas sólo por el reloj: la IRQ no llega */
 
 static ehci_t ctls[USB_MAX_CONTROLADORES];
@@ -138,6 +150,9 @@ static qh_t *cabeca, *fila;
 static qtd_t *qtds;
 static uint8_t *setup_pacote;
 static uint8_t *buffer;
+static uint32_t buffer_bytes;      /* D468: 1 MB o 128 KB */
+static uint8_t *pequeno;           /* D468: una página para las partes pequeñas (512 bytes por parte) */
+static bool qtds_grandes = true;   /* D468: todos los controladores tienen su cola de 128 qTD */
 
 static void usar(ehci_t *c)
 {
@@ -218,9 +233,20 @@ static void tomar_da_bios(ehci_t *c)
 static bool alocar_buffer(void)
 {
     if (buffer) return true;
-    uint32_t b = memfisica_alocar_seguidas(BUFFER_BYTES / PAGINA);
-    if (!b) return false;
+    /* La página pequeña antes: "buffer" solo queda puesto si está todo. */
+    if (!pequeno && !(pequeno = (uint8_t *)memfisica_alocar())) return false;
+    uint32_t b = 0;
+    if (memfisica_geridas() >= 16384u) {             /* D468: 64 MB de memoria baja o más */
+        b = memfisica_alocar_seguidas(BULK_MAX / PAGINA);
+        if (b) buffer_bytes = BULK_MAX;
+    }
+    if (!b) {
+        b = memfisica_alocar_seguidas(BUFFER_BYTES / PAGINA);
+        if (!b) return false;
+        buffer_bytes = BUFFER_BYTES;
+    }
     buffer = (uint8_t *)b;
+    klog("[EHCI] buffer de datos de %u KB\n", buffer_bytes / 1024);
     return true;
 }
 
@@ -232,6 +258,10 @@ static bool alocar_estruturas(ehci_t *c)
     if (!p) return false;
     memset((void *)p, 0, PAGINA);
     c->estruturas = p;
+    /* D468: la cola larga de qTD; sin ella, el controlador se queda con las 8 de siempre. */
+    c->qtds_bulk = memfisica_alocar_seguidas(QTDS_BULK_PAGS);
+    if (c->qtds_bulk) memset((void *)c->qtds_bulk, 0, QTDS_BULK_PAGS * PAGINA);
+    else qtds_grandes = false;
     usar(c);
     /* La cabeza del anillo asíncrono: apunta a sí misma, marcada como "H". */
     cabeca->ligacao = (uint32_t)cabeca | T_QH;
@@ -536,14 +566,18 @@ static uint32_t qh_capacidades(const usb_disp_t *d, bool periodica)
     return v;
 }
 
-/* Cuelga la QH en el anillo, espera el último qTD y saca la QH. Devuelve 0 o error. */
-static int executar(ehci_t *c, const usb_disp_t *d, uint8_t ep, uint16_t mps, int n_qtd, uint32_t tempo_ms)
+/* Cuelga la QH en el anillo, espera el último qTD y saca la QH. Devuelve 0 o error.
+ * D468: "q" es la cola (la de control o la larga de bulk); con "curto_termina", un qTD que
+ * acaba con bytes por recibir (entrada corta: el controlador ha saltado al de parada) termina
+ * la espera. */
+static int executar(ehci_t *c, const usb_disp_t *d, uint8_t ep, uint16_t mps, qtd_t *q, int n_qtd, uint32_t tempo_ms,
+                    bool curto_termina)
 {
-    for (int i = 0; i < n_qtd - 1; i++) qtds[i].proximo = (uint32_t)&qtds[i + 1];
+    for (int i = 0; i < n_qtd - 1; i++) q[i].proximo = (uint32_t)&q[i + 1];
     memset((void *)fila, 0, sizeof *fila);
     fila->caracteristicas = qh_caracteristicas(d, ep, mps, false);
     fila->capacidades = qh_capacidades(d, false);
-    fila->prox_qtd = (uint32_t)&qtds[0];
+    fila->prox_qtd = (uint32_t)&q[0];
     fila->alt_qtd = T_TERMINA;
     fila->ligacao = cauda(c);
 
@@ -571,12 +605,15 @@ static int executar(ehci_t *c, const usb_disp_t *d, uint8_t ep, uint16_t mps, in
     int r = 0;
     uint32_t passou = 0, antes = c->op[FRINDEX] & 0x3FFF;
     for (;;) {
-        uint32_t f = qtds[n_qtd - 1].ficha;
-        bool parou = false;
-        for (int i = 0; i < n_qtd; i++)
-            if (qtds[i].ficha & F_PAROU) { parou = true; f = qtds[i].ficha; break; }
+        uint32_t f = q[n_qtd - 1].ficha;
+        bool parou = false, curto = false;
+        for (int i = 0; i < n_qtd; i++) {
+            uint32_t fi = q[i].ficha;
+            if (fi & F_PAROU) { parou = true; f = fi; break; }
+            if (curto_termina && i < n_qtd - 1 && !(fi & F_ATIVO) && ((fi >> 16) & 0x7FFF)) { curto = true; break; }
+        }
         if (parou) { r = (f & F_ERROS) ? USB_ERRO : USB_ERRO_PAROU; break; }
-        if (!(f & F_ATIVO)) break;
+        if (curto || !(f & F_ATIVO)) break;
         uint32_t agora = c->op[FRINDEX] & 0x3FFF;
         passou += (agora - antes) & 0x3FFF;
         antes = agora;
@@ -617,7 +654,7 @@ int ehci_controle(usb_disp_t *d, const void *setup, void *dados, uint16_t tam, b
     if (tam) preparar_qtd(&qtds[n++], entrada ? PID_ENTRADA : PID_SAIDA, 1, (uint32_t)buffer, tam, false);
     /* Estado: siempre alternancia 1, en la dirección contraria a los datos (o IN sin datos). */
     preparar_qtd(&qtds[n++], (tam && entrada) ? PID_SAIDA : PID_ENTRADA, 1, (uint32_t)buffer, 0, true);
-    int r = executar(c, d, 0, mps0 ? mps0 : 64, n, 1000);
+    int r = executar(c, d, 0, mps0 ? mps0 : 64, qtds, n, 1000, false);
     int feito = 0;
     if (r == 0 && tam) {
         feito = (int)tam - (int)((qtds[1].ficha >> 16) & 0x7FFF);
@@ -628,44 +665,129 @@ int ehci_controle(usb_disp_t *d, const void *setup, void *dados, uint16_t tam, b
     return r < 0 ? r : feito;
 }
 
-int ehci_bulk(usb_disp_t *d, uint8_t ep, uint16_t mps, bool entrada, uint8_t *alterna, void *dados, uint32_t tam)
+/* D468: ¿puede ir el DMA directo al búfer de quien llama? Solo si es memoria baja del kernel
+ * (vista 1:1, D008: la dirección es la física y las páginas seguidas son contiguas), fuera del
+ * primer MB y con al menos una página de datos (lo pequeño, mejor por la página "pequeno"). La
+ * memoria de un programa (desde USUARIO_INICIO) puede estar en la alta o en la swap: esa, por
+ * el buffer. */
+static bool dma_direto(const void *p, uint32_t tam)
+{
+    uint32_t a = (uint32_t)p;
+    return tam >= PAGINA && a >= 0x100000u && a + tam > a && a + tam <= MEMFIS_LIMITE;
+}
+
+uint32_t ehci_bulk_max(void)
+{
+    if (!buffer) return BUFFER_BYTES;
+    /* Sin la cola larga quedan las 8 de control: 4 de 16 KB de datos + CBW o CSW + la parada. */
+    if (!qtds_grandes) return 65536u;
+    return buffer_bytes;
+}
+
+/* Bytes de un qTD que empieza en "endereco": lo que cabe en sus 5 páginas, en múltiplos de 4 KB
+ * (así cada qTD menos el último lleva un número entero de paquetes, sea cual sea el mps). */
+static uint32_t qtd_cabe(uint32_t endereco)
+{
+    return (20480u - (endereco & 0xFFFu)) & ~0xFFFu;
+}
+
+int ehci_bulk_cadeia(usb_disp_t *d, uint8_t ep, uint16_t mps, bool entrada, uint8_t *alterna, usb_parte_t *p, int n)
 {
     ehci_t *c = d->ctl;
-    if (tam > BUFFER_BYTES || tam > (uint32_t)MAX_QTD * QTD_MAX_BYTES) return USB_ERRO;
+    if (n < 1 || n > USB_CADEIA_MAX) return USB_ERRO;
+    for (int k = 0; k < n; k++) p[k].r = USB_NAO_FEITA;
     if (!mps) return USB_ERRO;   /* dispositivo a medio enumerar o ya retirado: sin paquete no hay división */
+    int grandes = 0;
+    uint32_t total = 0;
+    for (int k = 0; k < n; k++) {
+        if (p[k].tam > PEQ_MAX) grandes++;
+        if (p[k].tam > ehci_bulk_max()) return USB_ERRO;
+        total += p[k].tam;
+    }
+    if (grandes > 1) return USB_ERRO;   /* un solo buffer grande */
     trava_pegar(&trava_ehci);
     bool i0 = int_salva_desliga();
     usar(c);
-    if (!entrada) memcpy(buffer, dados, tam);
-    /* Cada qTD (menos el último) lleva un múltiplo del tamaño del paquete, así que
-     * la alternancia de cada uno es la inicial cambiada una vez por paquete. */
-    int n = 0;
-    uint32_t feito_antes = 0, t = *alterna;
-    do {
-        uint32_t parte = tam - feito_antes > QTD_MAX_BYTES ? QTD_MAX_BYTES : tam - feito_antes;
-        preparar_qtd(&qtds[n], entrada ? PID_ENTRADA : PID_SAIDA, t, (uint32_t)buffer + feito_antes, parte, false);
-        t ^= (parte / mps) & 1;
-        feito_antes += parte;
-        n++;
-    } while (feito_antes < tam);
-    qtds[n - 1].ficha |= 1u << 15;
-    int r = executar(c, d, ep, mps, n, 5000);
-    uint32_t feito = 0;
-    for (int i = 0; i < n; i++) {
-        uint32_t pedido = i < n - 1 ? QTD_MAX_BYTES : tam - (uint32_t)(n - 1) * QTD_MAX_BYTES;
-        uint32_t sobrou = (qtds[i].ficha >> 16) & 0x7FFF;
-        if (qtds[i].ficha & F_ATIVO) break;
-        feito += pedido - sobrou;
-        if (sobrou) break;   /* paquete corto: terminó aquí */
+    qtd_t *q = c->qtds_bulk ? (qtd_t *)c->qtds_bulk : qtds;
+    int qmax = (c->qtds_bulk ? (int)QTDS_BULK_N : MAX_QTD) - 1;   /* el último, la parada */
+    qtd_t *parada = &q[qmax];
+    parada->proximo = T_TERMINA;
+    parada->alternativo = T_TERMINA;
+    parada->ficha = 0;                                  /* inactivo: la cola se queda quieta */
+    /* Dónde va cada parte: la página pequeña, el búfer de quien llama o el buffer. */
+    uint32_t fis[USB_CADEIA_MAX];
+    int ini[USB_CADEIA_MAX], ult[USB_CADEIA_MAX];
+    for (int k = 0; k < n; k++) {
+        if (p[k].tam <= PEQ_MAX) fis[k] = (uint32_t)pequeno + (uint32_t)k * PEQ_MAX;
+        else if (dma_direto(p[k].dados, p[k].tam)) fis[k] = (uint32_t)p[k].dados;
+        else fis[k] = (uint32_t)buffer;
+        if (!entrada && p[k].tam && fis[k] != (uint32_t)p[k].dados) memcpy((void *)fis[k], p[k].dados, p[k].tam);
     }
-    /* Alternancia para la próxima transferencia: cambia con cada paquete enviado. */
-    uint32_t pacotes = (feito + mps - 1) / mps;
-    if (feito == 0 && r == 0) pacotes = 1;   /* paquete de tamaño cero */
-    if (r == 0 || r == USB_ERRO_PAROU) *alterna ^= (uint8_t)(pacotes & 1);
-    if (entrada && feito) memcpy(dados, buffer, feito);
+    /* Los qTD de todas las partes, seguidos. Cada qTD menos el último de una parte lleva un
+     * número entero de paquetes; la alternancia de cada uno es la que deja el anterior. En la
+     * entrada, un paquete corto salta a la parada (el resto no se hace: quien llama lo repite). */
+    int nq = 0;
+    uint32_t t = *alterna;
+    bool cabe = true;
+    for (int k = 0; k < n && cabe; k++) {
+        uint32_t off = 0;
+        ini[k] = nq;
+        do {
+            if (nq >= qmax) { cabe = false; break; }
+            uint32_t end = fis[k] + off, parte = p[k].tam - off, max = qtd_cabe(end);
+            if (parte > max) parte = max;
+            preparar_qtd(&q[nq], entrada ? PID_ENTRADA : PID_SAIDA, t, end, parte, false);
+            if (entrada) q[nq].alternativo = (uint32_t)parada;
+            q[nq].preenchimento[0] = parte;             /* el controlador no lee aquí: lo pedido */
+            t ^= (parte ? (parte + mps - 1) / mps : 1u) & 1;
+            off += parte;
+            nq++;
+        } while (off < p[k].tam);
+        ult[k] = nq - 1;
+    }
+    int r = USB_ERRO;
+    if (cabe) {
+        q[nq - 1].ficha |= 1u << 15;                    /* IOC en el último */
+        r = executar(c, d, ep, mps, q, nq, 5000u + total / 256u, entrada);
+        /* Resultado de cada parte, en orden, hasta la primera que no terminó entera. */
+        uint32_t pacotes = 0;
+        bool parar = false;
+        for (int k = 0; k < n && !parar; k++) {
+            uint32_t feito = 0;
+            int rk = 0;
+            bool inteira = true;
+            for (int i = ini[k]; i <= ult[k]; i++) {
+                uint32_t f = q[i].ficha, pedido = q[i].preenchimento[0], sobrou = (f >> 16) & 0x7FFF;
+                if (f & F_PAROU) { rk = (f & F_ERROS) ? USB_ERRO : USB_ERRO_PAROU; feito += pedido - sobrou; break; }
+                if (f & F_ATIVO) { rk = r < 0 ? r : USB_ERRO_TEMPO; inteira = false; break; }   /* no acabó: la espera falló */
+                feito += pedido - sobrou;
+                if (sobrou) { inteira = false; break; }   /* corto: terminó aquí */
+            }
+            /* La alternancia cambia con cada paquete hecho (como antes: también si el endpoint se paró). */
+            if (rk == 0 || rk == USB_ERRO_PAROU) pacotes += feito ? (feito + mps - 1) / mps : (rk == 0 ? 1u : 0u);
+            p[k].r = rk < 0 ? rk : (int)feito;
+            if (rk < 0 || !inteira) parar = true;
+            if (entrada && rk == 0 && feito && fis[k] != (uint32_t)p[k].dados) memcpy(p[k].dados, (void *)fis[k], feito);
+        }
+        *alterna ^= (uint8_t)(pacotes & 1);
+        for (int k = 0; k < n; k++)
+            if (p[k].r < 0 && p[k].r != USB_ERRO_PAROU && p[k].r != USB_NAO_FEITA) {
+                klog("[EHCI] cadena de %d partes (%u bytes, %d qTD): la %d (%u bytes en %x) error %d; qTD %x ... %x\n", n,
+                     total, nq, k, p[k].tam, fis[k], p[k].r, q[ini[k]].ficha, q[ult[k]].ficha);
+                break;
+            }
+        r = 0;
+    }
     int_restaura(i0);
     trava_soltar(&trava_ehci);
-    return r < 0 ? r : (int)feito;
+    return r;
+}
+
+int ehci_bulk(usb_disp_t *d, uint8_t ep, uint16_t mps, bool entrada, uint8_t *alterna, void *dados, uint32_t tam)
+{
+    usb_parte_t p = { dados, tam, USB_NAO_FEITA };
+    int r = ehci_bulk_cadeia(d, ep, mps, entrada, alterna, &p, 1);
+    return r < 0 ? r : p.r;
 }
 
 /* ------------------------------------------------------------ interrupción (HID, D214) */

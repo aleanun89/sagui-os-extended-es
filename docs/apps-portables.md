@@ -1,4 +1,4 @@
-# Aplicaciones portables: Mico, Pluma, Macaco, Tucán, Paint, PlanoMini y GebraMini sobre SDL 2 (D459)
+# Aplicaciones portables: Mico, Pluma, Macaco, Tucán, Paint, PlanoMini, GebraMini y VisualPythonS sobre SDL 2 (D459)
 
 Mico, Pluma, Macaco, Tucán, Paint, PlanoMini y GebraMini se pueden compilar para Linux con las **mismas fuentes** que en SaguiOS. Lo único que cambia es la
 capa que hace de kernel: `userland/portable/`.
@@ -44,7 +44,7 @@ Windows/MinGW sin probar.
 ## Repositorios
 
 `tools/portable_repos.py [app ...]` genera los repositorios locales (`mico`, `pluma`, `macaco`, `tucan`, `paint`, `planomini`,
-`gebramini`) con un único commit. Cada uno lleva copia de lo que enlaza. Regenerar uno borra el repositorio local y cambia su
+`gebramini`, `visualpythons`) con un único commit. Cada uno lleva copia de lo que enlaza. Regenerar uno borra el repositorio local y cambia su
 commit: nombra solo los que quieras regenerar.
 
 ## Qué funciona fuera de SaguiOS, app por app (segunda tanda)
@@ -61,3 +61,29 @@ con los mismos resultados que en SaguiOS. Fuera de x86 no compilarían tal cual.
 
 Pruebas: `python3 tests/h459_apps_portables.py [--docs]` (Mico, Pluma, Macaco) y `python3 tests/h459b_apps_portables.py [--docs]`
 (Tucán, Paint, PlanoMini, GebraMini).
+
+## VisualPythonS y el MicroPython de SaguiOS (`visualpythons`)
+
+`make -f userland/portable/Makefile python` compila el **MicroPython de SaguiOS** (`userland/micropython/`: el `micropython_embed`
+oficial más nuestros módulos `sagui`, `os`, `socket`, `ssl`, `sqlite3`, `hashlib`, `_thread`...) para Linux con la misma capa. Con
+`SAGUI_DATOS=rootfs` (o la carpeta `datos/` del repositorio) corren `tkinter`, `vps`, `requests`, `urllib`, `threading` y `basedatos`:
+
+    SAGUI_DATOS=rootfs ./build/portable/python /lib/python/vps/disenador.py          # el diseñador de VisualPythonS
+    SAGUI_DATOS=rootfs ./build/portable/python /ejemplos/vps/calculadora/lanzador.py
+    SAGUI_DATOS=rootfs ./build/portable/python                                       # el REPL
+
+| Qué | Fuera de SaguiOS |
+| --- | --- |
+| Diseñador, editor de código, depurador, 24 ejemplos, autopruebas | funciona (la misma interfaz; las ventanas son de SDL 2) |
+| `socket`, `requests`, `urllib` | funciona, con los sockets del PC (IPv4, TCP y UDP; `red_sdl.c`) |
+| `ssl` / HTTPS | funciona (TLS 1.2 y 1.3 de la libtls propia, probado contra OpenSSL); raíces en `datos/etc/ssl/certs` (32), `verify=False` o `cafile=` |
+| `sqlite3`, `basedatos`, `hashlib`, `json`, `re`, `math` | funciona |
+| `_thread`, `threading` | funciona, sobre pthreads (`mpthreadport_pc.c`), con GIL |
+| Terminal | UTF-8; los archivos de texto de `open()` siguen en Latin-1 por omisión, como en SaguiOS |
+| Rutas | `/home` = `$HOME`; `/lib/python`, `/ejemplos`, `/imagenes`, `/etc`, `/sistema`, `/fontes` = la carpeta de datos |
+| `os.system`, procesos, sonido, teclas mantenidas, `sagui.pantalla()`, menú Inicio | `OSError` limpio (o 0, 0): lo pide el kernel de SaguiOS |
+| Windows | sin probar |
+
+Guion de pruebas: además de lo anterior, `duplo x y [boton]` (doble clic); `esperar_evento(0, ...)` (cualquier ventana) lleva el guion a
+la ventana de encima, la última creada. Prueba: `python3 tests/h459c_visualpythons_portable.py [--repo] [--docs]` (con `--repo` genera
+el repositorio, lo clona limpio y lo prueba).

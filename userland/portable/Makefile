@@ -8,7 +8,8 @@
 # Se compila desde la raiz del arbol de SaguiOS (o de un repo portable, que tiene la misma disposicion
 # con solo lo necesario). Las fuentes de las aplicaciones y de la libsagui son las mismas que las de SaguiOS:
 # solo cambia la capa de llamadas al sistema (userland/portable/).
-RAIZ   ?= $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
+_ESTE  := $(lastword $(MAKEFILE_LIST))
+RAIZ   ?= $(abspath $(dir $(_ESTE))/../..)
 B      ?= $(RAIZ)/build/portable
 CC     ?= gcc
 SDL_CFLAGS := $(shell sdl2-config --cflags 2>/dev/null)
@@ -21,10 +22,11 @@ CFLAGS += -std=gnu11 -DSAGUI_HOST -DSAGUI_PORTABLE -fno-strict-aliasing -fcommon
 LDLIBS := $(SDL_LIBS) -lm
 
 # La libsagui: solo lo que usan estas aplicaciones (el archivo .a deja fuera lo que nadie pide).
-LIB_NOMES := presentacion presentacion_io presentacion_pptx compressao deflado_continuo difer edicao_rica edicao_rica_dialogos edicao_rica_obj formatacao formatar gui \
+LIB_NOMES ?= presentacion presentacion_io presentacion_pptx compressao deflado_continuo difer edicao_rica edicao_rica_dialogos edicao_rica_obj formatacao formatar gui \
   gui_arquivos gui_arvore gui_barras gui_cinta gui_componentes gui_explorador gui_moderno gui_pestanas gui_revisar \
   hora icones iconos98 idioma imagem imagem_gif imagem_idct imagem_jpeg imagem_png_escribir inflado_continuo \
-  pdf_escribir regex rtf texto texto_rico utilitarios wordart entrada zonas sincronia http sonidos conf_maquina contas empacotar dialogos_cf dialogos_objeto
+  pdf_escribir regex rtf texto texto_rico utilitarios wordart entrada zonas sincronia http sonidos conf_maquina contas empacotar dialogos_cf dialogos_objeto \
+  gui_grafico grafico_calc
 KLIB_NOMES := fuso catalogo sha256
 PORT_NOMES := janelas_sdl sistema_sdl sistema_nulo rapido_c
 LIB_OBJ  := $(addprefix $(B)/libsagui/,$(addsuffix .o,$(LIB_NOMES))) \
@@ -105,3 +107,46 @@ $(B)/gebramini: $(B)/programas/gebramini.o $(GBM_OBJ) $(B)/libsagui.a
 clean:
 	rm -rf $(B)
 .PHONY: all clean
+
+# ---------------------------------------------------------------------------------------------------------
+# VisualPythonS: el MicroPython de SaguiOS en Linux (D459, apartado «VisualPythonS»).
+#   make python        -> build/portable/python   (con SDL 2: el modulo sagui abre las ventanas por la capa)
+# El nucleo de MicroPython (micropython_embed, MIT) y los *_sagui.c son los mismos que en SaguiOS; se compilan
+# con las cabeceras y la libc del PC (no con userland/micropython/libc) y la libm del PC. Lo que pide el kernel
+# (procesos, hilos del kernel) llega a sistema_nulo.c; la red, los hilos y TLS tienen version para el PC
+# (red_sdl.c, hilos_pc.c).
+MP_DIR     := $(RAIZ)/userland/micropython
+MP_EMB     := $(MP_DIR)/micropython_embed
+MP_CFLAGS  := -MMD -MP -std=gnu11 -O2 -DSAGUI_HOST -DSAGUI_PORTABLE -DNDEBUG -fno-strict-aliasing -fcommon -w -D_GNU_SOURCE \
+  -finput-charset=UTF-8 -I$(MP_DIR) -I$(MP_EMB) -I$(MP_EMB)/port -I$(RAIZ)/userland/terceros/sqlite -idirafter $(RAIZ)/kernel/inc
+MP_PROPRIOS := mp_sagui mpthreadport_pc arquivos_sagui os_sagui rede_sagui ssl_sagui hashlib_sagui janela_sagui sqlite_sagui \
+  sinais_pc grafico_sagui
+MP_NUCLEO  := $(wildcard $(MP_EMB)/py/*.c) $(MP_EMB)/shared/runtime/gchelper_generic.c $(wildcard $(MP_EMB)/extmod/*.c) \
+              $(MP_EMB)/shared/timeutils/timeutils.c
+MP_OBJ     := $(patsubst $(MP_DIR)/%.c,$(B)/mp/%.o,$(MP_NUCLEO)) $(addprefix $(B)/mp/,$(addsuffix .o,$(MP_PROPRIOS))) $(B)/mp_ponte_sagui.o $(B)/portable/inicio_python.o $(B)/portable/red_sdl.o \
+              $(B)/mp/sqlite3.o $(B)/libsagui/sqlite_vfs_sagui.o
+TLS_OBJ    := $(patsubst $(RAIZ)/userland/libtls/%.c,$(B)/libtls/%.o,$(filter-out %/conexao.c %/sshcifra.c %/wireguard.c %/hash.c,$(wildcard $(RAIZ)/userland/libtls/*.c)))
+SQLITE_DEFS := -DSQLITE_OS_OTHER=1 -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_OMIT_WAL \
+  -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_MAX_MMAP_SIZE=0 -DSQLITE_OMIT_SHARED_CACHE -DSQLITE_OMIT_DEPRECATED \
+  -DHAVE_LOCALTIME_R=1 -DSQLITE_OMIT_TRACE -DSQLITE_OMIT_UTF16 -DSQLITE_OMIT_DECLTYPE -DSQLITE_OMIT_INCRBLOB \
+  -DSQLITE_OMIT_AUTHORIZATION -DSQLITE_TEMP_STORE=2 -DSQLITE_OMIT_PROGRESS_CALLBACK -DSQLITE_OMIT_TCL_VARIABLE \
+  -DSQLITE_OMIT_BUILTIN_TEST
+
+$(B)/mp/%.o: $(MP_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(MP_CFLAGS) -c -o $@ $<
+# ponte_sagui.c usa tls.h e la libsagui: se compila como la propia libsagui.
+$(B)/mp_ponte_sagui.o: $(MP_DIR)/ponte_sagui.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c -o $@ $<
+$(B)/libsagui/sqlite_vfs_sagui.o: CFLAGS += -I$(RAIZ)/userland/terceros/sqlite
+$(B)/libtls/aesni.o: CFLAGS += -maes -msse2
+$(B)/mp/sqlite3.o: $(RAIZ)/userland/terceros/sqlite/sqlite3.c
+	@mkdir -p $(dir $@)
+	$(CC) $(MP_CFLAGS) $(SQLITE_DEFS) -Os -c -o $@ $<
+# rapido_c.o y lo demas de la capa vienen de libsagui.a
+$(B)/python: $(MP_OBJ) $(TLS_OBJ) $(FONTES_OBJ) $(B)/libsagui.a
+	$(CC) -o $@ $(MP_OBJ) $(TLS_OBJ) $(FONTES_OBJ) $(B)/libsagui.a $(LDLIBS) -lpthread
+-include $(shell find $(B)/mp -name '*.d' 2>/dev/null)
+python: $(B)/python $(B)/datos
+.PHONY: python

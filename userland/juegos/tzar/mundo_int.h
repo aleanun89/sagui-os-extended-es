@@ -63,7 +63,14 @@ void tz_negocio_tic(TzMundo *m);                   /* préstamos, intercambios, 
 int tz_negocio_comando(TzMundo *m, const TzComando *c);   /* 1 si lo atendió */
 int tz_comercio_ordem(TzMundo *m, TzId i, const TzOrdem *o, int fila);   /* prepara la ruta; 0 bien, -1 no vale */
 
+/* itens.c */
+void tz_fabrica_comando(TzMundo *m, const TzComando *c);   /* TZ_C_FABRICAR y TZ_C_COMPRAR */
+void tz_fabrica_pronta(TzMundo *m, TzId e, int arg, uint32_t ouro);
+void tz_joias_tic(TzMundo *m, int k);
+
 /* magia.c */
+void tz_almas_morrer(TzMundo *m, TzId i);
+void tz_alma_comando(TzMundo *m, const TzComando *c);   /* TZ_C_ALMA */
 void tz_efeitos_tic(TzMundo *m, TzId i);           /* caducan maldición, hipnosis, invisibilidad; energía del espía */
 void tz_remoinhos_tic(TzMundo *m);
 const char *tz_feitico_chave(int idx);             /* world.rs spell_key: «spell_firerain»... o NULL */

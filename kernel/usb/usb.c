@@ -63,6 +63,44 @@ int usb_bulk(usb_disp_t *d, bool entrada, void *dados, uint32_t tam)
                      entrada ? &d->alterna_entrada : &d->alterna_saida, dados, tam);
 }
 
+/* D468: partes seguidas en el mismo endpoint. EHCI y xHCI las entregan de una vez; UHCI y OHCI
+ * (USB 1.1, donde el bus es el límite) las hacen de una en una con la misma semántica. */
+int usb_bulk_cadeia(usb_disp_t *d, bool entrada, usb_parte_t *p, int n)
+{
+    if (n < 1 || n > USB_CADEIA_MAX) return USB_ERRO;
+    /* La entrada (datos + CSW) va de una en una en todos los controladores: con el QEMU, un
+     * CSW puesto detrás de unos datos que el disco entrega de forma asíncrona no se hace nunca
+     * (xHCI) o se queda hasta el plazo (EHCI, lecturas que no son múltiplo de 128 KB); en un
+     * pendrive de verdad es el mismo caso (el CSW llega cuando acaba la orden). Con órdenes de
+     * 1 MB, una espera más por orden no se nota. La salida (CBW + datos) sí va junta. */
+    if (entrada && n > 1) {
+        for (int k = 0; k < n; k++) p[k].r = USB_NAO_FEITA;
+        for (int k = 0; k < n; k++) {
+            int r = usb_bulk_cadeia(d, true, &p[k], 1);
+            if (r < 0) { if (k == 0) return r; break; }
+            if (p[k].r < 0 || (uint32_t)p[k].r < p[k].tam) break;
+        }
+        return 0;
+    }
+    if (d->tipo_ctl == USB_XHCI) return xhci_bulk_cadeia(d, entrada, p, n);
+    if (d->tipo_ctl == USB_EHCI)
+        return ehci_bulk_cadeia(d, entrada ? d->ep_entrada : d->ep_saida, entrada ? d->mps_entrada : d->mps_saida,
+                                entrada, entrada ? &d->alterna_entrada : &d->alterna_saida, p, n);
+    for (int k = 0; k < n; k++) p[k].r = USB_NAO_FEITA;
+    for (int k = 0; k < n; k++) {
+        p[k].r = usb_bulk(d, entrada, p[k].dados, p[k].tam);
+        if (p[k].r < 0 || (uint32_t)p[k].r < p[k].tam) break;   /* error o corta: lo demás no se hace */
+    }
+    return 0;
+}
+
+uint32_t usb_bulk_max(usb_disp_t *d)
+{
+    if (d->tipo_ctl == USB_XHCI) return xhci_bulk_max();
+    if (d->tipo_ctl == USB_EHCI) return ehci_bulk_max();
+    return 128u * 1024u;   /* UHCI/OHCI parten por dentro; en USB 1.1 no hace falta más */
+}
+
 /* ------------------------------------------------------------ isócrono (D275) */
 
 /* Bytes del próximo paquete de un flujo de bytes_s bytes por segundo con paquetes cada

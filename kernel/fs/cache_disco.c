@@ -10,6 +10,10 @@
  *    solapen, se leen o graban directos y, en la grabación, se actualizan los bloques presentes.
  *  - Lectura anticipada: si un pedido empieza donde acabó el anterior del mismo disco, en un
  *    fallo se leen además hasta 8 bloques por delante (la ventana se duplica hasta 32 = 128 KB).
+ *    D468: en un disco que pide órdenes más grandes (disco_t.trozo: los pendrives, 240 KB o
+ *    1 MB) la ventana, el lote de lectura y el umbral de "pedido grande, directo" llegan a ese
+ *    tamaño (el lote es de 1 MB con 64 MB de memoria baja o más; si no, 128 KB como antes). Así
+ *    una copia que lee de 128 KB en 128 KB manda al pendrive órdenes del trozo entero.
  *  - Escritura diferida: el bloque queda sucio con un número de orden creciente. El vaciado
  *    graba los sucios por ese orden (juntando los contiguos en una sola orden al driver, que
  *    en ATA termina con FLUSH CACHE): un corte de luz deja un prefijo de lo escrito.
@@ -60,6 +64,7 @@
 #define RA_INICIAL    8u
 #define RA_MAX        32u
 #define LOTE_BLOCOS   32u         /* bloques por orden al driver al leer por delante o vaciar */
+#define LOTE_GRANDE   256u        /* D468: lote de lectura de 1 MB (discos con disco_t.trozo) */
 #define ENVELHECE_TIQUES (3 * TIQUES_POR_SEGUNDO)   /* un bloque sucio se graba a los 3 s (kconfig vaciado_s, D353) */
 #define MAX_SEQS      8
 
@@ -85,7 +90,8 @@ static uint32_t envelhece_tiques = ENVELHECE_TIQUES;   /* D353 */
 static bool com_alta;             /* D350: los datos van a la alta */
 static uint8_t ponte[BL_BYTES];   /* D350: puente entre una ventana y memoria de un programa */
 static volatile uint32_t pedido_ceder;   /* D350: bloques pedidos con la caché ocupada (ver soltar()) */
-static uint8_t *lote;             /* búfer contiguo de LOTE_BLOCOS bloques (lecturas) */
+static uint8_t *lote;             /* búfer contiguo de lote_blocos bloques (lecturas) */
+static uint32_t lote_blocos = LOTE_BLOCOS;   /* D468: LOTE_GRANDE si hubo memoria */
 static uint8_t *lote_v;           /* otro para vaciar: una lectura en curso conserva el suyo */
 static bool iniciada, ligada, diferida;
 static struct { disco_t *d; uint32_t prox, ra; } seqs[MAX_SEQS];
@@ -146,7 +152,8 @@ static void iniciar(void)
     uint32_t tope_sujos = kconf_valor(KC_SUCIOS_MAX_MB) * 256u;
     if (tope_sujos && max_sujos > tope_sujos) max_sujos = tope_sujos;
     if (kconf_valor(KC_VACIADO_S)) envelhece_tiques = kconf_valor(KC_VACIADO_S) * TIQUES_POR_SEGUNDO;
-    lote = kmalloc(LOTE_BLOCOS * BL_BYTES);
+    if (memfisica_geridas() >= 16384u && (lote = kmalloc(LOTE_GRANDE * BL_BYTES)) != NULL) lote_blocos = LOTE_GRANDE;
+    else lote = kmalloc(LOTE_BLOCOS * BL_BYTES);
     lote_v = kmalloc(LOTE_BLOCOS * BL_BYTES);
     ligada = !(o & CAB_DISCO_SEM_CACHE) && lote != NULL && lote_v != NULL && reservar_estructuras();
     diferida = ligada && !(o & CAB_DISCO_SEM_DIFERIDA);
@@ -444,21 +451,43 @@ static bloco_t *novo_bloco(disco_t *d, uint32_t num)
 
 /* ------------------------------------------------------------ lectura */
 
-/* Lectura anticipada: ¿el pedido empieza donde acabó el anterior? Devuelve los bloques extra. */
-static uint32_t anticipo(disco_t *r, uint32_t lba, uint32_t n)
+/* D468: bloques por orden de lectura al driver de este disco y desde cuántos sectores un pedido
+ * va directo: lo de siempre (128 KB) salvo en los discos que piden órdenes más grandes. */
+static uint32_t lote_de(const disco_t *r)
 {
-    int k = -1, livre = -1;
+    uint32_t t = r->trozo / BL_SETORES;
+    if (t <= LOTE_BLOCOS) return LOTE_BLOCOS;
+    return t > lote_blocos ? lote_blocos : t;
+}
+
+static uint32_t direto_de(const disco_t *r)
+{
+    uint32_t t = lote_de(r) * BL_SETORES;
+    return t > DIRETO_SETORES ? t : DIRETO_SETORES;
+}
+
+/* Lectura anticipada: ¿el pedido empieza donde acabó el anterior? Devuelve los bloques extra
+ * (la ventana se duplica hasta "ra_max"). */
+static uint32_t anticipo(disco_t *r, uint32_t lba, uint32_t n, uint32_t ra_max)
+{
+    /* D468: varios flujos por disco (el FAT32 lee la tabla FAT entre una ventana de datos y la
+     * siguiente; con un solo flujo por disco esa lectura cortaba la secuencia). Un pedido sigue
+     * al flujo que acababa donde él empieza; si no, ocupa un hueco libre o el flujo más viejo. */
+    static uint32_t relogio_seq;
+    static uint32_t uso[MAX_SEQS];
+    int k = -1, livre = -1, velho = 0;
     for (int i = 0; i < MAX_SEQS; i++) {
-        if (seqs[i].d == r) { k = i; break; }
-        if (!seqs[i].d && livre < 0) livre = i;
+        if (seqs[i].d == r && seqs[i].prox == lba) { k = i; break; }
+        if (!seqs[i].d) { if (livre < 0) livre = i; }
+        else if (uso[i] < uso[velho] || !seqs[velho].d) velho = i;
     }
+    uso[k >= 0 ? k : (livre >= 0 ? livre : velho)] = ++relogio_seq;
     if (k < 0) {
-        k = livre >= 0 ? livre : 0;
+        k = livre >= 0 ? livre : velho;
         seqs[k].d = r; seqs[k].prox = lba + n; seqs[k].ra = 0;
         return 0;
     }
-    if (seqs[k].prox == lba) seqs[k].ra = seqs[k].ra ? (seqs[k].ra * 2 > RA_MAX ? RA_MAX : seqs[k].ra * 2) : RA_INICIAL;
-    else seqs[k].ra = 0;
+    seqs[k].ra = seqs[k].ra ? (seqs[k].ra * 2 > ra_max ? ra_max : seqs[k].ra * 2) : RA_INICIAL;
     seqs[k].prox = lba + n;
     return seqs[k].ra;
 }
@@ -469,13 +498,14 @@ int cache_disco_ler(disco_t *r, uint32_t lba, uint32_t n, void *buf)
     int res = 0;
     if (!n) return 0;
     trava_pegar(&trava_cache);
-    if (n >= DIRETO_SETORES) {
+    uint32_t lmax = lote_de(r);
+    if (n >= direto_de(r)) {
         est.diretos++;
         vaciar(r, lba, n);
         res = r->ler(r, lba, n, buf) < 0 ? ERRO_ACESSO : 0;
         goto fim;
     }
-    uint32_t ra = anticipo(r, lba, n);
+    uint32_t ra = anticipo(r, lba, n, lmax > RA_MAX ? lmax : RA_MAX);
     uint32_t completos = r->setores / BL_SETORES;           /* bloques enteros del disco */
     uint32_t b0 = lba / BL_SETORES, b1 = (lba + n - 1) / BL_SETORES;
     for (uint32_t b = b0; b <= b1 && res == 0; ) {
@@ -497,9 +527,9 @@ int cache_disco_ler(disco_t *r, uint32_t lba, uint32_t n, void *buf)
         }
         /* Fallo: se leen juntos los bloques que faltan del pedido y, si es secuencial, de por delante. */
         uint32_t c = 1;
-        while (b + c <= b1 && b + c < completos && c < LOTE_BLOCOS && !achar(r, b + c)) c++;
+        while (b + c <= b1 && b + c < completos && c < lmax && !achar(r, b + c)) c++;
         uint32_t extra = (b + c > b1) ? ra : 0;
-        while (extra && b + c < completos && c < LOTE_BLOCOS && !achar(r, b + c)) { c++; extra--; est.anticipados++; }
+        while (extra && b + c < completos && c < lmax && !achar(r, b + c)) { c++; extra--; est.anticipados++; }
         est.falhas++;
         if (r->ler(r, b * BL_SETORES, c * BL_SETORES, lote) < 0) { res = ERRO_ACESSO; break; }
         for (uint32_t j = 0; j < c; j++) {

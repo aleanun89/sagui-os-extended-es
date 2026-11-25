@@ -31,6 +31,11 @@ $(FF_SIS): $(LIBC_OBJ) $(QJS_LIBM) $(LIBSAGUI_OBJ)
 
 # ./configure: la lista de lo que se activa está en docs/ffmpeg.md
 FF_CONFIG_ARGS := $(shell grep -v '^\#' $(FF_DIR)/configurar.args | tr '\n' ' ')
+# El configure prueba también el compilador del PC (host_cc). En un PC sin glibc en /usr/include (WSL sin
+# libc6-dev, cabeceras en ~/.local/saguitools por CPATH, que el Makefile anula: D191) se le pasan solo a él.
+ifeq ($(wildcard /usr/include/stdlib.h),)
+FF_CONFIG_ARGS += --host-cflags='$(foreach d,$(subst :, ,$(HOST_CPATH)),-isystem $(d))'
+endif
 $(FF_B)/obj/config.h: $(FF_DIR)/configurar.args $(FF_DIR)/ffmpeg.mk $(FF_DIR)/plataforma/enlazar.sh $(FF_SIS) $(FF_B)/principal_main.o
 	rm -rf $(FF_B)/obj && mkdir -p $(FF_B)/obj
 	cd $(FF_B)/obj && FF_SIS_LIB=$(FF_ABS)/libsistema.a FF_SIS_INICIO=$(abspath $(B))/userland/libsagui/inicio.asm.o \

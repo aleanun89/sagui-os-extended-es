@@ -416,12 +416,18 @@ static void prueba_menu_aleatorio(void)
 	mclic(&m, ox + 565 + 180 - 13, oy + 169 + 13);
 	mclic(&m, ox + 565 + 180 - 13, oy + 228 + 13);
 	VER(m.aleat.terreno == 1 && m.aleat.recursos_mapa == 2, "aleatorio (pantalla): terreno y recursos del mapa (%d, %d)", m.aleat.terreno, m.aleat.recursos_mapa);
-	/* casillas: animales sí, montañas no (sin generador) */
+	/* casillas: animales y montañas (v8.5.6: ya hay generador) */
 	int an = m.aleat.animais;
 	mclic(&m, ox + 564 + 15, oy + 303 + 15);
 	VER(m.aleat.animais == !an, "aleatorio (pantalla): la casilla de animales");
 	mclic(&m, ox + 564 + 15, oy + 376 + 15);
-	VER(m.aleat.penhascos == 0, "aleatorio (pantalla): las montañas están apagadas y no se marcan");
+	VER(m.aleat.penhascos == 1, "aleatorio (pantalla): la casilla de montañas se marca");
+	{
+		char tx[400]; TzMnAleat b;
+		VER(tz_mn_aleat_texto(&m.aleat, tx, sizeof tx) == 0 && tz_mn_aleat_de_texto(tx, &b) == 0 && b.penhascos == 1, "aleatorio (pantalla): las montañas se recuerdan en tzar.cfg");
+	}
+	mclic(&m, ox + 564 + 15, oy + 376 + 15);
+	VER(m.aleat.penhascos == 0, "aleatorio (pantalla): y se desmarca");
 	mclic(&m, ox + 268 + 15, oy + 539 + 15);
 	mclic(&m, ox + 268 + 15, oy + 569 + 15);
 	VER(m.aleat.c.sem_nevoa == 1 && m.aleat.c.explorado == 1 && m.cfg.sem_nevoa == 0, "aleatorio (pantalla): sin niebla y explorar son de esta pantalla");
@@ -437,6 +443,31 @@ static void prueba_menu_aleatorio(void)
 	VER(m.aleat.c.tipo == 1, "aleatorio (pantalla): el tipo de partida tiene dos valores (%d)", m.aleat.c.tipo);
 	for (int i = 0; i < 4; ++i) mclic(&m, ox + 270 + 180 - 13, oy + 487 + 13);
 	VER(m.aleat.c.recursos >= 0 && m.aleat.c.recursos <= 2, "aleatorio (pantalla): los recursos iniciales van de 0 a 2 (%d)", m.aleat.c.recursos);
+	/* D470: el comportamiento de la IA de un reino («COMPORTAMIENTO IA») y la rendición de la IA; los guiones, como si los diera
+	 * DATA/AI/AI.INI */
+	m.ia_lido = 1; m.nia = 3; m.rendicao_oferecida = 1;
+	snprintf(m.ia_nome[1], sizeof m.ia_nome[1], "Agresivo"); snprintf(m.ia_fich[1], sizeof m.ia_fich[1], "War.ais");
+	snprintf(m.ia_nome[2], sizeof m.ia_nome[2], "Constructor"); snprintf(m.ia_fich[2], sizeof m.ia_fich[2], "Builder.ais");
+	mclic(&m, ox + 273 + 10, oy + 26 + 35 + 10);
+	VER(m.escolher_ia == 1 && m.ia_sel == 0, "aleatorio (pantalla): el icono de la IA del reino 2 abre «COMPORTAMIENTO IA» (%d)", m.escolher_ia);
+	mclic(&m, ox + 452 + 40, oy + 320 + 40);
+	VER(m.ampliada == 0, "aleatorio (pantalla): con la ventana abierta lo de debajo no atiende");
+	mclic(&m, ox + 150 + 46 + 20, oy + 140 + 88 + 16 * 1 + 5);
+	VER(m.ia_sel == 1, "aleatorio (pantalla): se marca un comportamiento de la lista (%d)", m.ia_sel);
+	{
+		TzTela t;
+		tz_tela_criar(&t, 1024, 768);
+		tz_menu_desenhar(&m, &t);
+		tz_tela_liberar(&t);
+	}
+	mclic(&m, ox + 150 + 47 + 20, oy + 140 + 254 + 10);
+	VER(m.escolher_ia == 0 && !strcmp(m.aleat.ia[1], "War.ais") && !m.aleat.ia[2][0], "aleatorio (pantalla): «Aceptar» se lo da al reino (%s)", m.aleat.ia[1]);
+	mclic(&m, ox + 273 + 10, oy + 26 + 35 * 2 + 10);
+	mclic(&m, ox + 150 + 46 + 20, oy + 140 + 88 + 16 * 2 + 5);
+	mclic(&m, ox + 150 + 261 + 20, oy + 140 + 254 + 10);
+	VER(m.escolher_ia == 0 && !m.aleat.ia[2][0], "aleatorio (pantalla): «Cancelar» no cambia nada");
+	mclic(&m, ox + 471 + 16, oy + 427 + 16);
+	VER(m.aleat.rendicao == 1, "aleatorio (pantalla): la casilla de rendición de la IA");
 	/* otro mapa: otra semilla */
 	unsigned long long s0 = m.aleat.semente;
 	m.aleat_mudou = 0;
@@ -475,6 +506,14 @@ static void prueba_menu_aleatorio(void)
 	ok = ok && !tz_mn_aleat_de_texto(o2.aleat, &a3) && !memcmp(&a3, &elegido, sizeof a3);
 	VER(ok, "aleatorio (pantalla): tzar.cfg guarda y devuelve las opciones y sigue guardando las demás");
 	remove("/tmp/tzar_ui_aleat.cfg");
+	VER(!strcmp(elegido.ia[1], "War.ais") && elegido.rendicao == 1 && strstr(tx, " IA 1 - War.ais -"), "aleatorio (pantalla): la línea lleva la IA de cada reino y la rendición (D470)");
+	ok = !tz_mn_aleat_de_texto("ALEAT2 2 0 0 1 1 1 1 1 5 2 0 0 200 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0", &a3) && !a3.rendicao && !a3.ia[1][0];
+	VER(ok, "aleatorio (pantalla): una línea de antes (sin «IA») sigue valiendo");
+	/* v8.5.6: las montañas (D471) y la IA (D470) en la misma línea */
+	{ TzMnAleat e2 = elegido, e3; e2.penhascos = 1;
+	  ok = !tz_mn_aleat_texto(&e2, tx, sizeof tx) && strstr(tx, " 1 IA 1 ") && !tz_mn_aleat_de_texto(tx, &e3) && !memcmp(&e2, &e3, sizeof e3);
+	  ok = ok && !tz_mn_aleat_de_texto("ALEAT2 2 0 0 1 1 1 1 1 5 2 0 0 200 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1", &e3) && e3.penhascos == 1 && !e3.rendicao;
+	  VER(ok, "aleatorio (pantalla): montañas e IA juntas van y vuelven; montañas sin IA también"); }
 	static const char *const malos[] = { "", "ALEAT 1 2", "ALEAT2 9 0 0 0 1 1 1 1 5 2 0 0 200 1 1 0 0", "ALEAT2 abc", "otra cosa" };
 	int rech = 0;
 	for (unsigned i = 0; i < sizeof malos / sizeof *malos; ++i) rech += tz_mn_aleat_de_texto(malos[i], &a3) != 0;
@@ -576,8 +615,11 @@ static void prueba_menus(void)
 	tz_menu_iniciar(&m, &skin, 1024, 768);
 	m.tela = TZ_MN_PARTIDA;
 	n = botao_texto(&m, 0, &(int){ 0 }, &(int){ 0 }, rot);
-	VER(n == 7, "menú de partida: 7 botones (%d)", n);
+	VER(n == 8, "menú de partida: 8 botones, con «Rendirse» (%d)", n);
 	mpremir(&m, 6);
+	VER(m.acao == TZ_MR_RENDIR, "menú de partida: «rendirse» pide la ventana de rendición");
+	m.acao = 0;
+	mpremir(&m, 7);
 	VER(m.acao == TZ_MR_CONTINUAR, "menú de partida: «volver al juego» continúa");
 	m.acao = 0;
 	mpremir(&m, 4);

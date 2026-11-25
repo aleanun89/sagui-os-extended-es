@@ -23,6 +23,10 @@
 #ifndef SAGUI_MPTHREADPORT_H
 #define SAGUI_MPTHREADPORT_H
 
+#ifdef SAGUI_PORTABLE
+#include "mpthreadport_pc.h"   /* en el PC (D459): pthreads, ver mpthreadport_pc.c */
+#else
+
 #include <stdint.h>
 
 /* El mutex del puerto: un cerrojo por turnos (ticket lock) sobre el futex
@@ -67,5 +71,7 @@ static inline __attribute__((always_inline)) struct _mp_state_thread_t *sagui_es
 
 void mp_thread_gc_others(void);
 void sagui_hilos_encerrar(void);   /* el principal acaba: los demás no vuelven a Python */
+
+#endif /* SAGUI_PORTABLE */
 
 #endif

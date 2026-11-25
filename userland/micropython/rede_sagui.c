@@ -409,12 +409,19 @@ static mp_obj_t socket_shutdown(mp_obj_t o, mp_obj_t como)
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(socket_shutdown_obj, socket_shutdown);
 
+#ifdef SAGUI_PORTABLE
+int portavel_enderecos_socket(int fd, enderecos_socket_t *e);   /* red_sdl.c */
+#endif
 static mp_obj_t enderecos(mp_obj_t o, bool remoto)
 {
     sock_t *s = aberto(o);
     enderecos_socket_t e;
     memset(&e, 0, sizeof e);
+#ifdef SAGUI_PORTABLE
+    portavel_enderecos_socket(s->fd, &e);   /* en 64 bits el puntero no cabe en el `unsigned` de la llamada (D459) */
+#else
     opcao_socket(s->fd, OPC_ENDERECOS, (unsigned)&e);
+#endif
     if (remoto && !e.ip_remoto) mp_raise_OSError(MP_ENOTCONN);
     return remoto ? tupla_endereco(e.ip_remoto, e.porta_remota) : tupla_endereco(e.ip_local, e.porta_local ? e.porta_local : s->porta_local);
 }

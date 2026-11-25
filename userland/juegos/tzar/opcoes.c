@@ -31,7 +31,7 @@ int tz_opcoes_ler(TzOpcoes *o, const char *ruta)
 {
 	FILE *f = ruta ? fopen(ruta, "r") : NULL;
 	if (!f) return -1;
-	char l[400];
+	char l[800];
 	while (fgets(l, sizeof l, f)) {
 		char *eq = strchr(l, '=');
 		if (!eq || l[0] == '#') continue;

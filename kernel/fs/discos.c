@@ -18,6 +18,7 @@
 #include "abi.h"
 #include "bootinfo.h"
 #include "caminho.h"
+#include "usb.h"
 #include "cache_disco.h"
 #include "console.h"
 #include "fat32.h"
@@ -1003,7 +1004,7 @@ int32_t sis_desmontar(uint32_t pnome, uint32_t b, uint32_t c, uint32_t dd, uint3
     if (r < 0) return r;
     /* D281: "sync" (nombre "*") vacía la caché de bloques de todos los discos; "?cache" anota sus cifras. */
     if (txt_compara(nome, "*") == 0) return disco_sincronizar(NULL);
-    if (txt_compara(nome, "?cache") == 0) { cache_disco_registar(); return 0; }
+    if (txt_compara(nome, "?cache") == 0) { cache_disco_registar(); armaz_registar(); return 0; }   /* D468: y los pendrives */
     /* D336: lo anterior es inofensivo y vale para cualquiera; desmontar de verdad sigue siendo de root
      * (la tabla de permisos.c deja pasar la llamada y el nombre se mira aqui, ya copiado al kernel). */
     {

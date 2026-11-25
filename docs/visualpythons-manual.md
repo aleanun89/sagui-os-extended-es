@@ -15,7 +15,8 @@ ejemplos (lo comprueba la prueba `tests/h303_vps_manual.py`). La referencia cort
 4. [Ejemplos completos](#4-ejemplos-completos)
    (calculadora, lista de tareas, cronómetro, formulario modal, validar con `msgbox`, abrir y guardar,
    pestañas, tabla, numérico, lienzo, enlace, barra de estado, selector de color, reloj, archivo)
-   y, de la v8.4.1, guardar al cerrar, un botón con el ratón y validar al perder el foco
+   y, de la v8.4.1, guardar al cerrar, un botón con el ratón y validar al perder el foco; de la v8.5.6, las
+   [notificaciones toast](#418-avisos-que-no-molestan-notificaciones-toast) y la [agenda con `Arbol` y `Calendario`](#419-una-agenda-por-carpetas-arbol-y-calendario)
 5. [Los componentes nuevos de la v8.3.2](#5-los-componentes-nuevos-de-la-v832)
 6. [Herramientas del entorno](#6-herramientas-del-entorno) (incluye el [explorador del proyecto](#el-explorador-del-proyecto))
 7. [Referencia de la API `vps`](#7-referencia-de-la-api-vps)
@@ -312,8 +313,11 @@ La tabla sale del código (`tools/vps_manual.py`). A los propios se suman los co
 | `SelectorDeColor` | `seleccionado`, `cancelado` | no |
 | `SelectorDeFuente` | `seleccionado`, `cancelado` | no |
 | `ComboFuentes` | `seleccion`, `cambio` | sí |
-| `Calendario` | `cambio` | sí |
+| `Calendario` | `cambio`, `doble_click` | sí |
 | `SelectorFecha` | `cambio` | sí |
+| `Notificacion` | `click`, `accion`, `cerrado` | no |
+| `Arbol` | `seleccion`, `click`, `doble_click`, `expandir`, `contraer` | sí |
+| `Grafico` | `click`, `pasar`, `leyenda` | sí |
 <!-- /eventos-tabla -->
 
 --- | --- |
@@ -332,6 +336,9 @@ La tabla sale del código (`tools/vps_manual.py`). A los propios se suman los co
 | `Lienzo` | `click`, `arrastrar`, `soltar`, `mover` |
 | `Enlace`, `BarraEstado` | `click` |
 | `SelectorColor` | `cambio`, `click` |
+| `Calendario` | `cambio`, `doble_click` (v8.5.6) |
+| `Arbol` | `seleccion`, `click`, `doble_click`, `expandir`, `contraer` (v8.5.6) |
+| `Notificacion` | `click`, `accion`, `cerrado` (v8.5.6) |
 
 ---
 
@@ -526,6 +533,92 @@ Carpeta: `/ejemplos/vps/boton-raton`.
 | Etiqueta | `Etiqueta2` | 24, 104, 300, 20 |  |
 | Etiqueta | `Etiqueta3` | 24, 128, 300, 20 |  |
 <!-- /controles -->
+
+### 4.18 Avisos que no molestan: notificaciones toast
+
+*Aprendes:* `notificar(texto, tipo, duracion, titulo)`, el control sin ventana `Notificacion` (con `mostrar()` y el botón «Deshacer» de su
+evento `accion`) y el evento `cerrado`. Carpeta: `/ejemplos/vps/notificaciones`.
+
+Un `msgbox` para el programa hasta que se pulsa «Aceptar». Un **toast** no: aparece en una esquina del formulario, se apila con los demás,
+se va solo pasado un tiempo, se cierra con un clic o con su «x» y no roba el foco, así que se puede seguir escribiendo. `tipo` es `info`,
+`exito`, `aviso` o `error` (cada uno con su color) y `duracion` va en milisegundos (**0 = hasta que se cierre**, lo normal en un error).
+
+```python
+notificar("Guardado", "exito")                                  # se va solo a los 3 segundos
+notificar("No se pudo guardar", "error", 0, "Fallo")            # se queda hasta que se cierre
+notificar("Nota borrada", accion="Deshacer", al_accion=deshacer)
+```
+
+Con el control `Notificacion` se deja el aviso ya configurado desde el diseñador (propiedades `texto`, `tipo`, `duracion`, `posicion`,
+`titulo` y `accion`) y el código solo llama a `Notificacion1.mostrar()`. Sus eventos: `click` (se pulsó el aviso), `accion` (se pulsó su
+botón) y `cerrado` (se fue; `Notificacion1.motivo` dice si fue por `tiempo`, `click`, `boton`, `accion` o `api`).
+
+![Guardar: toast de éxito con el botón «Deshacer»](capturas/VPS-manual-notificaciones-2.png)
+![Cuatro avisos apilados (éxito, error, aviso e información)](capturas/VPS-manual-notificaciones-3.png)
+![Pasado el tiempo solo queda el de error, que tiene duración 0](capturas/VPS-manual-notificaciones-4.png)
+
+<!-- controles:notificaciones -->
+<!-- /controles -->
+
+<!-- ejemplo:notificaciones -->
+```python
+# Notificaciones: avisos tipo toast, no modales, que aparecen en una esquina del formulario, se apilan
+# y se van solos. notificar(texto, tipo, duracion, titulo) los crea desde el código; el control
+# Notificacion los deja ya configurados (con un botón «Deshacer» que dispara su evento accion).
+import os
+
+ARCHIVO = "/home/nota-toast.txt" if os.path.isdir("/home") else "/tmp/nota-toast.txt"
+anterior = ""
+
+
+def leer():
+    try:
+        f = open(ARCHIVO)
+        t = f.read()
+        f.close()
+        return t
+    except OSError:
+        return ""
+
+
+def escribir(ruta, texto):
+    f = open(ruta, "w")
+    f.write(texto)
+    f.close()
+
+
+def Boton1_click():
+    global anterior
+    anterior = leer()
+    escribir(ARCHIVO, CuadroTexto1.texto)
+    Notificacion1.mostrar("Nota guardada")
+
+
+def Boton2_click():
+    try:
+        escribir("/no-existe/nota.txt", CuadroTexto1.texto)
+    except Exception:
+        notificar("No se pudo guardar la nota", "error", 0, "Error al guardar")
+
+
+def Boton3_click():
+    notificar("La nota está vacía", "aviso", 6000, "Atención")
+
+
+def Boton4_click():
+    notificar("Los avisos se apilan en la esquina", "info", 4000)
+
+
+def Notificacion1_accion():
+    escribir(ARCHIVO, anterior)
+    CuadroTexto1.texto = anterior
+    notificar("Cambio deshecho", "info", 2000)
+
+
+def Notificacion1_cerrado():
+    Etiqueta2.texto = "Último aviso cerrado: " + Notificacion1.motivo
+```
+<!-- /ejemplo -->
 
 <!-- ejemplo:editor-notas -->
 <!-- /ejemplo -->

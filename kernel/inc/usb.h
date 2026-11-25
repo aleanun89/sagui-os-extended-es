@@ -118,7 +118,33 @@ typedef struct usb_disp {
     bool      bt;                              /* controlador Bluetooth atendido por kernel/usb/usbbt.c (D279) */
     bool      camara;                          /* cámara UVC registrada (D277) */
     bool      ure;                             /* adaptador Ethernet USB Realtek atendido por kernel/rede/ure.c (D433) */
+    /* D468: almacenamiento. Sectores por orden READ/WRITE(10) (baja sola si el pendrive falla con
+     * trozos grandes) y contadores de órdenes (las cifras salen con «sync -v»). */
+    uint16_t  armaz_trozo;
+    uint8_t   armaz_reducoes;                  /* veces que se ha bajado el trozo */
+    uint8_t   armaz_vpd;                       /* 0 = sin VPD B0; 1 = la dio; 2 = falló al pedirla */
+    uint32_t  armaz_ord_ler, armaz_kb_ler;     /* órdenes de lectura y KB leídos */
+    uint32_t  armaz_ord_escr, armaz_kb_escr;   /* órdenes de escritura y KB grabados */
+    uint32_t  armaz_maior_kb;                  /* la orden más grande hecha (KB) */
+    uint32_t  armaz_encadeadas;                /* D468: fases de datos y CSW (o CBW y datos) en una sola entrega */
 } usb_disp_t;
+
+/* D468: varias transferencias bulk seguidas en el MISMO endpoint, entregadas al controlador de
+ * una vez (sin esperar a la interrupción entre una y otra): CBW + datos (salida) o datos + CSW
+ * (entrada) de una orden de almacenamiento. Cada parte recibe en «r» los bytes hechos o un error
+ * USB_ERRO_*; las partes que no llegaron a hacerse, USB_NAO_FEITA (la anterior falló o, en el
+ * EHCI, vino corta: quien llama repite esa parte por separado). La alternancia (toggle) queda
+ * como si se hubieran hecho de una en una. Solo una parte puede pasar de 512 bytes. */
+#define USB_NAO_FEITA   -105
+#define USB_CADEIA_MAX  3
+typedef struct {
+    void    *dados;
+    uint32_t tam;
+    int      r;
+} usb_parte_t;
+int  usb_bulk_cadeia(usb_disp_t *d, bool entrada, usb_parte_t *p, int n);
+/* D468: bytes como mucho de una transferencia bulk por el controlador del dispositivo. */
+uint32_t usb_bulk_max(usb_disp_t *d);
 
 /* ---- ehci.c ---- */
 struct ehci {
@@ -144,6 +170,7 @@ struct ehci {
     uint32_t  irqs;                    /* cuántas IRQ de fin de transferencia ya llegaron */
     volatile bool     prova;           /* D211: autoprueba de la IRQ en curso (aviso IAA) */
     volatile uint32_t provas;          /* D211: avisos IAA de la autoprueba atendidos */
+    uint32_t  qtds_bulk;               /* D468: páginas con los qTD de las transferencias bulk largas (0 = las 8 de siempre) */
 };
 
 int  ehci_iniciar_todos(void);                 /* devuelve cuántos controladores encendió */
@@ -161,6 +188,9 @@ void ehci_esperar_ms(ehci_t *c, uint32_t ms);
  * velocidad detrás de un hub de alta, el "transaction translator" (D214). */
 int  ehci_controle(usb_disp_t *d, const void *setup, void *dados, uint16_t tam, bool entrada);
 int  ehci_bulk(usb_disp_t *d, uint8_t ep, uint16_t mps, bool entrada, uint8_t *alterna, void *dados, uint32_t tam);
+/* D468: usb_bulk_cadeia por el EHCI y el tamaño máximo de una transferencia bulk. */
+int  ehci_bulk_cadeia(usb_disp_t *d, uint8_t ep, uint16_t mps, bool entrada, uint8_t *alterna, usb_parte_t *p, int n);
+uint32_t ehci_bulk_max(void);
 /* Endpoints de interrupción (HID, D214) en la lista periódica: se abren, se
  * consultan sin esperar (>0 bytes recibidos, 0 nada nuevo, <0 error) y se cierran. */
 int  ehci_int_abrir(usb_disp_t *d, uint8_t ep, uint16_t mps);
@@ -364,6 +394,7 @@ int  uvc_relatorio(char *s, int max);
  * respondió: vale la pena otro intento con un reset nuevo (D227). */
 int  armaz_conectar(usb_disp_t *d);
 void armaz_desconectar(usb_disp_t *d);
+void armaz_registar(void);   /* D468: las cifras de órdenes de cada pendrive, al registro («sync -v») */
 
 /* ---- hid.c (D214): teclados y ratones USB; mandos y joysticks (D307) ---- */
 void hid_conectar(usb_disp_t *d);

@@ -95,6 +95,7 @@ static void tecla(TzUi *u, const TzUiEntrada *e)
 		else u->pedir_menu = 1;
 		return;
 	}
+	if ((k == 'i' || k == 'I') && (e->mods & TZ_MOD_CTRL)) { tz_ui_janela_abrir(u, TZ_UJ_OBJETOS, TZ_NENHUM); return; }   /* inventario de la unidad */
 	if (k == TZ_TC_ENTER) { u->janela = TZ_UJ_CHAT; u->chat[0] = 0; return; }   /* Intro abre el chat, como el original */
 	if (k >= '0' && k <= '9') {
 		int g = k - '0';
@@ -145,6 +146,7 @@ void tz_ui_entrada(TzUi *u, const TzUiEntrada *e, uint32_t ms)
 			if (tz_rect_dentro(u->minimapa_rect, e->x, e->y)) {
 				int cx, cy;
 				minimapa_para_mundo(u, e->x, e->y, &cx, &cy);
+				if (u->modo == TZ_UI_ALVO && u->pick) { tz_ui_neg_pick(u, cx * TZ_CASILLA + 16, cy * TZ_CASILLA + 16); break; }
 				if (u->modo == TZ_UI_ALVO) {   /* la orden pendiente también se da sobre el minimapa */
 					tz_ui_ordem_alvo(u, cx * TZ_CASILLA + 16, cy * TZ_CASILLA + 16, shift);
 					if (!shift) u->modo = TZ_UI_NORMAL;
@@ -155,6 +157,9 @@ void tz_ui_entrada(TzUi *u, const TzUiEntrada *e, uint32_t ms)
 			} else if (tz_rect_dentro(tz_ui_rect(u, TZ_UR_MENU), e->x, e->y)) u->pedir_menu = 1;
 			else if (tz_rect_dentro(tz_ui_rect(u, TZ_UR_DIPLOMACIA), e->x, e->y)) u->janela = TZ_UJ_DIPLOMACIA;
 			else if (tz_rect_dentro(tz_ui_rect(u, TZ_UR_CHAT), e->x, e->y)) { u->janela = TZ_UJ_CHAT; u->chat[0] = 0; }
+			else if (u->sel.n == 1 && tz_mundo_capacidade_itens(u->m, u->sel.id[0]) && u->m->obj[u->sel.id[0]].dono == u->m->jogador &&
+			         tz_rect_dentro((TzRect){ u->selecao_rect.x + 6, u->selecao_rect.y + 5, 48, 60 }, e->x, e->y))
+				tz_ui_janela_abrir(u, TZ_UJ_OBJETOS, u->sel.id[0]);   /* el retrato abre los objetos */
 			else if (tz_rect_dentro(tz_ui_rect(u, TZ_UR_PAINEL), e->x, e->y) || e->y < 30) {
 				int b = tz_ui_botao_em(u, e->x, e->y);
 				u->botao_press = b >= 0 ? b + 1 : 0;
@@ -167,6 +172,7 @@ void tz_ui_entrada(TzUi *u, const TzUiEntrada *e, uint32_t ms)
 			} else if (tz_rect_dentro(u->mapa_rect, e->x, e->y)) {
 				int wx = mundo_x(u, e->x), wy = mundo_y(u, e->y);
 				if (u->modo == TZ_UI_COLOCAR) { colocar_posicao(u); construir(u, shift); }
+				else if (u->modo == TZ_UI_ALVO && u->pick) tz_ui_neg_pick(u, wx, wy);
 				else if (u->modo == TZ_UI_ALVO) {
 					tz_ui_ordem_alvo(u, wx, wy, shift);
 					if (!shift) u->modo = TZ_UI_NORMAL;
@@ -224,6 +230,7 @@ void tz_ui_tic(TzUi *u, uint32_t ms)
 	uint32_t dt = u->ultimo_ms ? ms - u->ultimo_ms : 0;
 	u->ultimo_ms = ms;
 	u->agora_ms = ms;
+	tz_ui_neg_tic(u);
 	if (dt > 100) dt = 100;
 	if (u->scroll_bordes && dt) {
 		int vel = (int)dt / 2 + 1, dx = 0, dy = 0;
@@ -240,12 +247,14 @@ void tz_ui_tic(TzUi *u, uint32_t ms)
 		for (int i = 0; i < n; ++i) {
 			const TzEvento *e = &ev[i];
 			if (e->reino != u->m->jogador && e->tipo != TZ_EV_MENSAGEM && e->tipo != TZ_EV_FIM) continue;
+			tz_ui_neg_evento(u, e);
 			switch (e->tipo) {
 			case TZ_EV_SEM_RECURSOS: avisar_recurso(u, e->classe); break;
 			case TZ_EV_SEM_POPULACAO: tz_ui_aviso(u, "%s", tz_ui_txt(u->skin, "viewmsg", "poplimit2", "No hay suficientes casas")); break;
 			case TZ_EV_ATAQUE_AVISO: tz_ui_aviso(u, "%s", tz_ui_txt(u->skin, "notify", "under_attack", "- la unidad está siendo atacada")); break;
 			case TZ_EV_DERROTADO: tz_ui_aviso(u, "%s", tz_ui_txt(u->skin, "general", "defeated", "Derrota")); break;
 			case TZ_EV_MENSAGEM: tz_ui_aviso(u, "%s", tz_mundo_texto(u->m, e->valor)); break;
+			case TZ_EV_PERGAMINHO: u->pergaminho_pedido = e->alvo; u->pergaminho_ao_chegar = e->valor; break;
 			case TZ_EV_FIM: tz_ui_aviso(u, e->valor ? "Victoria" : "Derrota"); break;
 			default: break;
 			}

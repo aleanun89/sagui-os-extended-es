@@ -88,6 +88,10 @@ extern const struct _mp_obj_module_t modulo_sagui;
 #undef MODULE_DEF_SAGUI
 #define MODULE_DEF_SAGUI { MP_ROM_QSTR(MP_QSTR_sagui), MP_ROM_PTR(&modulo_sagui) },
 
+extern const struct _mp_obj_module_t modulo_sagui_grafico;
+#undef MODULE_DEF_SAGUI_GRAFICO
+#define MODULE_DEF_SAGUI_GRAFICO { MP_ROM_QSTR(MP_QSTR_sagui_grafico), MP_ROM_PTR(&modulo_sagui_grafico) },
+
 extern const struct _mp_obj_module_t modulo_signal;
 #undef MODULE_DEF_SIGNAL
 #define MODULE_DEF_SIGNAL { MP_ROM_QSTR(MP_QSTR_signal), MP_ROM_PTR(&modulo_signal) },
@@ -118,6 +122,7 @@ extern const struct _mp_obj_module_t mp_module_sys;
     MODULE_DEF_MICROPYTHON \
     MODULE_DEF_OS \
     MODULE_DEF_SAGUI \
+    MODULE_DEF_SAGUI_GRAFICO \
     MODULE_DEF_SIGNAL \
     MODULE_DEF_SOCKET \
     MODULE_DEF_SQLITE3 \

@@ -391,6 +391,46 @@ static void montar_bonus(TzCatalogo *c)
 	}
 }
 
+/* HEROES.INI (hero_table de ReTzar, 0x499b60): los nombres de [euro], [asia], [arab] y [comm] en ese orden, cada uno con las
+ * civilizaciones a las que sirve (bit civ; todas para los comunes). Los nombres conservan las mayúsculas. */
+static void ler_herois(TzCatalogo *c, TzRecursos *r)
+{
+	uint32_t n = 0;
+	uint8_t *d = tz_recursos_existe(r, "DATA/HEROES.INI") ? tz_recursos_ler(r, "DATA/HEROES.INI", &n) : NULL;
+	if (!d) return;
+	static const struct { const char *sec; uint16_t civs; } ord[4] = { { "euro", 2 }, { "asia", 8 }, { "arab", 4 }, { "comm", 0xffff } };
+	int cap = 0;
+	for (int q = 0; q < 4; ++q) {
+		char sec[40] = "";
+		for (uint32_t i = 0; i < n;) {
+			uint32_t f = i;
+			while (f < n && d[f] != '\n') ++f;
+			char l[160]; uint32_t len = f - i < 159 ? f - i : 159;
+			memcpy(l, d + i, len); l[len] = 0; i = f + 1;
+			char *p = l; while (*p == ' ' || *p == '\t') ++p;
+			size_t ll = strlen(p);
+			while (ll && (p[ll - 1] == '\r' || p[ll - 1] == ' ' || p[ll - 1] == '\t')) p[--ll] = 0;
+			if (!*p || *p == ';') continue;
+			if (*p == '[' && p[ll - 1] == ']') {
+				p[ll - 1] = 0; snprintf(sec, sizeof sec, "%s", p + 1);
+				for (char *s = sec; *s; ++s) if (*s >= 'A' && *s <= 'Z') *s += 32;
+				continue;
+			}
+			if (strcmp(sec, ord[q].sec)) continue;
+			if (c->nherois == cap) {
+				cap = cap ? cap * 2 : 64;
+				void *nv = realloc(c->herois, (size_t)cap * sizeof *c->herois);
+				if (!nv) { free(d); return; }
+				c->herois = nv;
+			}
+			if (c->nherois >= 255) continue;
+			snprintf(c->herois[c->nherois].nome, sizeof c->herois[0].nome, "%s", p);
+			c->herois[c->nherois++].civs = ord[q].civs;
+		}
+	}
+	free(d);
+}
+
 /* ------------------------------------------------------------------ carga */
 int tz_catalogo_carregar(TzCatalogo *c, TzRecursos *r, const TzBiblioteca *b)
 {
@@ -417,6 +457,7 @@ int tz_catalogo_carregar(TzCatalogo *c, TzRecursos *r, const TzBiblioteca *b)
 		char n[60]; snprintf(n, sizeof n, "DATA/TECHTREE %s.INI", civs[i]);
 		if (tz_recursos_existe(r, n)) tz_ini_recurso(r, &c->arvores[i], n);
 	}
+	ler_herois(c, r);
 	ler_ordens(c);
 	montar_bonus(c);
 	static const char *const niv[3] = { "Low", "Medium", "High" };
@@ -434,7 +475,7 @@ int tz_catalogo_carregar(TzCatalogo *c, TzRecursos *r, const TzBiblioteca *b)
 
 void tz_catalogo_liberar(TzCatalogo *c)
 {
-	free(c->tec); free(c->ord); free(c->bonus_tab); free(c->bonus_pct);
+	free(c->herois); free(c->tec); free(c->ord); free(c->bonus_tab); free(c->bonus_pct);
 	tz_ini_liberar(&c->menus); tz_ini_liberar(&c->bonus); tz_ini_liberar(&c->ordens_ini); tz_ini_liberar(&c->recursos_ini);
 	for (int i = 0; i < 4; ++i) tz_ini_liberar(&c->arvores[i]);
 	memset(c, 0, sizeof *c);

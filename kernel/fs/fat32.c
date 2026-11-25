@@ -45,7 +45,7 @@ typedef struct {
     uint32_t livres, dica;
     bool     montado;
     /* Caché de sectores: una por volumen (D040). */
-    struct { uint32_t setor; bool valido, sujo; uint32_t uso; uint8_t *dados; } cache_[16];
+    struct { uint32_t setor; bool valido, sujo; uint32_t uso; uint8_t *dados; } cache_[64];   /* CACHE */
     uint32_t relogio_cache;
     int      erro_es;     /* primer error de E/S desde la última operación */
     /* Lectura anticipada (D095): quien lee un archivo en trozos de 1 KB no
@@ -58,7 +58,7 @@ typedef struct {
 } volume_t;
 #define JANELA_SETORES 256        /* 128 KB: un comando USB entero */
 #define DIRETO_SETORES 64         /* pedidos desde 32 KB van directo al disco, sin ventana */
-#define RACHA_MAX      (128u * 1024u)   /* más que eso por pedido no compensa: el USB divide en comandos de 128 KB */
+#define RACHA_MAX      (1024u * 1024u)  /* D468: hasta 1 MB por pedido (el USB parte en órdenes de su trozo: 240 KB o 1 MB) */
 
 /* Cada montaje tiene su propio volume_t. Las operaciones empiezan apuntando "vp"
  * al volumen del montaje; el resto del código sigue escribiendo "v.". Las
@@ -72,7 +72,10 @@ static volume_t *vp;
 
 /* ------------------------------------------------------------ caché de sectores */
 
-#define CACHE 16
+/* D468: 64 sectores (antes 16). Con clústeres de 512 bytes, grabar 1 MB ensucia 16 sectores de
+ * la FAT: con 16 en la caché se iban grabando de uno en uno (y otra vez en la segunda FAT) al
+ * expulsarlos, unas 32 órdenes al pendrive por cada MB de datos. */
+#define CACHE 64
 
 static int gravar_setor_cache(int i)
 {
@@ -143,7 +146,9 @@ static uint8_t *setor(uint32_t s)
         if (cache[i].uso < cache[velho].uso) velho = i;
     }
     int i = livre >= 0 ? livre : velho;
-    if (cache[i].valido && gravar_setor_cache(i) < 0) return NULL;
+    /* D468: si hay que expulsar uno sucio, se graba todo lo sucio junto (descarregar junta los
+     * sectores seguidos en una orden), no solo ese. */
+    if (cache[i].valido && cache[i].sujo && descarregar() < 0) return NULL;
     if (!cache[i].dados && !(cache[i].dados = kmalloc(512))) return NULL;
     if (disco_ler(v.disco, s, 1, cache[i].dados) < 0) { cache[i].valido = false; if (!erro_es) erro_es = ERRO_ACESSO; return NULL; }
     cache[i].setor = s;
@@ -186,7 +191,7 @@ static int ler_direto(uint32_t s, uint32_t n, uint8_t *dados)
 }
 
 /* Lectura de sectores de archivo. Las peticiones grandes van directo al disco (un
- * comando USB por hasta 128 KB); las pequeñas, cuando siguen a la anterior, vienen
+ * comando USB por trozo, D468); las pequeñas, cuando siguen a la anterior, vienen
  * de una ventana de 128 KB leída de una vez. */
 static int ler_dados(uint32_t s, uint32_t n, uint8_t *dados)
 {

@@ -14,7 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VERSAO 5
+#define VERSAO 6
 
 enum { V_SUMA = 0, V_GRAVAR = 1, V_LER = 2 };
 typedef struct { int modo; FILE *f; uint32_t h; int erro; } V;
@@ -101,7 +101,7 @@ static void v_obj(V *v, TzMundo *m, TzObj *o)
 	VV(o->ataque); VV(o->defesa); VV(o->visao); VV(o->alcance); VV(o->resistencia); VV(o->xp); VV(o->mana); VV(o->mana_max);
 	VV(o->recurso); VV(o->anim_tic); VV(o->dentro_de); VV(o->ndentro);
 	VV(o->item.vida); VV(o->item.mana); VV(o->item.ataque); VV(o->item.defesa); VV(o->item.xp); VV(o->item.feitico);
-	VV(o->item.finito); VV(o->item.cargas); VV(o->item.texto); VV(o->pocao_ataque); VV(o->pocao_defesa);
+	VV(o->item.finito); VV(o->item.cargas); VV(o->item.texto); VV(o->item.ligado); VA(o->item.imagem); VV(o->pocao_ataque); VV(o->pocao_defesa); VV(o->heroi_nome);
 	uint8_t tem = o->ator != NULL;
 	VV(tem);
 	if (v->modo == V_LER) {
@@ -117,7 +117,7 @@ static void visitar(V *v, TzMundo *m)
 	VV(m->tic); VV(m->rng.s); VV(m->semente); VV(m->jogador); VV(m->acabou); VV(m->ganhou);
 	VV(m->regras.sem_nevoa); VV(m->regras.explorado); VV(m->regras.populacao); VV(m->regras.dificuldade);
 	VV(m->regras.vitoria); VV(m->regras.vitoria_limite); VV(m->regras.nivel_recursos); VV(m->regras.campanha);
-	VV(m->regras.troncos); VV(m->regras.sem_vitoria_auto); VV(m->sem_resgate);
+	VV(m->regras.troncos); VV(m->regras.sem_vitoria_auto); VV(m->sem_resgate); VA(m->herois_usados);
 	/* objetos: los del mapa ya existen (mismo índice); los nuevos se añaden */
 	int32_t n = m->nobj;
 	VV(n);
@@ -142,6 +142,13 @@ static void visitar(V *v, TzMundo *m)
 		VV(r->pontos); VV(r->criadas); VV(r->perdidas); VV(r->matadas); VA(r->recolhido);
 		VV(r->emp_quantia); VV(r->emp_rec); VV(r->emp_aumenta_tic); VV(r->emp_aumenta_quantia); VV(r->cruzados);
 		VV(r->cruzadas_completas); VV(r->cruz_ancla); VV(r->cruz_faltan); VV(r->cruz_proximo); VV(r->proxima_oferta); VV(r->torneio);
+		VV(r->joia_mercado); VV(r->njoias); VV(r->joia_prox); VV(r->joia_id);
+		if (r->njoias > 8) { v->erro = 1; return; }
+		for (int q = 0; q < 8; ++q) {
+			struct TzJoia *jo = &r->joia[q];
+			VV(jo->id); VV(jo->classe); VV(jo->item.vida); VV(jo->item.mana); VV(jo->item.ataque); VV(jo->item.defesa); VV(jo->item.xp);
+			VV(jo->item.feitico); VV(jo->item.finito); VV(jo->item.cargas); VA(jo->item.imagem);
+		}
 		if (k >= 1 && r->pesquisas) {
 			for (int t = 0; t < m->cat->ntec; ++t) VV(r->pesquisas[t]);
 			for (int t = 0; t < m->cat->ntec + TZ_NCLASSES; ++t) VV(r->proibido[t]);

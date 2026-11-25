@@ -41,7 +41,7 @@
 #include "py/mperrno.h"
 #include "sagui_mp.h"
 
-#if MICROPY_PY_THREAD
+#if MICROPY_PY_THREAD && !defined(SAGUI_PORTABLE)   /* en el PC: mpthreadport_pc.c (D459) */
 
 /* mpthreadport.h toma el estado del hilo principal por la dirección de
  * mp_state_ctx: tiene que ser su primer campo. */

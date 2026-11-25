@@ -11,6 +11,7 @@
 #include "ia.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 /* grupos de campesinos (think.rs group: +0x9a6 ociosos, +0x9aa constructores, +0x9ae ordeñadores, +0x9b2 los de cada
  * recurso) */
@@ -62,6 +63,27 @@ typedef struct {
 
 typedef struct { int16_t x, y; uint32_t mascara, ate_ms; } TzIaPerda;
 
+/* D470: un transporte por el agua (transport.rs Transport y Ride, llevado por el jugador) */
+#define IA_TRANSPORTES 8
+#define IA_PASSAGEIROS 16
+enum { TR_CARREGAR = 1, TR_NAVEGAR };
+typedef struct {
+	TzId navio;
+	int16_t ponto[2];             /* adonde van */
+	uint16_t desembarque;         /* la isla en la que desembarcan */
+	uint8_t passo;                /* TR_* */
+	int32_t npass;
+	TzId pass[IA_PASSAGEIROS];
+	uint16_t paciencia[IA_PASSAGEIROS];   /* miradas esperando a cada uno (en NAVEGAR, [0] = descargas pedidas) */
+	uint8_t anda[IA_PASSAGEIROS];         /* al desembarcar sigue andando al punto */
+} TzIaTransporte;
+enum { IA_VIA_NAO = 0, IA_VIA_TERRA = 1, IA_VIA_MAR = 2 };   /* reach.rs NO, BY_LAND, BY_SEA */
+
+/* D470: un muro marcado para abrir brecha (breach.rs marked) */
+#define IA_BRECHAS 32
+typedef struct { TzId muro; int16_t x, y; } TzIaBrecha;
+
+
 struct TzIa {
 	TzMundo *m;
 	const TzIaBiblioteca *b;
@@ -109,6 +131,25 @@ struct TzIa {
 	/* lo que dijo */
 	char falas[IA_FALAS][160]; uint32_t nfalas;
 	TzIaContas contas;
+	/* D470 */
+	uint8_t rendicao;             /* las reglas de la partida dejan rendirse (0x5cf6d4) */
+	uint8_t rendeu;               /* ya mandó la rendición */
+	/* agua, flota y transporte (ia_agua.c) */
+	uint16_t *agua;               /* región de agua de cada casilla (0 = no es agua) */
+	int nagua;                    /* regiones de agua 1..nagua (-1 sin memoria) */
+	uint32_t *agua_cel;           /* casillas de cada región */
+	uint32_t *liga; int nliga, capliga;   /* pares (isla << 16 | agua) que se tocan, de cada mirada */
+	uint32_t ilha_cel;            /* casillas de la isla de la casa */
+	uint8_t *quer_navios, *quer_portos;   /* IA+0x1a34 y los puertos queridos, por agua */
+	int16_t (*alvo_porto)[2];     /* el pesquero que pidió el puerto de cada agua (-1) */
+	uint16_t agua_porto;          /* 0x5af414 */
+	TzIaLista navios, pesqueiros, portos;
+	TzIaTransporte tr[IA_TRANSPORTES]; int32_t ntr;
+	/* brechas (ia_brecha.c) */
+	TzIaBrecha brecha[IA_BRECHAS]; int32_t nbrechas;
+	uint16_t *sem_muros;          /* islas sin los muros enemigos (de la mirada, para las brechas) */
+	uint32_t sem_muros_olhar; uint8_t tem_muros;
+	TzIaContasD470 contas_d470;
 };
 
 /* ------------------------------------------------------------------ utilidades (ia_jogador.c) */
@@ -139,6 +180,7 @@ int ia_ordem_grupo(TzIa *ia, const TzId *ids, int n, int tipo, TzId alvo, int x,
 int ia_construir(TzIa *ia, TzId peao, int classe, int x, int y);
 int ia_produzir(TzIa *ia, TzId edif, int classe);
 int ia_pesquisar(TzIa *ia, TzId edif, int tec);
+int ia_enviar(TzIa *ia, TzComando *c);              /* cualquier comando del reino (cuenta y marca sus objetos) */
 void ia_falar(TzIa *ia, const char *texto);
 void ia_reclassificar(TzIa *ia, TzId i, int tipo, TzId alvo, int x, int y);   /* think.rs hooked */
 int ia_trab_frente(const TzObj *o, int tipo, int arg);   /* el primer trabajo de su fila */
@@ -181,7 +223,44 @@ void ia_fase_guerra(TzIa *ia);                          /* 0x410be0 */
 void ia_fase_especial(TzIa *ia);                        /* 0x409220 */
 void ia_ocioso_unidade(TzIa *ia, TzId i, uint32_t ms_ocioso);    /* idle.rs idle_unit */
 void ia_milicia(TzIa *ia, TzId ameaca);                 /* 0x4120d0 */
+int ia_capturavel(const TzIa *ia, TzId i);              /* gameplay.rs capturable (D470) */
 void ia_explorar(TzIa *ia);
 uint32_t ia_descoberto(const TzIa *ia, TzId edif);      /* 0x40d4a0 */
+
+/* ------------------------------------------------------------------ agua, flota y transporte (ia_agua.c: reach, navy, transport) */
+void ia_agua_olhar(TzIa *ia);
+int ia_agua_em(const TzIa *ia, int x, int y);
+int ia_agua_de(const TzIa *ia, TzId i);
+int ia_ilha_perto(const TzIa *ia, int x, int y, int aneis);
+TzId ia_navio_para(TzIa *ia, int a, int b, TzId pass);   /* 0x416ef0 */
+int ia_via(TzIa *ia, int a, int b);                      /* 0x417470: IA_VIA_* */
+int ia_via_ponto(TzIa *ia, int fx, int fy, const int r[4]);   /* 0x417640 */
+int ia_transportar(TzIa *ia, TzId i, int x, int y, int anda); /* 0x415f80: 0 por tierra, 1 en barco, 2 no llega */
+int ia_em_transporte(const TzIa *ia, TzId i);
+void ia_transportes(TzIa *ia);
+int ia_frota(TzIa *ia);                                  /* 0x4168d0 */
+int ia_ocioso_pesqueiro(TzIa *ia, TzId b);               /* 0x415730 */
+int ia_sitio_porto(TzIa *ia, int cx, int cy, int *ox, int *oy);   /* 0x40a710 */
+void ia_agua_liberar(TzIa *ia);
+void ia_preparar(TzIa *ia);                              /* pruebas: listas, agua y lugares, sin decidir */
+
+/* ------------------------------------------------------------------ brechas (ia_brecha.c, breach.rs) */
+int ia_brecha_alcanca(TzIa *ia, int fx, int fy, const int r[4]);
+int ia_brecha_mandar(TzIa *ia, TzId u, int px, int py);
+int ia_brecha_de(const TzIa *ia, TzId i);
+void ia_brechas_olhar(TzIa *ia);
+
+/* ------------------------------------------------------------------ hechizos y metas (ia_magia.c: spells.rs, goals.rs) */
+void ia_magias(TzIa *ia);                               /* 0x414730 antes de cada ataque, 0x472760 */
+int ia_ocioso_sacerdote(TzIa *ia, TzId i);              /* 0x414f10 */
+int ia_avancar(TzIa *ia, TzId *ids, int n, int px, int py);   /* 0x4ebe10: el ninja se esconde al salir; los que quedan */
+int ia_invocar(TzIa *ia, int tipo);                     /* 0x409ab0 */
+int ia_cruzada(TzIa *ia);                               /* 0x409ed0 */
+int ia_jihad(TzIa *ia);                                 /* 0x409500 */
+void ia_converter(TzIa *ia, uint32_t quer);             /* rules.rs convert: la taberna cambia comida */
+
+/* ------------------------------------------------------------------ D470: guardar lo nuevo (ia_agua.c) */
+int ia_d470_gravar(const TzIa *ia, FILE *f);            /* 0 bien */
+int32_t ia_d470_ler(TzIa *ia, FILE *f, uint32_t resta);  /* bytes leídos, o -1 */
 
 #endif

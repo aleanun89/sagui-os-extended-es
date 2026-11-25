@@ -8,7 +8,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: userland/programas/arquivos.c:244 userland/programas/arquivos.c:1459
+#: userland/programas/arquivos.c:244 userland/programas/arquivos.c:1461
 #, c-format
 msgid "%s libres"
 msgstr ""
@@ -114,15 +114,15 @@ msgstr ""
 msgid "Sin fecha"
 msgstr ""
 
-#: userland/programas/arquivos.c:815 userland/programas/arquivos.c:817 userland/programas/arquivos.c:2269 userland/programas/arquivos.c:3399
+#: userland/programas/arquivos.c:815 userland/programas/arquivos.c:817 userland/programas/arquivos.c:2271 userland/programas/arquivos.c:3618
 msgid "Nueva carpeta"
 msgstr ""
 
-#: userland/programas/arquivos.c:815 userland/programas/arquivos.c:2291 userland/programas/arquivos.c:2297 userland/programas/arquivos.c:3374
+#: userland/programas/arquivos.c:815 userland/programas/arquivos.c:2293 userland/programas/arquivos.c:2299 userland/programas/arquivos.c:3593
 msgid "Borrar"
 msgstr ""
 
-#: userland/programas/arquivos.c:817 userland/programas/arquivos.c:3400
+#: userland/programas/arquivos.c:817 userland/programas/arquivos.c:3619
 msgid "Atrás"
 msgstr ""
 
@@ -182,19 +182,19 @@ msgstr ""
 msgid "Renombrar (F2)"
 msgstr ""
 
-#: userland/programas/arquivos.c:892 userland/programas/arquivos.c:3375 userland/programas/arquivos.c:3391
+#: userland/programas/arquivos.c:892 userland/programas/arquivos.c:3594 userland/programas/arquivos.c:3610
 msgid "Comprimir en .zip"
 msgstr ""
 
-#: userland/programas/arquivos.c:893 userland/programas/arquivos.c:3392
+#: userland/programas/arquivos.c:893 userland/programas/arquivos.c:3611
 msgid "Extraer aquí"
 msgstr ""
 
-#: userland/programas/arquivos.c:893 userland/programas/arquivos.c:3394 userland/programas/arquivos.c:3401
+#: userland/programas/arquivos.c:893 userland/programas/arquivos.c:3613 userland/programas/arquivos.c:3620
 msgid "Abrir terminal aquí"
 msgstr ""
 
-#: userland/programas/arquivos.c:893 userland/programas/arquivos.c:2384 userland/programas/arquivos.c:2484 userland/programas/arquivos.c:3374
+#: userland/programas/arquivos.c:893 userland/programas/arquivos.c:2386 userland/programas/arquivos.c:2486 userland/programas/arquivos.c:3593
 msgid "Propiedades"
 msgstr ""
 
@@ -226,7 +226,7 @@ msgstr ""
 msgid "Etiqueta de color"
 msgstr ""
 
-#: userland/programas/arquivos.c:986 userland/programas/arquivos.c:1126 userland/programas/arquivos.c:1173 userland/programas/arquivos.c:1608
+#: userland/programas/arquivos.c:986 userland/programas/arquivos.c:1126 userland/programas/arquivos.c:1173 userland/programas/arquivos.c:1610
 msgid "Inicio"
 msgstr ""
 
@@ -234,7 +234,7 @@ msgstr ""
 msgid "FAVORITOS"
 msgstr ""
 
-#: userland/programas/arquivos.c:989 userland/programas/arquivos.c:1001 userland/programas/arquivos.c:1127 userland/programas/arquivos.c:1429
+#: userland/programas/arquivos.c:989 userland/programas/arquivos.c:1001 userland/programas/arquivos.c:1127 userland/programas/arquivos.c:1431
 msgid "Sistema"
 msgstr ""
 
@@ -275,175 +275,175 @@ msgstr ""
 msgid "Nombre"
 msgstr ""
 
-#: userland/programas/arquivos.c:1221 userland/programas/arquivos.c:3149 userland/programas/arquivos.c:3150
+#: userland/programas/arquivos.c:1221 userland/programas/arquivos.c:3368 userland/programas/arquivos.c:3369
 msgid "Tamaño"
 msgstr ""
 
-#: userland/programas/arquivos.c:1221 userland/programas/arquivos.c:3147
+#: userland/programas/arquivos.c:1221 userland/programas/arquivos.c:3366
 msgid "Tipo"
 msgstr ""
 
-#: userland/programas/arquivos.c:1221 userland/programas/arquivos.c:3152
+#: userland/programas/arquivos.c:1221 userland/programas/arquivos.c:3371
 msgid "Fecha"
 msgstr ""
 
-#: userland/programas/arquivos.c:1419
+#: userland/programas/arquivos.c:1421
 msgid "Favoritos"
 msgstr ""
 
-#: userland/programas/arquivos.c:1440
+#: userland/programas/arquivos.c:1442
 msgid "Unidades"
 msgstr ""
 
-#: userland/programas/arquivos.c:1467
+#: userland/programas/arquivos.c:1469
 msgid "Recientes"
 msgstr ""
 
-#: userland/programas/arquivos.c:1477
+#: userland/programas/arquivos.c:1479
 msgid "(todavía nada: lo que abras aparecerá aquí)"
 msgstr ""
 
-#: userland/programas/arquivos.c:1544
+#: userland/programas/arquivos.c:1546
 msgid "Sin resultados."
 msgstr ""
 
-#: userland/programas/arquivos.c:1544
+#: userland/programas/arquivos.c:1546
 msgid "Esta carpeta está vacía."
 msgstr ""
 
-#: userland/programas/arquivos.c:1600
+#: userland/programas/arquivos.c:1602
 #, c-format
 msgid "%s/ (carpeta)"
 msgstr ""
 
-#: userland/programas/arquivos.c:1601
+#: userland/programas/arquivos.c:1603
 #, c-format
 msgid "%s: %u bytes%s"
 msgstr ""
 
-#: userland/programas/arquivos.c:1601
+#: userland/programas/arquivos.c:1603
 msgid " (programa)"
 msgstr ""
 
-#: userland/programas/arquivos.c:1609 userland/programas/arquivos.c:2718
+#: userland/programas/arquivos.c:1611 userland/programas/arquivos.c:2937
 #, c-format
 msgid "%d resultados para %s"
 msgstr ""
 
-#: userland/programas/arquivos.c:1610
+#: userland/programas/arquivos.c:1612
 #, c-format
 msgid "%d elementos (filtro %s)"
 msgstr ""
 
-#: userland/programas/arquivos.c:1611
+#: userland/programas/arquivos.c:1613
 msgid "1 elemento"
 msgstr ""
 
-#: userland/programas/arquivos.c:1612 userland/programas/arquivos.c:3009
+#: userland/programas/arquivos.c:1614 userland/programas/arquivos.c:3228
 #, c-format
 msgid "%d elementos"
 msgstr ""
 
-#: userland/programas/arquivos.c:1615 userland/programas/arquivos.c:3094
+#: userland/programas/arquivos.c:1617 userland/programas/arquivos.c:3313
 #, c-format
 msgid "%d seleccionados"
 msgstr ""
 
-#: userland/programas/arquivos.c:1862
+#: userland/programas/arquivos.c:1864
 msgid "Esa carpeta no existe"
 msgstr ""
 
-#: userland/programas/arquivos.c:1958
+#: userland/programas/arquivos.c:1960
 msgid "No caben más pestañas"
 msgstr ""
 
-#: userland/programas/arquivos.c:1971
+#: userland/programas/arquivos.c:1973
 msgid "Es la única pestaña"
 msgstr ""
 
-#: userland/programas/arquivos.c:2253
+#: userland/programas/arquivos.c:2255
 #, c-format
 msgid "Abriendo %s..."
 msgstr ""
 
-#: userland/programas/arquivos.c:2253 userland/programas/arquivos.c:3307
+#: userland/programas/arquivos.c:2255 userland/programas/arquivos.c:3526
 #, c-format
 msgid "No se ha podido abrir %s"
 msgstr ""
 
-#: userland/programas/arquivos.c:2269
+#: userland/programas/arquivos.c:2271
 msgid "Nombre de la nueva carpeta:"
 msgstr ""
 
-#: userland/programas/arquivos.c:2273
+#: userland/programas/arquivos.c:2275
 #, c-format
 msgid ""
 "No se ha podido crear la carpeta:\n"
 "%s"
 msgstr ""
 
-#: userland/programas/arquivos.c:2273 userland/programas/arquivos.c:2293 userland/programas/arquivos.c:2320 userland/programas/arquivos.c:2324
+#: userland/programas/arquivos.c:2275 userland/programas/arquivos.c:2295 userland/programas/arquivos.c:2322 userland/programas/arquivos.c:2326
 msgid "Archivos"
 msgstr ""
 
-#: userland/programas/arquivos.c:2281 userland/programas/arquivos.c:2438 userland/programas/arquivos.c:2490 userland/programas/arquivos.c:2605
+#: userland/programas/arquivos.c:2283 userland/programas/arquivos.c:2440 userland/programas/arquivos.c:2492 userland/programas/arquivos.c:2840
 msgid "No hay nada seleccionado"
 msgstr ""
 
-#: userland/programas/arquivos.c:2290
+#: userland/programas/arquivos.c:2292
 #, c-format
 msgid ""
 "¿Seguro que quieres borrar\n"
 "%s%s?"
 msgstr ""
 
-#: userland/programas/arquivos.c:2293
+#: userland/programas/arquivos.c:2295
 #, c-format
 msgid ""
 "No se ha podido borrar:\n"
 "%s"
 msgstr ""
 
-#: userland/programas/arquivos.c:2296
+#: userland/programas/arquivos.c:2298
 #, c-format
 msgid ""
 "¿Seguro que quieres borrar\n"
 "%d elementos?"
 msgstr ""
 
-#: userland/programas/arquivos.c:2318 userland/programas/arquivos.c:3390
+#: userland/programas/arquivos.c:2320 userland/programas/arquivos.c:3609
 msgid "Renombrar"
 msgstr ""
 
-#: userland/programas/arquivos.c:2318
+#: userland/programas/arquivos.c:2320
 msgid "Nuevo nombre:"
 msgstr ""
 
-#: userland/programas/arquivos.c:2320
+#: userland/programas/arquivos.c:2322
 msgid "El nombre no puede contener '/'."
 msgstr ""
 
-#: userland/programas/arquivos.c:2324
+#: userland/programas/arquivos.c:2326
 #, c-format
 msgid ""
 "No se ha podido renombrar:\n"
 "%s"
 msgstr ""
 
-#: userland/programas/arquivos.c:2356
+#: userland/programas/arquivos.c:2358
 msgid "desconocida"
 msgstr ""
 
-#: userland/programas/arquivos.c:2367
+#: userland/programas/arquivos.c:2369
 #, c-format
 msgid "%u bytes"
 msgstr ""
 
-#: userland/programas/arquivos.c:2372
+#: userland/programas/arquivos.c:2374
 msgid "desconocidos"
 msgstr ""
 
-#: userland/programas/arquivos.c:2377
+#: userland/programas/arquivos.c:2379
 #, c-format
 msgid ""
 "%s (%04o)%s\n"
@@ -451,11 +451,11 @@ msgid ""
 "Grupo: %s"
 msgstr ""
 
-#: userland/programas/arquivos.c:2378
+#: userland/programas/arquivos.c:2380
 msgid ", los del montaje"
 msgstr ""
 
-#: userland/programas/arquivos.c:2381
+#: userland/programas/arquivos.c:2383
 #, c-format
 msgid ""
 "Nombre: %s\n"
@@ -468,37 +468,37 @@ msgid ""
 "Espacio libre: %s"
 msgstr ""
 
-#: userland/programas/arquivos.c:2419 userland/programas/arquivos.c:2500 userland/programas/arquivos.c:2639 userland/programas/arquivos.c:3831
+#: userland/programas/arquivos.c:2421 userland/programas/arquivos.c:2502
 #, c-format
 msgid ""
 "%s ya existe.\n"
 "¿Reemplazarlo?"
 msgstr ""
 
-#: userland/programas/arquivos.c:2420 userland/programas/arquivos.c:2501
+#: userland/programas/arquivos.c:2422 userland/programas/arquivos.c:2503
 msgid "Comprimir"
 msgstr ""
 
-#: userland/programas/arquivos.c:2422 userland/programas/arquivos.c:2503
+#: userland/programas/arquivos.c:2424 userland/programas/arquivos.c:2505
 msgid "Comprimiendo..."
 msgstr ""
 
-#: userland/programas/arquivos.c:2428 userland/programas/arquivos.c:2526
+#: userland/programas/arquivos.c:2430 userland/programas/arquivos.c:2528
 #, c-format
 msgid "Creado %s"
 msgstr ""
 
-#: userland/programas/arquivos.c:2428 userland/programas/arquivos.c:2526
+#: userland/programas/arquivos.c:2430 userland/programas/arquivos.c:2528
 #, c-format
 msgid "No se ha podido crear %s"
 msgstr ""
 
-#: userland/programas/arquivos.c:2454
+#: userland/programas/arquivos.c:2456
 #, c-format
 msgid "%d elementos abiertos"
 msgstr ""
 
-#: userland/programas/arquivos.c:2482
+#: userland/programas/arquivos.c:2484
 #, c-format
 msgid ""
 "Elementos: %d\n"
@@ -508,409 +508,483 @@ msgid ""
 "%s"
 msgstr ""
 
-#: userland/programas/arquivos.c:2524
+#: userland/programas/arquivos.c:2526
 #, c-format
 msgid "Creado %s (%d de %d elementos)"
 msgstr ""
 
-#: userland/programas/arquivos.c:2539
+#: userland/programas/arquivos.c:2541
 msgid "Extraer en carpeta"
 msgstr ""
 
-#: userland/programas/arquivos.c:2539
+#: userland/programas/arquivos.c:2541
 msgid "Carpeta de destino:"
 msgstr ""
 
-#: userland/programas/arquivos.c:2541
+#: userland/programas/arquivos.c:2543
 msgid "Extrayendo..."
 msgstr ""
 
-#: userland/programas/arquivos.c:2555
+#: userland/programas/arquivos.c:2557
 #, c-format
 msgid "Extraído %s"
 msgstr ""
 
-#: userland/programas/arquivos.c:2555
+#: userland/programas/arquivos.c:2557
 #, c-format
 msgid "No se ha podido extraer %s (¿ya existía algo?)"
 msgstr ""
 
-#: userland/programas/arquivos.c:2618
+#: userland/programas/arquivos.c:2654
+#, c-format
+msgid ""
+"«%s» ya existe en la carpeta de destino.\n"
+"¿Qué quieres hacer?"
+msgstr ""
+
+#: userland/programas/arquivos.c:2655
+msgid "Reemplazar"
+msgstr ""
+
+#: userland/programas/arquivos.c:2655 userland/programas/arquivos.c:2671
+msgid "Omitir"
+msgstr ""
+
+#: userland/programas/arquivos.c:2655
+msgid "Mantener los dos"
+msgstr ""
+
+#: userland/programas/arquivos.c:2655 userland/programas/arquivos.c:2671
+msgid "Cancelar"
+msgstr ""
+
+#: userland/programas/arquivos.c:2657
+msgid "Aplicar a todos"
+msgstr ""
+
+#: userland/programas/arquivos.c:2670
+#, c-format
+msgid ""
+"%s:\n"
+"%s"
+msgstr ""
+
+#: userland/programas/arquivos.c:2671
+msgid "Reintentar"
+msgstr ""
+
+#: userland/programas/arquivos.c:2673
+msgid "Error"
+msgstr ""
+
+#: userland/programas/arquivos.c:2689
+msgid "No se puede leer"
+msgstr ""
+
+#: userland/programas/arquivos.c:2692
+msgid "No se puede crear el archivo"
+msgstr ""
+
+#: userland/programas/arquivos.c:2697
+msgid "Error de lectura"
+msgstr ""
+
+#: userland/programas/arquivos.c:2699
+msgid "No se puede escribir (¿disco lleno?)"
+msgstr ""
+
+#: userland/programas/arquivos.c:2785
+#, c-format
+msgid "Moviendo «%s» de %s a %s"
+msgstr ""
+
+#: userland/programas/arquivos.c:2785
+#, c-format
+msgid "Copiando «%s» de %s a %s"
+msgstr ""
+
+#: userland/programas/arquivos.c:2786
+#, c-format
+msgid "Moviendo %d elementos de %s a %s"
+msgstr ""
+
+#: userland/programas/arquivos.c:2786
+#, c-format
+msgid "Copiando %d elementos de %s a %s"
+msgstr ""
+
+#: userland/programas/arquivos.c:2788
+msgid "Moviendo"
+msgstr ""
+
+#: userland/programas/arquivos.c:2788
+msgid "Copiando"
+msgstr ""
+
+#: userland/programas/arquivos.c:2853
 #, c-format
 msgid "%d %s para el portapapeles"
 msgstr ""
 
-#: userland/programas/arquivos.c:2618
+#: userland/programas/arquivos.c:2853
 msgid "cortados"
 msgstr ""
 
-#: userland/programas/arquivos.c:2618 userland/programas/arquivos.c:2654 userland/programas/arquivos.c:3849 userland/programas/arquivos.c:3850
+#: userland/programas/arquivos.c:2853 userland/programas/arquivos.c:2873 userland/programas/arquivos.c:4065 userland/programas/arquivos.c:4066
 msgid "copiados"
 msgstr ""
 
-#: userland/programas/arquivos.c:2627
+#: userland/programas/arquivos.c:2862
 msgid "El portapapeles de archivos está vacío"
 msgstr ""
 
-#: userland/programas/arquivos.c:2640 userland/programas/arquivos.c:3401
-msgid "Pegar"
-msgstr ""
-
-#: userland/programas/arquivos.c:2642 userland/programas/arquivos.c:3834
-msgid "Copiando..."
-msgstr ""
-
-#: userland/programas/arquivos.c:2654
+#: userland/programas/arquivos.c:2873
 #, c-format
 msgid "%d %s pegados"
 msgstr ""
 
-#: userland/programas/arquivos.c:2654 userland/programas/arquivos.c:3849 userland/programas/arquivos.c:3850
+#: userland/programas/arquivos.c:2873 userland/programas/arquivos.c:4065 userland/programas/arquivos.c:4066
 msgid "movidos"
 msgstr ""
 
-#: userland/programas/arquivos.c:2718
+#: userland/programas/arquivos.c:2937
 #, c-format
 msgid "Buscando... %d resultados para %s"
 msgstr ""
 
-#: userland/programas/arquivos.c:2839
+#: userland/programas/arquivos.c:3058
 #, c-format
 msgid "%d archivos con etiqueta %s"
 msgstr ""
 
-#: userland/programas/arquivos.c:2847
+#: userland/programas/arquivos.c:3066
 msgid "Tipo: cualquiera"
 msgstr ""
 
-#: userland/programas/arquivos.c:2847
+#: userland/programas/arquivos.c:3066
 msgid "Tipo: carpetas"
 msgstr ""
 
-#: userland/programas/arquivos.c:2847
+#: userland/programas/arquivos.c:3066
 msgid "Tipo: imágenes"
 msgstr ""
 
-#: userland/programas/arquivos.c:2847
+#: userland/programas/arquivos.c:3066
 msgid "Tipo: documentos"
 msgstr ""
 
-#: userland/programas/arquivos.c:2847
+#: userland/programas/arquivos.c:3066
 msgid "Tipo: audio y vídeo"
 msgstr ""
 
-#: userland/programas/arquivos.c:2847
+#: userland/programas/arquivos.c:3066
 msgid "Tipo: programas"
 msgstr ""
 
-#: userland/programas/arquivos.c:2848
+#: userland/programas/arquivos.c:3067
 msgid "Tamaño: cualquiera"
 msgstr ""
 
-#: userland/programas/arquivos.c:2848
+#: userland/programas/arquivos.c:3067
 msgid "Tamaño: más de 1 MB"
 msgstr ""
 
-#: userland/programas/arquivos.c:2848
+#: userland/programas/arquivos.c:3067
 msgid "Tamaño: menos de 100 KB"
 msgstr ""
 
-#: userland/programas/arquivos.c:2849
+#: userland/programas/arquivos.c:3068
 msgid "Fecha: cualquiera"
 msgstr ""
 
-#: userland/programas/arquivos.c:2849
+#: userland/programas/arquivos.c:3068
 msgid "Fecha: hoy"
 msgstr ""
 
-#: userland/programas/arquivos.c:2849
+#: userland/programas/arquivos.c:3068
 msgid "Fecha: últimos 7 días"
 msgstr ""
 
-#: userland/programas/arquivos.c:2849
+#: userland/programas/arquivos.c:3068
 msgid "Fecha: últimos 30 días"
 msgstr ""
 
-#: userland/programas/arquivos.c:3010
+#: userland/programas/arquivos.c:3229
 #, c-format
 msgid "%d carpetas"
 msgstr ""
 
-#: userland/programas/arquivos.c:3100
+#: userland/programas/arquivos.c:3319
 msgid "Vista previa"
 msgstr ""
 
-#: userland/programas/arquivos.c:3101
+#: userland/programas/arquivos.c:3320
 msgid "Elige un archivo"
 msgstr ""
 
-#: userland/programas/arquivos.c:3137
+#: userland/programas/arquivos.c:3356
 msgid "Doble clic: Visor de PDF"
 msgstr ""
 
-#: userland/programas/arquivos.c:3137
+#: userland/programas/arquivos.c:3356
 msgid "Doble clic: Reproductor"
 msgstr ""
 
-#: userland/programas/arquivos.c:3160
+#: userland/programas/arquivos.c:3379
 msgid "Dueño"
 msgstr ""
 
-#: userland/programas/arquivos.c:3200
+#: userland/programas/arquivos.c:3419
 #, c-format
 msgid "Ocultos %s"
 msgstr ""
 
-#: userland/programas/arquivos.c:3200
+#: userland/programas/arquivos.c:3419
 msgid "visibles"
 msgstr ""
 
-#: userland/programas/arquivos.c:3200
+#: userland/programas/arquivos.c:3419
 msgid "ocultos"
 msgstr ""
 
-#: userland/programas/arquivos.c:3230
+#: userland/programas/arquivos.c:3449
 msgid "Lista"
 msgstr ""
 
-#: userland/programas/arquivos.c:3231
+#: userland/programas/arquivos.c:3450
 msgid "Detalles"
 msgstr ""
 
-#: userland/programas/arquivos.c:3232
+#: userland/programas/arquivos.c:3451
 msgid "Iconos"
 msgstr ""
 
-#: userland/programas/arquivos.c:3233
+#: userland/programas/arquivos.c:3452
 msgid "Mosaicos"
 msgstr ""
 
-#: userland/programas/arquivos.c:3235
+#: userland/programas/arquivos.c:3454
 msgid "Sin agrupar"
 msgstr ""
 
-#: userland/programas/arquivos.c:3236
+#: userland/programas/arquivos.c:3455
 msgid "Agrupar por tipo"
 msgstr ""
 
-#: userland/programas/arquivos.c:3237
+#: userland/programas/arquivos.c:3456
 msgid "Agrupar por fecha"
 msgstr ""
 
-#: userland/programas/arquivos.c:3239
+#: userland/programas/arquivos.c:3458
 msgid "Ordenar por nombre"
 msgstr ""
 
-#: userland/programas/arquivos.c:3240
+#: userland/programas/arquivos.c:3459
 msgid "Ordenar por tamaño"
 msgstr ""
 
-#: userland/programas/arquivos.c:3241
+#: userland/programas/arquivos.c:3460
 msgid "Ordenar por tipo"
 msgstr ""
 
-#: userland/programas/arquivos.c:3242
+#: userland/programas/arquivos.c:3461
 msgid "Ordenar por fecha"
 msgstr ""
 
-#: userland/programas/arquivos.c:3307
+#: userland/programas/arquivos.c:3526
 #, c-format
 msgid "Abriendo %s con %s..."
 msgstr ""
 
-#: userland/programas/arquivos.c:3316
+#: userland/programas/arquivos.c:3535
 msgid "Abrir con"
 msgstr ""
 
-#: userland/programas/arquivos.c:3316
+#: userland/programas/arquivos.c:3535
 msgid "Una carpeta se abre, no se abre con un programa."
 msgstr ""
 
-#: userland/programas/arquivos.c:3374 userland/programas/arquivos.c:3390
+#: userland/programas/arquivos.c:3593 userland/programas/arquivos.c:3609
 msgid "Abrir"
 msgstr ""
 
-#: userland/programas/arquivos.c:3374 userland/programas/arquivos.c:3393 userland/programas/arquivos.c:3832
+#: userland/programas/arquivos.c:3593 userland/programas/arquivos.c:3612
 msgid "Copiar"
 msgstr ""
 
-#: userland/programas/arquivos.c:3374 userland/programas/arquivos.c:3393
+#: userland/programas/arquivos.c:3593 userland/programas/arquivos.c:3612
 msgid "Cortar"
 msgstr ""
 
-#: userland/programas/arquivos.c:3375 userland/programas/arquivos.c:3391
+#: userland/programas/arquivos.c:3594 userland/programas/arquivos.c:3610
 msgid "Comprimir en .tar.gz"
 msgstr ""
 
-#: userland/programas/arquivos.c:3392
+#: userland/programas/arquivos.c:3611
 msgid "Extraer en carpeta..."
 msgstr ""
 
-#: userland/programas/arquivos.c:3393
+#: userland/programas/arquivos.c:3612
 msgid "Abrir con..."
 msgstr ""
 
-#: userland/programas/arquivos.c:3394
+#: userland/programas/arquivos.c:3613
 msgid "Anclar a Favoritos"
 msgstr ""
 
-#: userland/programas/arquivos.c:3394
+#: userland/programas/arquivos.c:3613
 msgid "Etiqueta de color..."
 msgstr ""
 
-#: userland/programas/arquivos.c:3399
+#: userland/programas/arquivos.c:3618
 msgid "Actualizar"
 msgstr ""
 
-#: userland/programas/arquivos.c:3401
+#: userland/programas/arquivos.c:3620
 msgid "Nuevo archivo de texto"
 msgstr ""
 
-#: userland/programas/arquivos.c:3401
+#: userland/programas/arquivos.c:3620
+msgid "Pegar"
+msgstr ""
+
+#: userland/programas/arquivos.c:3620
 msgid "Ver..."
 msgstr ""
 
-#: userland/programas/arquivos.c:3412
+#: userland/programas/arquivos.c:3631
 msgid "Nuevo archivo"
 msgstr ""
 
-#: userland/programas/arquivos.c:3412
+#: userland/programas/arquivos.c:3631
 msgid "Nombre del nuevo archivo:"
 msgstr ""
 
-#: userland/programas/arquivos.c:3416
+#: userland/programas/arquivos.c:3635
 msgid "Ya existe un elemento con ese nombre."
 msgstr ""
 
-#: userland/programas/arquivos.c:3418
+#: userland/programas/arquivos.c:3637
 msgid "No se ha podido crear el archivo."
 msgstr ""
 
-#: userland/programas/arquivos.c:3435
+#: userland/programas/arquivos.c:3654
 msgid "Terminal abierto en esta carpeta"
 msgstr ""
 
-#: userland/programas/arquivos.c:3435
+#: userland/programas/arquivos.c:3654
 msgid "No se ha podido abrir el terminal"
 msgstr ""
 
-#: userland/programas/arquivos.c:3447 userland/programas/arquivos.c:3874
+#: userland/programas/arquivos.c:3666 userland/programas/arquivos.c:4090
 msgid "Anclado a Favoritos"
 msgstr ""
 
-#: userland/programas/arquivos.c:3447
+#: userland/programas/arquivos.c:3666
 msgid "Ya está en Favoritos (o no cabe más)"
 msgstr ""
 
-#: userland/programas/arquivos.c:3461
+#: userland/programas/arquivos.c:3680
 msgid "Quitar etiqueta"
 msgstr ""
 
-#: userland/programas/arquivos.c:3499
+#: userland/programas/arquivos.c:3718
 msgid "Sin subcarpetas"
 msgstr ""
 
-#: userland/programas/arquivos.c:3599
+#: userland/programas/arquivos.c:3818
 msgid "El CD/DVD está en uso (¿el instalador?): no se expulsa."
 msgstr ""
 
-#: userland/programas/arquivos.c:3600
+#: userland/programas/arquivos.c:3819
 msgid "No se ha podido expulsar el CD/DVD."
 msgstr ""
 
-#: userland/programas/arquivos.c:3610
+#: userland/programas/arquivos.c:3829
 #, c-format
 msgid ""
 "No se ha podido montar el CD/DVD:\n"
 "%s"
 msgstr ""
 
-#: userland/programas/arquivos.c:3632
+#: userland/programas/arquivos.c:3851
 msgid "No se ha podido desmontar el pendrive."
 msgstr ""
 
-#: userland/programas/arquivos.c:3632
+#: userland/programas/arquivos.c:3851
 msgid "Ya puedes retirar el pendrive."
 msgstr ""
 
-#: userland/programas/arquivos.c:3636
+#: userland/programas/arquivos.c:3855
 #, c-format
 msgid ""
 "No se ha podido montar el pendrive:\n"
 "%s"
 msgstr ""
 
-#: userland/programas/arquivos.c:3655
+#: userland/programas/arquivos.c:3874
 msgid "Esa carpeta ya no existe"
 msgstr ""
 
-#: userland/programas/arquivos.c:3799
+#: userland/programas/arquivos.c:4018
 #, c-format
 msgid "Arrastrando %d elementos"
 msgstr ""
 
-#: userland/programas/arquivos.c:3800
+#: userland/programas/arquivos.c:4019
 msgid "Suelta aquí para anclar la carpeta a Favoritos"
 msgstr ""
 
-#: userland/programas/arquivos.c:3801
+#: userland/programas/arquivos.c:4020
 #, c-format
 msgid "Suelta aquí para ponerles la etiqueta %s"
 msgstr ""
 
-#: userland/programas/arquivos.c:3802
+#: userland/programas/arquivos.c:4021
 #, c-format
 msgid "Soltar en %s (Mayús: mover)"
 msgstr ""
 
-#: userland/programas/arquivos.c:3832
-msgid "Mover"
-msgstr ""
-
-#: userland/programas/arquivos.c:3834
-msgid "Moviendo..."
-msgstr ""
-
-#: userland/programas/arquivos.c:3849
+#: userland/programas/arquivos.c:4065
 #, c-format
 msgid "%d elementos %s (%d con error)"
 msgstr ""
 
-#: userland/programas/arquivos.c:3850
+#: userland/programas/arquivos.c:4066
 #, c-format
 msgid "%d elementos %s a %s"
 msgstr ""
 
-#: userland/programas/arquivos.c:3874
+#: userland/programas/arquivos.c:4090
 msgid "Solo se pueden anclar carpetas (y no repetidas)"
 msgstr ""
 
-#: userland/programas/arquivos.c:3917
+#: userland/programas/arquivos.c:4133
 msgid "Sin coincidencias"
 msgstr ""
 
-#: userland/programas/arquivos.c:4023
+#: userland/programas/arquivos.c:4239
 msgid "Buscar archivos (Ctrl+F)"
 msgstr ""
 
-#: userland/programas/arquivos.c:4034
+#: userland/programas/arquivos.c:4250
 msgid "Carpeta"
 msgstr ""
 
-#: userland/programas/arquivos.c:4034
+#: userland/programas/arquivos.c:4250
 msgid "Archivo de texto"
 msgstr ""
 
-#: userland/programas/arquivos.c:4181
+#: userland/programas/arquivos.c:4397
 #, c-format
 msgid "Filtro: %s"
 msgstr ""
 
-#: userland/programas/arquivos.c:4199
+#: userland/programas/arquivos.c:4415
 msgid "Quitar de Favoritos"
 msgstr ""
 
-#: userland/programas/arquivos.c:4500
+#: userland/programas/arquivos.c:4716
 #, c-format
 msgid "%d elementos selecionados"
 msgstr ""

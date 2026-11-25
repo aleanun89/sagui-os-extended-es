@@ -3,6 +3,7 @@
 # Pestanas, Tabla, Enlace, BarraEstado y SelectorColor. Son subclases de los de tkinter con su
 # propio `_desenhar`, de modo que el diseñador los dibuja con el mismo código que la aplicación.
 # Se importa al crear el primer control de cada tipo (necesita el tkinter del sistema).
+import sagui
 import tkinter as tk
 from vps import TAB_H, _pest_tramos
 from vps import _fechas as FE
@@ -308,7 +309,8 @@ class _CampoW(tk.Entry):
 
 
 class _CalendarioW(tk.Widget):
-    """El calendario dibujado: cabecera con flechas, días de la semana y la rejilla del mes."""
+    """El calendario dibujado: cabecera con flechas (« y » cambian de año, < y > de mes), días de la semana y
+    la rejilla del mes. `minimo` y `maximo` (tuplas (a, m, d) o None) dejan fuera los días de fuera del rango."""
     _classe = "Calendario"
     _foca_no_clique = True
     _padrao = {"width": 196, "height": 170, "takefocus": 1, "cursor": "", "highlightthickness": 0,
@@ -318,7 +320,12 @@ class _CalendarioW(tk.Widget):
         self.anio, self.mes, self.dia = FE.hoy()
         self.visible = (self.anio, self.mes)    # el mes que se ve (puede no ser el del día elegido)
         self.al_elegir = None
+        self.al_doble = None
+        self.minimo = None
+        self.maximo = None
         self.bind("<Button-1>", self._pulsar)
+        self.bind("<Double-Button-1>", self._doble)
+        self.bind("<Key>", self._tecla)
 
     def _natural(self):
         return (tk._int(self._op.get("width", 196)), tk._int(self._op.get("height", 170)))
@@ -329,6 +336,10 @@ class _CalendarioW(tk.Widget):
         ch = max(8, (h - 4 - FE.ALTO_CAB - FE.ALTO_SEM) // 6)
         return cw, ch
 
+    def en_rango(self, a, m, d):
+        f = (a, m, d)
+        return (self.minimo is None or f >= self.minimo) and (self.maximo is None or f <= self.maximo)
+
     def mover(self, delta):
         a, m = self.visible
         m += delta
@@ -338,30 +349,68 @@ class _CalendarioW(tk.Widget):
         while m > 12:
             m -= 12
             a += 1
-        self.visible = (a, m)
+        self.visible = (max(1, a), m)
         self._redesenhar()
+
+    def _dia_en(self, x, y):
+        """(a, m, d) del día bajo (x, y), o None."""
+        cw, ch = self._geom()
+        fila = (y - 2 - FE.ALTO_CAB - FE.ALTO_SEM) // ch
+        col = (x - 2) // cw
+        if y < 2 + FE.ALTO_CAB + FE.ALTO_SEM or not (0 <= col < 7 and 0 <= fila < 6):
+            return None
+        a, m = self.visible
+        for f, c, d in FE.celdas(a, m):
+            if f == fila and c == col:
+                return (a, m, d)
+        return None
+
+    def _elegir(self, f):
+        """Elige el día f = (a, m, d) si está en el rango; True si lo eligió."""
+        if f is None or not self.en_rango(*f):
+            return False
+        self.anio, self.mes, self.dia = f
+        self.visible = (f[0], f[1])
+        self._redesenhar()
+        if self.al_elegir is not None:
+            self.al_elegir()
+        return True
 
     def _pulsar(self, ev):
         x, y = ev.x, ev.y
         if y < FE.ALTO_CAB + 2:
             if x < 24:
                 self.mover(-1)
+            elif x < 40:
+                self.mover(-12)
             elif x >= self._wl - 24:
                 self.mover(1)
+            elif x >= self._wl - 40:
+                self.mover(12)
             return
-        cw, ch = self._geom()
-        fila = (y - 2 - FE.ALTO_CAB - FE.ALTO_SEM) // ch
-        col = (x - 2) // cw
-        if y < 2 + FE.ALTO_CAB + FE.ALTO_SEM or not (0 <= col < 7 and 0 <= fila < 6):
-            return
-        a, m = self.visible
-        for f, c, d in FE.celdas(a, m):
-            if f == fila and c == col:
-                self.anio, self.mes, self.dia = a, m, d
-                self._redesenhar()
-                if self.al_elegir is not None:
-                    self.al_elegir()
-                return
+        f = self._dia_en(x, y)
+        if f is not None:
+            self._elegir(f)
+
+    def _doble(self, ev):
+        f = self._dia_en(ev.x, ev.y)
+        if f is not None and self.en_rango(*f):
+            if (self.anio, self.mes, self.dia) != f:
+                self._elegir(f)
+            if self.al_doble is not None:
+                self.al_doble()
+
+    def _tecla(self, ev):
+        k = ev.keysym
+        if k in ("Prior", "Next"):
+            self.mover(-1 if k == "Prior" else 1)
+        elif k in ("Left", "Right", "Up", "Down"):
+            paso = {"Left": -1, "Right": 1, "Up": -7, "Down": 7}[k]
+            n = FE.sumar_dias((self.anio, self.mes, self.dia), paso)
+            if self.en_rango(*n):
+                self._elegir(n)
+        elif k == "Return" and self.al_doble is not None:
+            self.al_doble()
 
     def _desenhar(self, v):
         x, y, w, h = self._ax, self._ay, self._wl, self._wa
@@ -372,9 +421,15 @@ class _CalendarioW(tk.Widget):
         a, m = self.visible
         v.rect(x + 2, y + 2, w - 4, FE.ALTO_CAB, 0x000080)
         titulo = "%s %d" % (FE.MESES[m - 1], a)
-        v.texto(x + (w - len(titulo) * 8) // 2, y + 2 + (FE.ALTO_CAB - 16) // 2, titulo, 0xFFFFFF)
-        v.texto(x + 8, y + 2 + (FE.ALTO_CAB - 16) // 2, "<", 0xFFFFFF)
-        v.texto(x + w - 16, y + 2 + (FE.ALTO_CAB - 16) // 2, ">", 0xFFFFFF)
+        ty = y + 2 + (FE.ALTO_CAB - 16) // 2
+        v.texto(x + (w - len(titulo) * 8) // 2, ty, titulo, 0xFFFFFF)
+        cy0 = y + 2 + FE.ALTO_CAB // 2
+        for dx, n in ((8, 1), (26, 2)):         # < mes anterior, << año anterior
+            for k in range(n):
+                v.poligono([(x + dx + 5 + 5 * k, cy0 - 4), (x + dx + 5 + 5 * k, cy0 + 4), (x + dx + 5 * k, cy0)], 0xFFFFFF if n == 1 else 0xB0B8FF)
+        for dx, n in ((w - 14, 1), (w - 36, 2)):    # > mes siguiente, >> año siguiente
+            for k in range(n):
+                v.poligono([(x + dx + 5 * k, cy0 - 4), (x + dx + 5 * k, cy0 + 4), (x + dx + 5 + 5 * k, cy0)], 0xFFFFFF if n == 1 else 0xB0B8FF)
         cw, ch = self._geom()
         for c in range(7):
             v.texto(x + 2 + c * cw + (cw - 8) // 2, y + 2 + FE.ALTO_CAB + 1, FE.DIAS[c], 0x808080)
@@ -383,9 +438,221 @@ class _CalendarioW(tk.Widget):
         for f, c, d in FE.celdas(a, m):
             cx, cy = x + 2 + c * cw, ya + f * ch
             elegido = (a, m, d) == (self.anio, self.mes, self.dia)
+            libre = self.en_rango(a, m, d)
             if elegido:
-                v.rect(cx + 1, cy + 1, cw - 2, ch - 2, 0x2A6FD8)
+                v.rect(cx + 1, cy + 1, cw - 2, ch - 2, 0x2A6FD8 if libre else 0x9AA3AC)
             elif (a, m, d) == (h_a, h_m, h_d):
                 v.rect(cx + 1, cy + 1, cw - 2, ch - 2, 0x2A6FD8, relleno=False)
             t = str(d)
-            v.texto(cx + (cw - len(t) * 8) // 2, cy + (ch - 16) // 2, t, 0xFFFFFF if elegido else (0x900000 if c == 6 else frente))
+            col = 0xFFFFFF if elegido else (0xC4CACF if not libre else (0x900000 if c == 6 else frente))
+            v.texto(cx + (cw - len(t) * 8) // 2, cy + (ch - 16) // 2, t, col)
+
+
+class _ArbolW(tk.Frame):
+    """La vista en árbol dibujada (v8.5.6, D466): una fila por nodo visible, con la sangría de su nivel y un
+    cuadrito [+] / [-] en los que tienen hijos. Los nodos son diccionarios {clave, texto, padre, nivel, abierto}
+    en orden de recorrido (cada nodo va antes que sus hijos); los guarda y cambia el control (vps._arbol)."""
+    _classe = "Arbol"
+    _foca_no_clique = True
+    _padrao = dict(tk.Frame._padrao, borderwidth=2, relief="sunken", takefocus=1, background=tk.BRANCO)
+    ALTO_FILA, SANGRIA = 18, 16
+
+    def _iniciar(self):
+        self.nodos = []
+        self.sel = None         # la clave del nodo elegido
+        self.arriba = 0         # la primera fila visible que se ve
+        self.ctl = None
+        self._ver = None        # el nodo que tiene que quedar a la vista (se aplica al dibujar, con el tamaño real)
+        self.bind("<Button-1>", self._pulsar)
+        self.bind("<Double-Button-1>", self._doble)
+        self.bind("<MouseWheel>", self._rueda)
+        self.bind("<Key>", self._tecla)
+
+    def visibles(self):
+        """Los nodos que se ven (los que no tienen un ascendiente contraído), en orden."""
+        r = []
+        cerrado = None
+        for n in self.nodos:
+            if cerrado is not None:
+                if n["nivel"] > cerrado:
+                    continue
+                cerrado = None
+            r.append(n)
+            if not n["abierto"]:
+                cerrado = n["nivel"]
+        return r
+
+    def tiene_hijos(self, i):
+        return i + 1 < len(self.nodos) and self.nodos[i + 1]["nivel"] > self.nodos[i]["nivel"]
+
+    def con_hijos(self):
+        """Las claves de los nodos que tienen hijos."""
+        return set(n["clave"] for i, n in enumerate(self.nodos) if self.tiene_hijos(i))
+
+    def filas_que_caben(self):
+        return max(1, (self._wa - 4) // self.ALTO_FILA)
+
+    def _donde(self, ev):
+        """(nodo, en_caja): la fila bajo el ratón y si el clic cae en su cuadrito de expandir."""
+        vis = self.visibles()
+        f = self.arriba + (ev.y - 2) // self.ALTO_FILA
+        if ev.y < 2 or not (0 <= f < len(vis)):
+            return None, False
+        n = vis[f]
+        x0 = 2 + 4 + n["nivel"] * self.SANGRIA
+        return n, x0 <= ev.x < x0 + 12
+
+    def _pulsar(self, ev):
+        n, caja = self._donde(ev)
+        if n is not None and self.ctl is not None:
+            self.ctl._pulsado(n, caja)
+
+    def _doble(self, ev):
+        n, caja = self._donde(ev)
+        if n is not None and not caja and self.ctl is not None:
+            self.ctl._doble(n)
+
+    def _rueda(self, ev):
+        mx = max(0, len(self.visibles()) - self.filas_que_caben())
+        self.arriba = max(0, min(self.arriba + (3 if ev.delta < 0 else -3), mx))
+        self._redesenhar()
+
+    def _tecla(self, ev):
+        if self.ctl is not None:
+            self.ctl._tecla(ev.keysym)
+
+    def ver(self, clave):
+        """Desplaza para que el nodo de esa clave se vea (al dibujar: el control puede no tener aún su tamaño)."""
+        self._ver = clave
+        self._redesenhar()
+
+    def _ajustar(self, clave):
+        vis = self.visibles()
+        for i, n in enumerate(vis):
+            if n["clave"] == clave:
+                if i < self.arriba:
+                    self.arriba = i
+                elif i >= self.arriba + self.filas_que_caben():
+                    self.arriba = i - self.filas_que_caben() + 1
+                return
+
+    def _desenhar(self, v):
+        x, y, w, h = self._ax, self._ay, self._wl, self._wa
+        fondo = self._cor_op("background", tk.BRANCO)
+        frente = self._cor_op("foreground", tk.TEXTO)
+        v.rect(x, y, w, h, fondo)
+        if self._ver is not None:
+            clave, self._ver = self._ver, None
+            self._ajustar(clave)
+        vis = self.visibles()
+        self.arriba = max(0, min(self.arriba, len(vis) - self.filas_que_caben()))
+        ant = v.recorte()
+        v.recorte(x + 2, y + 2, w - 4, h - 4)
+        padres = self.con_hijos()
+        for k in range(self.filas_que_caben() + 1):
+            f = self.arriba + k
+            if f >= len(vis):
+                break
+            n = vis[f]
+            fy = y + 2 + k * self.ALTO_FILA
+            elegida = n["clave"] == self.sel
+            if elegida:
+                v.rect(x + 2, fy, w - 4, self.ALTO_FILA, tk.SELECAO)
+            cx = x + 2 + 4 + n["nivel"] * self.SANGRIA
+            if n["clave"] in padres:
+                by = fy + (self.ALTO_FILA - 9) // 2
+                v.rect(cx + 1, by, 9, 9, tk.BRANCO)
+                v.rect(cx + 1, by, 9, 9, 0x808080, relleno=False)
+                v.linea(cx + 3, by + 4, cx + 7, by + 4, tk.TEXTO)
+                if not n["abierto"]:
+                    v.linea(cx + 5, by + 2, cx + 5, by + 6, tk.TEXTO)
+            v.texto(cx + 16, fy + (self.ALTO_FILA - tk.LETRA_A) // 2 + 1, str(n["texto"]), tk.BRANCO if elegida else frente)
+        v.recorte(*ant)
+        if len(vis) > self.filas_que_caben():
+            th = h - 4
+            ph = max(10, th * self.filas_que_caben() // len(vis))
+            py = y + 2 + (th - ph) * self.arriba // max(1, len(vis) - self.filas_que_caben())
+            v.rect(x + w - 8, py, 5, ph, tk.POLEGAR)
+        tk._relevo(v, x, y, w, h, "sunken", 2, fondo)
+
+
+class _GraficoW(tk.Widget):
+    """El gráfico (v8.5.6, D469): el módulo de C `sagui_grafico` pinta en una Imagen del tamaño del control y
+    aquí solo se enseña. La animación avanza por tiempo: mientras el gráfico dice que sigue animándose, el
+    control pide otro dibujo cada ~30 ms con `after` (no bloquea nada). El ratón pasa al gráfico con
+    coordenadas del propio control."""
+    _classe = "Grafico"
+    _foca_no_clique = False
+    _padrao = {"width": 360, "height": 240, "takefocus": 0, "cursor": "", "highlightthickness": 0,
+               "borderwidth": 0, "background": tk.BRANCO}
+
+    def _iniciar(self):
+        self.ctl = None
+        self._img = None
+        self._tam = (0, 0)
+        self._tic = False
+        self._vigila = False
+        self.bind("<Motion>", self._mueve)
+        self.bind("<Leave>", self._sale)
+        self.bind("<Button-1>", self._pulsa)
+
+    def _natural(self):
+        return (tk._int(self._op.get("width", 360)), tk._int(self._op.get("height", 240)))
+
+    def _desenhar(self, v):
+        c = self.ctl
+        if c is None or c.g is None:
+            return
+        x, y, w, h = self._ax, self._ay, self._wl, self._wa
+        if w < 16 or h < 16:
+            return
+        c._sincronizar()
+        if self._img is None or self._tam != (w, h):
+            self._img = sagui.Imagen.nueva(w, h, 0xFFFFFF)
+            self._tam = (w, h)
+        activo = c.g.avanzar(sagui.ticks_ms())
+        c.g.dibujar(self._img, w, h)
+        v.imagen(x, y, self._img)
+        if activo and not self._tic:
+            self._tic = True
+            self.after(30, self._tick)
+        if not self._vigila:
+            self._vigila = True
+            self.after(150, self._vigilar)
+
+    def _tick(self):
+        self._tic = False
+        if not self._destruido:
+            self._redesenhar()
+
+    def _vigilar(self):
+        """Mira si el programa cambió `tipo` (un atributo del objeto, ver vps._grafico) y lo aplica."""
+        self._vigila = False
+        if self._destruido or self.ctl is None:
+            return
+        if self.ctl._sincronizar():
+            self._redesenhar()
+        self._vigila = True
+        self.after(150, self._vigilar)
+
+    def _mueve(self, ev):
+        c = self.ctl
+        if c is None or c.g is None:
+            return
+        if c.g.mover(ev.x, ev.y):
+            self._redesenhar()
+        c._hover(c.g.resaltado())
+
+    def _sale(self, ev):
+        c = self.ctl
+        if c is None or c.g is None:
+            return
+        c.g.salir()
+        self._redesenhar()
+        c._hover(None)
+
+    def _pulsa(self, ev):
+        c = self.ctl
+        if c is not None and c.g is not None:
+            c._pulsado(ev.x, ev.y)
+            self._redesenhar()

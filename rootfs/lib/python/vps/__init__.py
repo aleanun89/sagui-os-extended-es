@@ -26,6 +26,7 @@ __all__ = ["Formulario", "Etiqueta", "Boton", "CuadroTexto", "Casilla", "Opcion"
            "Combo", "Imagen", "Marco", "Deslizador", "BarraDesplazamiento", "Temporizador",
            "BarraProgreso", "Menu", "Pestanas", "Tabla", "Numerico", "Lienzo", "Enlace",
            "BarraEstado", "SelectorColor", "Reloj", "Archivo", "evento", "ejecutar", "salir", "msgbox", "inputbox",
+           "notificar", "notificaciones", "cerrar_notificaciones", "Notificacion", "Arbol", "Grafico",
            "dialogo_abrir", "dialogo_guardar", "dialogo_carpeta", "pausa", "depurar", "NEGRO", "BLANCO", "ROJO", "VERDE",
            "AZUL", "AMARILLO", "GRIS", "PLATA", "NARANJA", "MORADO", "MARRON", "ROSA", "CIAN"]
 
@@ -405,7 +406,7 @@ class Control:
         self.form.controles.pop(self.nombre, None)
 
     def __repr__(self):
-        return "<%s %s>" % (self.tipo, self.nombre)
+        return "<%s %s>" % (type(self).tipo, self.nombre)
 
 
 def _texto_con_fuente(c, color_defecto, fondo_defecto):
@@ -1989,6 +1990,11 @@ class Formulario:
             if isinstance(c, Temporizador):
                 c.destruir()
         try:
+            from vps import _notificar
+            _notificar._activos.pop(id(self), None)
+        except Exception:
+            pass
+        try:
             self.win.destroy()
         except Exception:
             pass
@@ -2142,3 +2148,13 @@ from vps._selectores import SelectorDeColor, SelectorDeFuente, ComboFuentes   # 
 TIPOS.update(_fechas.TIPOS)
 TIPOS.update({"SelectorDeColor": SelectorDeColor, "SelectorDeFuente": SelectorDeFuente, "ComboFuentes": ComboFuentes})
 __all__ += ["SelectorDeColor", "SelectorDeFuente", "ComboFuentes", "Calendario", "SelectorFecha"]
+# notificaciones tipo toast y vista en árbol (v8.5.6, D466)
+from vps import _notificar, _arbol                          # noqa: E402
+from vps._notificar import notificar, notificaciones, cerrar_notificaciones, Notificacion   # noqa: E402,F401
+from vps._arbol import Arbol                                # noqa: E402,F401
+TIPOS.update(_notificar.TIPOS)
+TIPOS.update(_arbol.TIPOS)
+# gráficos (v8.5.6, D469)
+from vps import _grafico                                    # noqa: E402
+from vps._grafico import Grafico                            # noqa: E402,F401
+TIPOS.update(_grafico.TIPOS)

@@ -472,7 +472,7 @@ class App:
             m.tk_popup(self.raiz.winfo_pointerx(), self.raiz.winfo_pointery())
         elif t == "lista":
             actual = M.val(o, nombre, "Formulario" if o is self.form else o["tipo"]) or []
-            nuevo = self.editar_lista(nombre, list(actual), o["tipo"] == "Menu")
+            nuevo = self.editar_lista(nombre, list(actual), o["tipo"] == "Menu", o["tipo"] == "Arbol")
             if nuevo is not None:
                 self.aplicar(nombre, nuevo)
 
@@ -591,7 +591,7 @@ class App:
         self.lbl_prop.configure(text="")
         self.entrada.delete(0, "end")
 
-    def editar_lista(self, titulo, lineas, menu=False):
+    def editar_lista(self, titulo, lineas, menu=False, arbol=False):
         """Un cuadro con una línea por elemento. Devuelve la lista o None si se cancela."""
         d = tk.Toplevel(self.raiz, _dialogo=True)
         d.title("Elementos de " + titulo)
@@ -599,7 +599,8 @@ class App:
         d.resizable(False, False)
         ayuda = ("Una línea por elemento. Cada menú sin sangría y, debajo, sus opciones con sangría\n"
                  "como «  Abrir|MnuAbrir» (el nombre da el evento MnuAbrir_click; «  -» es una línea)."
-                 if menu else "Una línea por elemento.")
+                 if menu else ("Un nodo por línea, con dos espacios de sangría por nivel;\n«Texto|clave» pone la clave (sin ella, la clave es el texto)."
+                               if arbol else "Una línea por elemento."))
         tk.Label(d, text=ayuda, justify="left", anchor="w").pack(fill="x", padx=8, pady=4)
         t = tk.Text(d, width=50, height=12)
         t.pack(padx=8)

@@ -390,10 +390,13 @@ static void aleat_de_menu(const TzMnAleat *a, TzAleatorio *op)
 	op->tipo = a->tipo;
 	op->recursos_mapa = a->recursos_mapa;
 	op->nivel_recursos = a->c.recursos;
-	op->guardado = a->guardado; op->animais = a->animais; op->itens = a->itens; op->portas = a->portas;
+	op->guardado = a->guardado; op->animais = a->animais; op->itens = a->itens; op->portas = a->portas; op->penhascos = a->penhascos;
 	op->semente = a->semente;
 	snprintf(op->bioma, sizeof op->bioma, "%s", tz_mn_biomas[a->terreno ? a->terreno - 1 : (int)(a->semente % 4)]);
 	for (int i = 0; i < 8; ++i) { op->equipe[i] = (uint8_t)a->c.equipe[i]; op->civ[i] = (uint8_t)a->c.raca[i]; }
+	/* D470: el comportamiento de la IA de cada reino (la persona, el 0, no lleva) y la rendición */
+	for (int i = 1; i < 8; ++i) snprintf(op->ia[i], sizeof op->ia[i], "%s", a->ia[i]);
+	op->rendicao = a->rendicao;
 }
 
 /* catálogo del bioma: se queda guardado entre cambios de opciones de la vista previa y se suelta al empezar la partida */
@@ -438,6 +441,7 @@ static int jogar_mapa(const TzMissao *mi, const TzMnConfig *cfg, int aleatorio)
 		snprintf(op.bioma, sizeof op.bioma, "%s", tz_mn_biomas[op.semente % 4]);
 		if (aleat_forcado) { op = *aleat_forcado; njog = op.jogadores; }
 		aleat_usado = op;
+		rg.ia_rendicao = (uint8_t)(op.rendicao != 0);   /* D470 */
 		/* el catálogo del bioma da los tamaños de castillos y minas */
 		if (aleat_gerar(&J.mapa_aleat, &op)) return -1;
 		J.mapa = &J.mapa_aleat;
@@ -538,7 +542,7 @@ static int guardar(const char *nome)
 	if (!f) return tz_falha("no se puede escribir %s", ri);
 	fprintf(f, "TZSAVE1\n%d\n%d\n%d\n%s\n%s\n", J.tipo, J.camp, J.missao, J.fich, J.dentro);
 	if (J.tipo == 1) {
-		char t[320];
+		char t[640];
 		if (tz_aleatorio_texto(&aleat_usado, t, sizeof t)) { fclose(f); return -1; }
 		fprintf(f, "%s\n", t);
 	}
@@ -550,7 +554,7 @@ static int guardar(const char *nome)
 
 static int carregar(const char *nome)
 {
-	char r[800], ri[800], l[7][320];
+	char r[800], ri[800], l[7][640];
 	ruta_guardada(nome, "tzs", r, sizeof r);
 	ruta_guardada(nome, "txt", ri, sizeof ri);
 	FILE *f = fopen(ri, "r");
@@ -890,7 +894,7 @@ static char prev_bioma[32];
 static TzImg prev_img;
 static int prev_idx = -2;
 
-static char prev_aleat[320];   /* la línea del mapa aleatorio que se está viendo («» = la vista previa es de un mapa de la lista) */
+static char prev_aleat[640];   /* la línea del mapa aleatorio que se está viendo («» = la vista previa es de un mapa de la lista) */
 
 static void previa_soltar(void)
 {
@@ -936,8 +940,11 @@ static void previa_atualizar(void)
 	if (menu.tela != TZ_MN_MAPAS && menu.tela != TZ_MN_CONFIG && menu.tela != TZ_MN_ALEAT) return;
 	if (menu.tela == TZ_MN_ALEAT) {
 		/* el mapa aleatorio con lo que hay en pantalla: se regenera solo cuando cambia algún dato (la misma línea = el mismo mapa) */
-		char clave[320];
-		if (tz_mn_aleat_texto(&menu.aleat, clave, sizeof clave) || !strcmp(clave, prev_aleat)) return;
+		char clave[640];
+		if (tz_mn_aleat_texto(&menu.aleat, clave, sizeof clave)) return;
+		char *cauda = strstr(clave, " IA ");   /* la IA de los reinos no cambia el mapa (D470) */
+		if (cauda) *cauda = 0;
+		if (!strcmp(clave, prev_aleat)) return;
 		snprintf(prev_aleat, sizeof prev_aleat, "%s", clave);
 		prev_idx = -2;
 		tz_img_liberar(&prev_img);
@@ -1025,6 +1032,42 @@ static void repetir_partida(void)
 	int r = tipo == 2 ? jogar_missao(ci, mi, NULL) : tipo == 1 ? jogar_mapa(NULL, &menu.cfg, 1) : jogar_mapa(&m, &menu.cfg, 0);
 	aleat_forcado = NULL;
 	if (r) { registro("[TZAR] no se puede repetir: %s", tz_erro()); jogo_fechar(); estado = E_MENU; menu.tela = TZ_MN_PRINCIPAL; menu.npilha = 0; }
+}
+
+/* Prueba (h417 «janelas_saguios», TZAR_PRUEBA_JANELAS=1): crea en la partida la taberna, el mercado, la catedral, la fábrica mágica, un mercader y
+ * un infante, abre cada ventana de negocio una a una, la dibuja en la pantalla de verdad (SDL de SaguiOS) y cuenta cuántas salen con su
+ * marco (la caja de piedra de ui_janelas.c). Una línea de registro con el resultado. */
+static void prova_janelas(void)
+{
+	TzMundo *m = &J.m;
+	int k = m->jogador;
+	TzId castelo = TZ_NENHUM;
+	for (int i = 0; i < m->nobj; ++i) if (m->obj[i].classe == TZC_CASTLE && m->obj[i].dono == k) { castelo = i; break; }
+	if (castelo < 0) { registro("[TZAR] prueba ventanas: no hay castillo"); return; }
+	int cx = m->obj[castelo].cx, cy = m->obj[castelo].cy;
+	struct { int classe; TzId id; } obj[] = { { TZC_TAVERN, -1 }, { TZC_MARKET, -1 }, { TZC_CATHEDRAL, -1 }, { tz_catalogo_classe("magicworkshop"), -1 }, { TZC_TRADER, -1 }, { 3, -1 } };
+	for (unsigned q = 0; q < sizeof obj / sizeof *obj; ++q)
+		for (int d = 4; d < 16 && obj[q].id < 0; d += 2)
+			for (int s = 0; s < 4 && obj[q].id < 0; ++s)
+				obj[q].id = tz_mundo_guiao_criar(m, obj[q].classe, 0, k, cx + (s & 1 ? -d : d), cy + (s & 2 ? -d : d));
+	for (int r = 0; r < TZ_NREC; ++r) m->reino[k].recursos[r] = 5000;
+	static const struct { int janela, qual; } js[] = {
+		{ TZ_UJ_TABERNA, 0 }, { TZ_UJ_DADOS, 0 }, { TZ_UJ_PRESTAMOS, 0 }, { TZ_UJ_INTERCAMBIO, 0 }, { TZ_UJ_COMERCIO, 4 }, { TZ_UJ_OBJETOS, 5 },
+		{ TZ_UJ_CRUZADA, 2 }, { TZ_UJ_TRIBUTO, -1 }, { TZ_UJ_RENDICION, -1 }, { TZ_UJ_FABRICA, 3 }, { TZ_UJ_MERCADO, 1 },
+	};
+	int abertas = 0, desenhadas = 0;
+	for (unsigned q = 0; q < sizeof js / sizeof *js; ++q) {
+		TzId o = js[q].qual >= 0 ? obj[js[q].qual].id : TZ_NENHUM;
+		tz_ui_sel_limpar(&J.ui.sel);
+		if (o >= 0) { J.ui.sel.id[0] = o; J.ui.sel.n = 1; }
+		if (tz_ui_janela_abrir(&J.ui, js[q].janela, o)) continue;
+		abertas++;
+		desenhar_jogo();
+		TzRect r = tz_ui_janela_rect(&J.ui);
+		if (r.w > 20 && r.y >= 0 && r.y < tela.h && tela.px[(size_t)r.y * tela.w + r.x + r.w / 2] == 0xffc0a060u) desenhadas++;
+		J.ui.janela = 0;
+	}
+	registro("[TZAR] prueba ventanas: %d abiertas de %d, %d dibujadas", abertas, (int)(sizeof js / sizeof *js), desenhadas);
 }
 
 int main(int argc, char **argv)
@@ -1162,7 +1205,7 @@ int main(int argc, char **argv)
 	if (som) tz_musica_menu(tz_som_musica(som));
 	/* pruebas: abrir una pantalla del menú (TZAR_MENU=n, TZ_MN_*) con el primer mapa o la primera campaña elegidos */
 	if (getenv("TZAR_ALEAT")) {   /* los espacios pueden ir como «_» (en el terminal de SaguiOS es más fácil que las comillas) */
-		char la[400];
+		char la[640];
 		snprintf(la, sizeof la, "%s", getenv("TZAR_ALEAT"));
 		for (char *p = la; *p; ++p) if (*p == '_') *p = ' ';
 		if (tz_mn_aleat_de_texto(la, &menu.aleat)) registro("[TZAR] TZAR_ALEAT no vale");
@@ -1181,7 +1224,7 @@ int main(int argc, char **argv)
 		aleat_forcado = NULL;
 		if (getenv("TZAR_PRUEBA_GUARDAR") && J.ativa) {
 			/* pruebas: guardar, volver a cargar y comprobar que el mapa y sus opciones son los mismos (h417 «pc») */
-			char t1[320], t2[320];
+			char t1[640], t2[640];
 			uint32_t h1 = 2166136261u, h2 = 2166136261u;
 			tz_aleatorio_texto(&aleat_usado, t1, sizeof t1);
 			for (int i = 0; i < J.mapa->lado * J.mapa->lado; ++i) h1 = (h1 ^ J.mapa->casillas[i]) * 16777619u;
@@ -1200,6 +1243,7 @@ int main(int argc, char **argv)
 		if (mi < 0 || mi >= mapas.camp[ci].nmissoes) mi = 0;
 		if (jogar_missao(ci, mi, NULL)) registro("[TZAR] campaña: %s", tz_erro());
 	}
+	if (getenv("TZAR_PRUEBA_JANELAS") && J.ativa) prova_janelas();
 	Uint32 ultimo = SDL_GetTicks(), fps_t0 = ultimo;
 	int fps_n = 0, modal_quadros = 0, full_pendente = op.tela_cheia && !tamanho_fixo;
 	tela_cheia_atual = 0;
@@ -1297,6 +1341,7 @@ int main(int argc, char **argv)
 				listar_guardadas();
 				estado = E_JOGO;
 			} else if (a == TZ_MR_CONTINUAR && J.ativa) estado = E_JOGO;
+			else if (a == TZ_MR_RENDIR && J.ativa) { estado = E_JOGO; tz_ui_janela_abrir(&J.ui, TZ_UJ_RENDICION, TZ_NENHUM); }
 			else if (a == TZ_MR_REINICIAR && J.ativa) { jogo_fechar(); menu.tela = TZ_MN_PRINCIPAL; menu.npilha = 0; }
 			else if (a == TZ_MR_SEGUINTE && J.ativa) resultado_seguir();
 			else if (a == TZ_MR_REPETIR && J.ativa) repetir_partida();
@@ -1329,6 +1374,14 @@ int main(int argc, char **argv)
 				tz_vigia_sair();
 			}
 			tz_vigia_entrar("guion e interfaz");
+			if (J.com_guiao && J.ui.pergaminho_pedido >= 0) {
+				char tx[800], re[80], so[64], mu[64];
+				uint32_t pms; int pf;
+				if (tz_mundo_pergaminho(&J.m, J.ui.pergaminho_pedido, J.ui.pergaminho_ao_chegar, tx, sizeof tx, re, so, mu, &pms, &pf)
+				    && tz_guiao_historia_texto(&J.ab.guiao, tx, re, so, mu, pms, pf) == 0)
+					J.ui.pergaminho_pedido = TZ_NENHUM;
+				else if (!tz_guiao_modal(&J.ab.guiao) || !J.ui.pergaminho_ao_chegar) J.ui.pergaminho_pedido = TZ_NENHUM;
+			}
 			if (J.com_guiao) pedidos();
 			J.ui.scroll_bordes = rato_dentro && !getenv("TZAR_SEM_BORDES");   /* con el ratón fuera de la ventana, la vista no corre */
 			tz_ui_tic(&J.ui, agora);

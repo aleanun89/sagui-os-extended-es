@@ -48,6 +48,23 @@ def hoy():
     return t[0], t[1], t[2]
 
 
+def sumar_dias(f, n):
+    """La fecha (a, m, d) n días después (n puede ser negativo)."""
+    a, m, d = f
+    d += n
+    while d < 1:
+        m -= 1
+        if m < 1:
+            m, a = 12, a - 1
+        d += dias_del_mes(a, m)
+    while d > dias_del_mes(a, m):
+        d -= dias_del_mes(a, m)
+        m += 1
+        if m > 12:
+            m, a = 1, a + 1
+    return a, m, d
+
+
 def celdas(a, m):
     """[(fila, columna, dia)] de los días del mes."""
     pri = dia_semana(a, m, 1)
@@ -56,12 +73,15 @@ def celdas(a, m):
 
 @_props
 class Calendario(Control):
-    """Un mes con flechas para cambiar de mes; un clic en un día lo elige. `valor` es la fecha «AAAA-MM-DD»
-    (`anio`, `mes` y `dia` por separado). Evento `cambio` al elegir un día. `hoy()` elige el día de hoy."""
+    """Un mes con flechas (< > cambian de mes y << >> de año; también Re Pág y Av Pág); un clic en un día lo
+    elige y un doble clic dispara `doble_click`. `valor` es la fecha «AAAA-MM-DD» (`anio`, `mes` y `dia` por
+    separado). `minimo` y `maximo` («AAAA-MM-DD», vacío = sin límite) dejan sin poder elegir los días de fuera.
+    Evento `cambio` al elegir un día. `hoy()` elige el día de hoy; `ir_a(anio, mes)` cambia el mes que se ve."""
     tipo = "Calendario"
-    PROPS = (("valor", "str", ""),)
+    PROPS = (("valor", "str", ""), ("minimo", "str", ""), ("maximo", "str", ""))
     EVENTOS = _ev("cambio")
     EVENTO_DEFECTO = "cambio"
+    DOBLE_PROPIO = True
     ORDEN = ("x", "y", "ancho", "alto")
     TAM = (196, 170)
 
@@ -69,10 +89,14 @@ class Calendario(Control):
         from vps import _widgets
         self.w = _widgets._CalendarioW(self._contenedor_tk())
         self.w.al_elegir = self._elegido
+        self.w.al_doble = self._doble
 
     def _elegido(self):
         self._p["valor"] = self.valor
         self._disparar("cambio")
+
+    def _doble(self):
+        self._disparar("doble_click")
 
     def _fecha(self):
         return "%04d-%02d-%02d" % (self.w.anio, self.w.mes, self.w.dia)
@@ -90,7 +114,7 @@ class Calendario(Control):
         return self._p.get(n)
 
     valor = property(lambda self: self._leer("valor"), lambda self, v: self._escribir("valor", v))
-    fecha = property(lambda self: self._leer("valor"))
+    fecha = property(lambda self: self._leer("valor"), lambda self, v: self._escribir("valor", v))
     anio = property(lambda self: self._leer("anio"))
     mes = property(lambda self: self._leer("mes"))
     dia = property(lambda self: self._leer("dia"))
@@ -99,15 +123,40 @@ class Calendario(Control):
         if n == "valor":
             f = analizar(self._p["valor"])
             if f is not None:
-                self.w.anio, self.w.mes, self.w.dia = f
-                self.w.visible = (f[0], f[1])
-                self.w._redesenhar()
+                self._poner(f)
+        elif n in ("minimo", "maximo"):
+            setattr(self.w, n, analizar(self._p[n]) if self._p[n] else None)
+            self._poner((self.w.anio, self.w.mes, self.w.dia))
         else:
             Control._aplicar(self, n)
+
+    def _poner(self, f):
+        """Pone el día elegido (llevándolo al rango, si hay límites) y enseña su mes."""
+        if self.w.minimo is not None and f < self.w.minimo:
+            f = self.w.minimo
+        if self.w.maximo is not None and f > self.w.maximo:
+            f = self.w.maximo
+        self.w.anio, self.w.mes, self.w.dia = f
+        self.w.visible = (f[0], f[1])
+        self.w._redesenhar()
 
     def hoy(self):
         """Elige el día de hoy."""
         self._escribir("valor", "%04d-%02d-%02d" % hoy())
+
+    def ir_a(self, anio, mes):
+        """Enseña ese mes sin cambiar el día elegido."""
+        self.w.visible = (int(anio), max(1, min(12, int(mes))))
+        self.w._redesenhar()
+
+    def mes_visible(self):
+        """(anio, mes) del mes que se ve."""
+        return self.w.visible
+
+    def en_rango(self, fecha):
+        """Si el día «AAAA-MM-DD» se puede elegir (está entre `minimo` y `maximo`)."""
+        f = analizar(fecha)
+        return f is not None and self.w.en_rango(*f)
 
 
 @_props
@@ -175,5 +224,8 @@ class SelectorFecha(Control):
 
 
 TIPOS = {"Calendario": Calendario, "SelectorFecha": SelectorFecha}
-METODOS = {"Calendario": [("hoy", "hoy()", "Elige el día de hoy")],
+METODOS = {"Calendario": [("hoy", "hoy()", "Elige el día de hoy"),
+                          ("ir_a", "ir_a(anio, mes)", "Enseña ese mes sin cambiar el día elegido"),
+                          ("mes_visible", "mes_visible()", "(anio, mes) del mes que se ve"),
+                          ("en_rango", "en_rango(fecha)", "Si ese día «AAAA-MM-DD» está entre minimo y maximo")],
            "SelectorFecha": [("desplegar", "desplegar()", "Abre el calendario")]}

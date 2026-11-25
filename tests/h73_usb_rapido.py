@@ -71,8 +71,13 @@ def robustez():
     grande = conteudo(24 * 1024 * 1024, 3)
     sha = hashlib.sha256(grande).hexdigest()
     pen = criar_pendrive("h73-pen2", mb=96, rotulo="ROBUSTO", arquivos={"g24.bin": grande})
+    # D468: con órdenes de 1 MB la copia de 24 MB acababa antes de poder escribir «matar»: el
+    # pendrive de esta parte va frenado por el QEMU (8 MB/s), así la copia dura unos 3 s.
+    freno = "throttling.bps-total=8000000"
+    disco_lento = ["-drive", f"if=none,id=p1,format=raw,file={pen},{freno}",
+                   "-device", "usb-storage,bus=ehci.0,drive=p1,removable=on,id=dev-p1"]
     with Maquina("h73-robustez", "ide", imagem=imagem_console(), memoria="768M",
-                 extras=["-device", "usb-ehci,id=ehci"] + pendrive_qemu(pen, "p1")) as m:
+                 extras=["-device", "usb-ehci,id=ehci"] + disco_lento) as m:
         m.esperar_serial("sagui:/$", 120)
         m.esperar_serial("[DISCO] usb0", 30)
         cronometrar(m, "montar usb0", 60)

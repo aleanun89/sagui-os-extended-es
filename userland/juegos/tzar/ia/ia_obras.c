@@ -393,8 +393,8 @@ int ia_colocar(TzIa *ia, int classe, int cx, int cy, uint32_t mn, uint32_t mx, T
 		for (int j = 0; j < ia->grupo[g].n && !algum; ++j) algum = ia_livre(ia, ia->grupo[g].v[j]);
 	}
 	if (!algum) return 0;
-	if (classe == TZC_HARBOR) return 0;   /* 0x40a710: los puertos (la flota) no están traducidos */
 	int x, y;
-	if (!buscar(ia, classe, cx, cy, mn, mx, prefer, &x, &y)) return 0;
+	if (classe == TZC_HARBOR) { if (!ia_sitio_porto(ia, cx, cy, &x, &y)) return 0; }   /* 0x40a710 (D470) */
+	else if (!buscar(ia, classe, cx, cy, mn, mx, prefer, &x, &y)) return 0;
 	return lancar(ia, classe, x, y, prefer);
 }

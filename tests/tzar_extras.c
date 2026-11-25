@@ -232,6 +232,23 @@ static void t_taberna(void)
 	int heroi = 0;
 	for (int i = 0; i < m->nobj; ++i) if (m->obj[i].dono == 1 && m->obj[i].classe == clh && (m->obj[i].flags & TZ_F_HEROI) && m->obj[i].nivel == nivh) heroi = 1;
 	CHK(heroi, "el héroe contratado es héroe y de nivel %d", nivh);
+	/* v8.5.6: el héroe recibe un nombre de HEROES.INI que sirve a su civilización, y no se repite */
+	const char *nh0 = NULL; int nhn = 0, rep = 0;
+	for (int i = 0; i < m->nobj; ++i) if (m->obj[i].dono == 1 && m->obj[i].classe == clh && (m->obj[i].flags & TZ_F_HEROI)) { nh0 = tz_heroi_nome(m, &m->obj[i]); nhn++; }
+	CHK(cat.nherois == 5 && nh0 && nhn >= 1, "HEROES.INI trae 5 nombres y el héroe contratado tiene el suyo (%s)", nh0 ? nh0 : "-");
+	for (int i = 0; i < m->nobj; ++i) for (int j = i + 1; j < m->nobj; ++j)
+		if (m->obj[i].heroi_nome && m->obj[i].heroi_nome == m->obj[j].heroi_nome) rep++;
+	CHK(rep == 0, "los nombres de héroe no se repiten");
+	/* v8.5.6: los precios de la taberna llevan las rebajas de las investigaciones */
+	{
+		struct TzOferta op; memset(&op, 0, sizeof op); op.classe = TZC_PEON; op.civ = 1; op.quantidade = 4;
+		uint32_t p0[TZ_NREC], p1[TZ_NREC];
+		tz_mundo_preco_oferta_reino(m, 1, &op, p0);
+		pesquisar(m, 1, "te_feudalism");
+		tz_mundo_preco_oferta_reino(m, 1, &op, p1);
+		int menor = 0; for (int r = 0; r < TZ_NREC; ++r) if (p1[r] < p0[r]) menor = 1;
+		CHK(menor || (p0[TZ_COMIDA] == 0), "Feudalism rebaja el precio de los peones de la taberna (%u -> %u de comida)", p0[TZ_COMIDA], p1[TZ_COMIDA]);
+	}
 	/* sin población no se contrata */
 	m->reino[1].populacao_max = 1;
 	n2 = tz_mundo_ofertas(m, tb, 0, tras, 8);
@@ -597,6 +614,16 @@ static void t_prioridade(void)
 	ticar(m, 20);
 	CHK(m->obj[f].ator->ordem.alvo == mg, "elige al mago (4000) antes que la casa (2000): alvo %d", m->obj[f].ator->ordem.alvo);
 	(void)casa;
+	/* v8.5.6: un edificio que el reino ya está golpeando no lo elige otro luchador mientras haya otro blanco */
+	m = novo(&mundoA, 74);
+	TzId c1 = criar(m, 66, 2, 14, 10), c2 = criar(m, 66, 2, 14, 13);
+	TzId f1 = criar(m, 3, 1, 12, 10);
+	ordem(m, 1, f1, o_(TZ_O_ATACAR, c1, 0, 0));
+	ticar(m, 80);
+	CHK(m->obj[f1].estado == TZ_E_ATACANDO && m->obj[f1].ator->ordem.alvo == c1, "el primer infante golpea la casa 1 (estado %d)", m->obj[f1].estado);
+	TzId f2 = criar(m, 3, 1, 12, 11);
+	ticar(m, 4);
+	CHK(m->obj[f2].ator->ordem.tipo == TZ_O_ATACAR && m->obj[f2].ator->ordem.alvo == c2, "el segundo infante ve que la casa 1 ya la golpean y va a la casa 2 (alvo %d, casas %d y %d)", m->obj[f2].ator->ordem.alvo, c1, c2);
 	/* las murallas no se atacan solas */
 	m = novo(&mundoA, 73);
 	f = criar(m, 3, 1, 10, 10);
@@ -756,6 +783,136 @@ static void t_determinismo(void)
 	tz_mundo_liberar(&mc);
 }
 
+/* ------------------------------------------------------------------ v8.5.6: dados, tributos, rendición */
+static void t_v856(void)
+{
+	TzMundo *m = novo(&mundoA, 21);
+	TzId tb = criar(m, TZC_TAVERN, 1, 12, 20);
+	m->reino[1].recursos[TZ_OURO] = 5000; m->reino[2].recursos[TZ_OURO] = 100;
+	ticar(m, 2);
+	/* los dados: ganar paga la puesta por la proporción, perder la quita; sin tocar nada más */
+	int gana = 0, pierde = 0, ok = 1;
+	for (int q = 0; q < 60; ++q) {
+		int32_t antes = m->reino[1].recursos[TZ_OURO];
+		uint32_t seq = m->ev_seq;
+		cmd(m, 1, TZ_C_APOSTAR, tb, TZ_OURO | (1 << 2), 100, 0, 0);
+		ticar(m, 1);
+		int32_t dif = m->reino[1].recursos[TZ_OURO] - antes;
+		if (dif == 200) gana++; else if (dif == -100) pierde++; else if (m->ev_seq != seq) ok = 0;
+		if (m->reino[1].recursos[TZ_OURO] < 100) m->reino[1].recursos[TZ_OURO] = 5000;
+	}
+	CHK(ok && gana > 5 && pierde > 5, "los dados con proporción 1:2 pagan 200 o quitan 100 (%d ganadas, %d perdidas de 60)", gana, pierde);
+	int32_t a = m->reino[1].recursos[TZ_OURO];
+	cmd(m, 1, TZ_C_APOSTAR, tb, TZ_OURO, 30, 0, 0); ticar(m, 1);
+	CHK(m->reino[1].recursos[TZ_OURO] == a, "una puesta que no es múltiplo de 50 se rechaza");
+	cmd(m, 1, TZ_C_APOSTAR, tb, TZ_OURO, 50000, 0, 0); ticar(m, 1);
+	CHK(m->reino[1].recursos[TZ_OURO] == a, "una puesta mayor que lo que hay se rechaza");
+	/* piedra del alma: spell_soulbind la deja en el inventario del mago; matar a la unidad ligada la hace desaparecer */
+	{
+		TzMundo *w = novo(&mundoA, 22);
+		TzId mago = criar(w, TZC_MAGE, 1, 10, 12), victima = criar(w, 3, 2, 12, 12);
+		quieto(w, victima); quieto(w, mago);
+		int ord = tz_feitico_ordem(w, "spell_soulbind");
+		w->obj[mago].mana = w->obj[mago].mana_max = 500;
+		if (ord < 0) { CHK(0, "spell_soulbind existe en ORDERS.INI sintético"); }
+		else {
+			TzOrdem h = o_(TZ_O_HECHIZO, victima, 0, 0); h.arg = (int16_t)ord;
+			ordem(w, 1, mago, h);
+			ticar(w, 200);
+			TzId its[8]; int n = tz_mundo_itens(w, mago, its, 8);
+			CHK(n == 1 && w->obj[its[0]].classe == TZC_ITEM_ALMA, "soulbind deja una piedra del alma en el inventario del mago (%d objetos)", n);
+			if (n == 1) {
+				TzId piedra = its[0];
+				CHK(w->obj[victima].dono == 2 && w->obj[piedra].item.ligado == victima + 1, "la víctima sigue siendo de su dueño y la piedra está ligada a ella");
+				cmd(w, 1, TZ_C_ALMA, piedra, 0, 0, 0, 0); ticar(w, 40);
+				CHK(!tz_obj_vivo(&w->obj[victima]), "item_kill mata a la unidad ligada");
+				ticar(w, 5);
+				CHK(tz_mundo_itens(w, mago, its, 8) == 0, "al morir la unidad, su piedra desaparece");
+			}
+		}
+	}
+	/* fábrica mágica: un objeto a la vez, el oro se paga al empezar y el objeto sale junto al edificio */
+	{
+		TzMundo *w = novo(&mundoA, 23);
+		int cl_of = tz_catalogo_classe("magicworkshop");
+		TzId of = criar(w, cl_of, 1, 12, 20);
+		w->reino[1].recursos[TZ_OURO] = 3000;
+		cmd(w, 1, TZ_C_FABRICAR, of, 2 | (0 << 2), 400, 0, 0); ticar(w, 2);
+		CHK(w->reino[1].recursos[TZ_OURO] == 2600 && tz_mundo_fabrica_ocupada(w, 1), "la fábrica cobra el oro al empezar (%d)", w->reino[1].recursos[TZ_OURO]);
+		cmd(w, 1, TZ_C_FABRICAR, of, 1 | (0 << 2), 100, 0, 0); ticar(w, 2);
+		CHK(w->reino[1].recursos[TZ_OURO] == 2600, "solo un objeto mágico a la vez");
+		ticar(w, 400 * 250 / 50 + 40);
+		int espada = -1;
+		for (int i = 0; i < w->nobj; ++i) if (w->obj[i].classe == TZC_ITEM_MAIS && !(w->obj[i].flags & TZ_F_INATIVO)) espada = i;
+		CHK(espada >= 0 && w->obj[espada].item.ataque == 100 && !strcmp(w->obj[espada].item.imagem, "item_sword1"), "sale una espada de ataque 100 (400 de oro / 4)");
+		CHK(!tz_mundo_fabrica_ocupada(w, 1), "la fábrica queda libre");
+		cmd(w, 1, TZ_C_FABRICAR, of, 0 | (0 << 2), 100, 0, 0); ticar(w, 2);
+		CHK(tz_mundo_livro_minimo(w, 0) == 200 && w->reino[1].recursos[TZ_OURO] >= 2000, "un libro por debajo de su mínimo se rechaza (mínimo %u)", tz_mundo_livro_minimo(w, 0));
+		cmd(w, 1, TZ_C_FABRICAR, of, 1 | (0 << 2), 200, 0, 0); ticar(w, 200 * 250 / 50 + 40);
+		int pocion = -1;
+		for (int i = 0; i < w->nobj; ++i) if (w->obj[i].classe == TZC_POCAO && !(w->obj[i].flags & TZ_F_INATIVO)) pocion = i;
+		CHK(pocion >= 0 && w->obj[pocion].item.vida == 200, "una poción de vida de 200 de oro da 200 de vida");
+	}
+	/* joyas del mercado asiático */
+	{
+		TzMundo *w = novo(&mundoA, 24);
+		TzId mk = criar(w, TZC_MARKET, 1, 12, 20);
+		w->reino[1].recursos[TZ_OURO] = 50000;
+		ticar(w, 100);
+		struct TzJoia jo[8];
+		CHK(tz_mundo_joias(w, 1, jo, 8) == 0, "sin Jewelry el mercado no ofrece nada");
+		pesquisar(w, 1, "te_jewelry");
+		ticar(w, 3 * 60 * 20 + 40);
+		int n = tz_mundo_joias(w, 1, jo, 8);
+		CHK(n >= 3, "con Jewelry el mercado ofrece un objeto al minuto (%d en tres minutos)", n);
+		if (n >= 1) {
+			uint32_t pr = tz_mundo_preco_joia(w, &jo[0]);
+			int32_t oro0 = w->reino[1].recursos[TZ_OURO];
+			cmd(w, 1, TZ_C_COMPRAR, mk, jo[0].id, 0, 0, 0); ticar(w, 2);
+			int n2 = tz_mundo_joias(w, 1, jo, 8);
+			CHK(n2 == n - 1 || n == 8, "la joya comprada sale de la lista");
+			CHK(oro0 - w->reino[1].recursos[TZ_OURO] >= (int32_t)pr || pr == 0, "se cobra cuatro veces su valor (%u)", pr);
+		}
+	}
+	/* pergamino: al recogerlo avisa (TZ_EV_PERGAMINHO) y su registro da el texto de la historia */
+	{
+		TzMundo *w = novo(&mundoA, 25);
+		static TzObjeto reg; static uint8_t dados[0x530];
+		memset(&reg, 0, sizeof reg); memset(dados, 0, sizeof dados);
+		strcpy((char *)dados + 96, "Texto del pergamino"); strcpy((char *)dados + 0x460, "retrato1"); strcpy((char *)dados + 0x4a0, "voz.wav"); strcpy((char *)dados + 0x4e0, "musica.mid");
+		dados[0x520] = 0x10; dados[0x521] = 0x27; dados[0x524] = 1;
+		reg.dados = dados; reg.ndados = sizeof dados; reg.classe = TZC_PERGAMINHO;
+		TzId pg = criar(w, TZC_PERGAMINHO, 0, 11, 12);
+		w->obj[pg].original = &reg;
+		TzId h = criar(w, 3, 1, 10, 12);
+		w->obj[h].ator->modo = TZ_MODO_QUIETO;
+		uint32_t cur = w->ev_seq;
+		ordem(w, 1, h, o_(TZ_O_PEGAR_ITEM, pg, 0, 0));
+		ticar(w, 100);
+		int visto = 0;
+		TzEvento ev[64]; uint32_t c2 = cur;
+		int n; while ((n = tz_mundo_eventos(w, &c2, ev, 64)) > 0) for (int i = 0; i < n; ++i) if (ev[i].tipo == TZ_EV_PERGAMINHO && ev[i].alvo == pg && ev[i].valor == 1) visto = 1;
+		CHK(visto, "recoger un pergamino emite TZ_EV_PERGAMINHO");
+		char tx[200], re[80], so[64], mu[64]; uint32_t ms; int fe;
+		CHK(tz_mundo_pergaminho(w, pg, 1, tx, sizeof tx, re, so, mu, &ms, &fe) && !strcmp(tx, "Texto del pergamino") && !strcmp(re, "retrato1") && !strcmp(mu, "musica.mid") && ms == 10000 && fe == 1,
+		    "el pergamino da su texto, retrato, música, tiempo y cierre (%s, %u ms)", tx, ms);
+		dados[0x520] = dados[0x521] = dados[0x522] = dados[0x523] = 0xff;
+		CHK(!tz_mundo_pergaminho(w, pg, 1, tx, sizeof tx, re, so, mu, &ms, &fe) && tz_mundo_pergaminho(w, pg, 0, tx, sizeof tx, re, so, mu, &ms, &fe), "con tiempo -1 no abre al llegar, pero sí al usarlo");
+	}
+	/* tributos */
+	m->reino[1].recursos[TZ_OURO] = 1000; m->reino[2].recursos[TZ_OURO] = 100;
+	cmd(m, 1, TZ_C_TRIBUTO, TZ_NENHUM, 2, 300, TZ_OURO, 0); ticar(m, 1);
+	CHK(m->reino[1].recursos[TZ_OURO] == 700 && m->reino[2].recursos[TZ_OURO] == 400, "un tributo de 300 de oro pasa al otro reino (%d/%d)", m->reino[1].recursos[TZ_OURO], m->reino[2].recursos[TZ_OURO]);
+	cmd(m, 1, TZ_C_TRIBUTO, TZ_NENHUM, 2, 5000, TZ_OURO, 0); ticar(m, 1);
+	CHK(m->reino[1].recursos[TZ_OURO] == 0 && m->reino[2].recursos[TZ_OURO] == 1100, "el tributo se recorta a lo que tiene (%d/%d)", m->reino[1].recursos[TZ_OURO], m->reino[2].recursos[TZ_OURO]);
+	cmd(m, 1, TZ_C_TRIBUTO, TZ_NENHUM, 1, 10, TZ_OURO, 0); ticar(m, 1);
+	CHK(m->reino[2].recursos[TZ_OURO] == 1100, "no se puede dar tributo a uno mismo ni a un reino que no existe");
+	/* rendición */
+	CHK(!m->reino[1].derrotado, "antes de rendirse el reino sigue en juego");
+	cmd(m, 1, TZ_C_RENDIR, TZ_NENHUM, 0, 0, 0, 0); ticar(m, 100);
+	CHK(m->reino[1].rendido && m->reino[1].derrotado, "la rendición deja al reino derrotado");
+}
+
 int main(int argc, char **argv)
 {
 	setvbuf(stdout, NULL, _IOLBF, 0);
@@ -772,6 +929,7 @@ int main(int argc, char **argv)
 	t_grandes();
 	t_compartidos();
 	t_resgate();
+	t_v856();
 	t_determinismo();
 	tz_mundo_liberar(&mundoA); tz_mundo_liberar(&mundoB);
 	tz_catalogo_liberar(&cat); tz_biblioteca_liberar(&bib); tz_mapa_liberar(&mp); tz_hpfs_fechar(&hp); tz_recursos_fechar(&rec);

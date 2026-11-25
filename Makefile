@@ -182,7 +182,7 @@ LIBSAGUI_OBJ := $(B)/userland/fonte8x16.o $(B)/userland/libsagui/sse2.o $(B)/use
 # depende de la otra; «medios» es el resto (sonido y vídeo, documentos, particiones, saguimark...). Los programas
 # estáticos siguen enlazando LIBSAGUI_OBJ entero, como siempre.
 LIBSAGUI_BASE_NOMES := ambiente catalogo chamadas compressao conf_maquina contas div64 empacotar entrada formatar fuso gui \
-  gui_arquivos gui_barras gui_explorador gui_moderno gui_revisar gui_paineis gui_inspetor gui_selcor gui_vista gui_paleta gui_codigo gui_desfazer gui_consola hilos hora http icones idioma imagem imagem_gif imagem_idct imagem_jpeg \
+  gui_arquivos gui_barras gui_explorador gui_moderno gui_progreso gui_revisar gui_paineis gui_inspetor gui_selcor gui_vista gui_paleta gui_codigo gui_desfazer gui_consola hilos hora http icones idioma imagem imagem_gif imagem_idct imagem_jpeg \
   inicio.asm mandos memoria rapido rede regex servicos sincronia sonidos sse1 sse2 sse3 ssse3 texto utilitarios zonas \
   widget cron raiz_live planificador sensores regional gui_componentes pdf_escribir des casa_migrar
 # D462: widget, cron, raiz_live, planificador, sensores, regional, gui_componentes, pdf_escribir, des y casa_migrar
@@ -325,7 +325,7 @@ MP_DIR := userland/micropython
 # A biblioteca padrão (D067-D069): módulos do extmod copiados sem mudança e
 # o pegamento próprio (*_sagui.c): arquivos, os, socket, ssl e hashlib. A
 # ponte_sagui.c liga o ssl e o hashlib à libtls (compilada como programa).
-MP_PROPRIOS := mp_sagui mpthreadport arquivos_sagui os_sagui sinais_sagui rede_sagui ssl_sagui hashlib_sagui janela_sagui sqlite_sagui
+MP_PROPRIOS := mp_sagui mpthreadport arquivos_sagui os_sagui sinais_sagui rede_sagui ssl_sagui hashlib_sagui janela_sagui sqlite_sagui grafico_sagui
 MP_SRC := $(wildcard $(MP_DIR)/micropython_embed/py/*.c) $(MP_DIR)/micropython_embed/shared/runtime/gchelper_generic.c \
           $(wildcard $(MP_DIR)/micropython_embed/extmod/*.c) $(MP_DIR)/micropython_embed/shared/timeutils/timeutils.c \
           $(wildcard $(MP_DIR)/libm_dbl/*.c) $(MP_DIR)/libm_sagui.c $(patsubst %,$(MP_DIR)/%.c,$(MP_PROPRIOS))
@@ -891,6 +891,8 @@ $(B)/userland/programas/simd.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UC
 $(B)/userland/libsagui/saguimark.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS))
 # El ecualizador (D201) calcula los biquads con la x87 (el kernel solo recibe enteros).
 $(B)/userland/libsagui/ecualizador.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -mfpmath=387
+# El componente de gráficos (D469) calcula escalas, curvas y cobertura de píxeles con la x87; sin libm (la raíz es fsqrt en línea).
+$(B)/userland/libsagui/gui_grafico.o $(B)/userland/libsagui/grafico_calc.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -mfpmath=387 -fexcess-precision=standard -fno-math-errno
 # (con SEM_GPL=1 h264.c y aac.c no se compilan: incluyen las tablas de FFmpeg y FAAD2, que son LGPL/GPL de terceros)
 # AAC-LC (mejora 100, D276): coma flotante con la x87, como el ecualizador (vale en cualquier CPU).
 $(B)/userland/libsagui/aac.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) -mfpmath=387 -fexcess-precision=standard -fno-math-errno
@@ -1769,7 +1771,7 @@ variantes:
 # emulador GNUBoy (D235, D261), los
 # datos shareware de Quake (D229) y OpenJazz (D228) y las fuentes de Typodermic
 # (D196). Los guiones no repiten la descarga si ya está hecha.
-#   make priv_variantes [PRIV_DESTINO=entrega/latest] [GERAR_OPC="--probar"]
+#   make priv_variantes [PRIV_DESTINO=entrega/latest] [PRIV_JOGOS_MB=2048] [GERAR_OPC="--probar"]
 PRIV_DESTINO ?= entrega/latest
 TYPODERMIC_ZIP := typodermic-public-domain-2024-12.zip
 priv_descargas:
@@ -1785,6 +1787,15 @@ priv_descargas:
 	bash tools/doom_datos.sh
 	bash tools/quake_datos.sh
 	bash tools/openjazz_datos.sh
+	@# Lo que se compila dentro si están sus fuentes: Lua (D440; también Capibara D452 y su editor D460), awk (D440),
+	@# GNU make, git (libgit2), FFmpeg (D458) y Java (miniJVM, D376). Sin ellas el make las salta y sus entradas
+	@# del menú no aparecen (pasó con el editor de Capibara en una imagen privada, 2026-11-22).
+	@[ -f userland/terceros/lua/fuentes/.preparado ] || bash tools/lua_fuentes.sh
+	@[ -f userland/terceros/awk/fuentes/.preparado ] || bash tools/awk_fuentes.sh
+	@[ -f userland/terceros/make/fuentes/.preparado ] || bash tools/make_fuentes.sh
+	@[ -f userland/terceros/git/fuentes/.preparado ] || bash tools/git_fuentes.sh
+	@[ -f userland/terceros/ffmpeg/fuentes/.preparado ] || bash tools/ffmpeg_fuentes.sh
+	@[ -d userland/terceros/minijvm/fuentes ] || bash tools/minijvm_fuentes.sh
 	@$(PY) -c "import sys; sys.path.insert(0, 'tools'); import fuentes_typodermic as f; sys.exit(0 if f.buscar_zip() else 3)" || \
 	    echo "priv_descargas: sin las fuentes de Typodermic (opcionales; se sigue sin ellas): baja a mano $(TYPODERMIC_ZIP) de typodermicfonts.com/public-domain/ y ponlo en NEW_FONTS/"
 	@[ -d input_share ] || echo "priv_descargas: AVISO: no hay input_share/ (los juegos propios no entrarán; ver docs/input_share.md)"
@@ -1797,8 +1808,11 @@ priv_descargas:
 OPENTTD_REPO_DIR ?= $(if $(OPENTTD_REPO),$(OPENTTD_REPO),../openttd-saguios)
 OPENTTD_URL ?=
 
+# La partición de juegos de las privadas es mayor que la de las públicas (800): con Tzar, AoE y C&C de
+# input_share no caben en 800 MB. PRIV_JOGOS_MB la cambia.
+PRIV_JOGOS_MB ?= 2048
 priv_variantes: priv_descargas
-	./gerar_versao.sh --todas --con-input-share --destino $(PRIV_DESTINO) $(GERAR_OPC)
+	JOGOS_MB=$(PRIV_JOGOS_MB) ./gerar_versao.sh --todas --con-input-share --destino $(PRIV_DESTINO) $(GERAR_OPC)
 	@echo "priv_variantes: en $(PRIV_DESTINO): son para uso propio, NO publicar (D228)"
 
 # D418: imagenes de DEPURACION para probar en portatiles por SSH: como priv_variantes, pero con la clave publica

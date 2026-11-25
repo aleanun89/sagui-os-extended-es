@@ -262,8 +262,10 @@ static void vid_ler_movi(uint32_t ini, uint32_t fim)
  * demultiplexador y el decodificador de MPEG-1). */
 static bool vid_formato_mpegps(const uint8_t *cab)
 {
-    /* Los paquetes del MPEG-PS empiezan por 0x000001BA. */
-    return cab[0] == 0x00 && cab[1] == 0x00 && cab[2] == 0x01 && cab[3] == 0xBA;
+    /* Los paquetes del MPEG-PS empiezan por 0x000001BA; algunos archivos (cortados o hechos con otras herramientas) empiezan
+     * directamente por la cabecera del sistema (BB) o por un paquete de vídeo (E0..EF) o de audio (C0..DF). */
+    if (cab[0] != 0x00 || cab[1] != 0x00 || cab[2] != 0x01) return false;
+    return cab[3] == 0xBA || cab[3] == 0xBB || (cab[3] & 0xF0) == 0xE0 || (cab[3] & 0xE0) == 0xC0;
 }
 
 video_t *video_abrir(const char *caminho, int *erro)

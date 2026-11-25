@@ -5,7 +5,8 @@
  * src/gameplay/ai/: script.rs (el lenguaje y su compilador), rules.rs (condiciones, reglas, fase de construir y metas),
  * think.rs (el jugador: periodo, casa, listas y fases), harvest.rs (economía), build.rs y tree.rs (obras y árbol de
  * tecnologías), places.rs, records.rs, war.rs y defence.rs (lugares, ejército, ataque y defensa) e idle.rs (unidades
- * ociosas). Cada fichero dice de qué sale cada función. Diferencias con el original: docs/tzar.md, «La IA (fase 6)».
+ * ociosas); y desde la D470 reach.rs, navy.rs y transport.rs (ia_agua.c), spells.rs y goals.rs (ia_magia.c) y breach.rs
+ * (ia_brecha.c). Cada fichero dice de qué sale cada función. Diferencias con el original: docs/tzar.md, «La IA (fase 6)».
  *
  * La IA es un JUGADOR más (mundo.h, regla 2): un gancho por reino que corre dentro del tic; solo ve lo que le dejan
  * tz_mundo_ve y tz_mundo_nevoa (sus propios objetos los ve siempre) y solo actúa con comandos (tz_mundo_comando).
@@ -128,6 +129,9 @@ const TzIaPrograma *tz_ia_programa(const TzIa *ia);
 uint32_t tz_ia_suma(const TzIa *ia);
 typedef struct { uint32_t comandos, construidos, treinados, pesquisas, grupos, olhares; } TzIaContas;
 TzIaContas tz_ia_contas(const TzIa *ia);
+/* D470: lo que hizo con el agua, la magia, los muros y las metas propias */
+typedef struct { uint32_t transportes, desembarques, navios, hechizos, invocacoes, curas, jihad, cruzadas, trocas, brechas, capturas; } TzIaContasD470;
+TzIaContasD470 tz_ia_contas_d470(const TzIa *ia);
 
 /* EXTERN: el evaluador de expresiones de los guiones de misión (fase 7) puede sustituir al pequeño de la IA. */
 typedef int32_t (*TzIaExterno)(TzMundo *m, int k, const char *expr);

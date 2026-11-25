@@ -31,7 +31,9 @@ input_share/
   OpenJazz la encuentra sola (busca en todas las carpetas de `/jogos` y prefiere la versión completa
   al shareware). Si la carpeta se llama como una del sistema (`opentyrian`, `openjazz`), su contenido
   se pone encima del de serie.
-- **Tzar (D417):** la carpeta de la instalación (con `Packs/`, `Maps/` y `Campaign/`) en `input_share/games/TZAR/` acaba en
+- **Tzar (D417):** la carpeta de la instalación (con `Packs/`, `Maps/` y `Campaign/`), en `input_share/Tzar Anthology/` **o** en
+  `input_share/games/TZAR/` (si están las dos, manda la primera; de ellas solo se copian `Packs`, `Maps`, `Campaign`,
+  `intro.MPG` y `Tzar.ini`, nunca el `.exe` ni las DLL), acaba en
   `/jogos/TZAR`, donde la busca el visor `tzar` (`docs/tzar.md`). Solo imágenes privadas: los datos de Tzar no se distribuyen.
 - **DOOM clásico (D383):** `input_share/games/DOOM/` con los WAD originales (`doom.wad`, `doom2.wad`, `plutonia.wad`, `tnt.wad`; también
   `heretic.wad`, `hexen.wad`, `strife1.wad`) acaba en `/jogos/DOOM` y Chocolate Doom los usa en lugar de Freedoom. Solo imágenes privadas.
@@ -108,8 +110,9 @@ C&C95 instalado (con `GENERAL.MIX` en la raíz o en `gdi/` y `nod/`).
 
 ## `games/AOE/` y `aoen/`: AoEN (D382)
 
-- **Datos del juego original:** `input_share/games/AOE/` (con `DATA/GRAPHICS.DRS`, `INTERFAC.DRS`, `TERRAIN.DRS` y, para el
-  sonido, `SOUNDS.DRS`) acaba, como todo `games/<carpeta>/`, en `/jogos/AOE`; **AoEN** los busca ahí por defecto (también
+- **Datos del juego original:** `input_share/games/AOE/`, con el juego instalado (`DATA/GRAPHICS.DRS`, `INTERFAC.DRS`,
+  `TERRAIN.DRS` y, para el sonido, `SOUNDS.DRS`) **o** con el CD entero (`GAME/DATA/…`: de él solo se copia la carpeta
+  `GAME`, sin los vídeos `AVI`, el instalador ni DirectX), acaba, como todo `games/<carpeta>/`, en `/jogos/AOE`; **AoEN** los busca ahí por defecto (también
   `/jogos/AOE/DATA`, y los de `aoen-config`, `AOEN_DATA` y el argumento). Son tuyos: nunca van a git ni a las imágenes
   públicas.
 - **Texturas HD y música de AoEN:** si existen `input_share/aoen/texturas/` (PNG de 512x512) y `input_share/aoen/musica/`

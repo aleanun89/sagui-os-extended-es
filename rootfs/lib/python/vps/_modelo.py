@@ -8,7 +8,7 @@ import vps
 
 GRID = 8
 _cache = {}
-SIN_VENTANA = ("Temporizador", "Menu", "Reloj", "Archivo", "ConectorBD", "SelectorDeArchivos", "SelectorDeCarpetas", "SelectorDeColor", "SelectorDeFuente")    # componentes sin ventana: solo un icono
+SIN_VENTANA = ("Temporizador", "Menu", "Reloj", "Archivo", "ConectorBD", "SelectorDeArchivos", "SelectorDeCarpetas", "SelectorDeColor", "SelectorDeFuente", "Notificacion")    # componentes sin ventana: solo un icono
 CONTENEDORES = ("Marco", "Pestanas")
 
 

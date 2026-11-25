@@ -58,10 +58,12 @@ static int copiar_arquivo(const char *org, const char *dst)
     if (o < 0) { imprimir_em(ERROS, "cp: %s: %s\n", org, nome_erro(o)); return 1; }
     int d = abrir(dst, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
     if (d < 0) { imprimir_em(ERROS, "cp: %s: %s\n", dst, nome_erro(d)); fechar(o); return 1; }
-    /* 128 KB por petición: cada lectura o escritura en un pendrive USB cuesta tres
-     * transferencias además de los datos, y con 1 KB la copia iba a 50 KB/s (D095).
+    /* 1 MB por petición: cada lectura o escritura en un pendrive USB cuesta tres
+     * transferencias además de los datos, y con 1 KB la copia iba a 50 KB/s (D095); la
+     * escritura en un pendrive va directa, así que el tamaño de la petición es el de las
+     * órdenes (hasta el trozo del pendrive, 240 KB o 1 MB, D468; antes 128 KB).
      * Estático: la pila del programa solo tiene 64 KB. */
-    static char buf[128 * 1024];
+    static char buf[1024 * 1024];
     int n, st = 0;
     while ((n = ler(o, buf, sizeof buf)) > 0) {
         int w = escrever_tudo(d, buf, (unsigned)n);

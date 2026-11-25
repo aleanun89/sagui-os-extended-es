@@ -145,3 +145,8 @@ ratón y el teclado: separador, mínimos, plegar y guardar/restaurar; clic, move
 grupos; arrastrar y soltar; zoom y desplazamiento (Espacio y botón central); todos los editores del inspector; el selector de
 color; la paleta; el código (resaltado, sangría, error marcado, buscar, deshacer); y los filtros de la consola. Capturas
 `H454-*` en `docs/capturas/`.
+
+## Gráficos (D469)
+
+El componente de gráficos (`grafico.h`, `gui_grafico.c`) no es de editor pero sigue el mismo patrón de estructura con estado; usa coma
+flotante (x87) y dibuja en un búfer de píxeles. Su API está en `docs/grafico.md`.

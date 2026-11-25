@@ -891,6 +891,57 @@ int  chip_tratar(jan_t *j, chip_t *c, const evento_t *e);
 void progresso_mod_desenhar(jan_t *j, int x, int y, int l, int a, int pct, unsigned flags, uint32_t fundo);
 void progresso_mod_indet(jan_t *j, int x, int y, int l, int a, int fase, uint32_t fundo);
 
+/* ---- progreso de transferencias (D467, libsagui/gui_progreso.c) ----
+ * La ventana de «Copiando N elementos de A a B» de Archivos, pero general: sirve para cualquier operación larga
+ * por bytes (copiar, mover, descargar, extraer). Quien llama la maneja en trozos:
+ *     transf_iniciar(&t, "Copiando", "Copiando 3 elementos de /a a /b", NULL, NULL);
+ *     (recorrido rápido) transf_total(&t, elementos, bytes);
+ *     por cada archivo: transf_archivo(&t, nombre); por cada trozo: if (transf_avanzar(&t, n)) -> cancelar; transf_listo_archivo(&t);
+ *     transf_cerrar(&t);
+ * La ventana solo aparece si la operación tarda más de t.retardo_ms (700): las copias pequeñas no parpadean. Tiene
+ * barra por bytes, porcentaje, archivo actual, «X de Y elementos», «A MB de B MB», velocidad (media móvil de unos
+ * segundos), tiempo restante («Calculando...» al principio), gráfico de velocidad en «Más detalles» y los botones
+ * Pausar/Reanudar y Cancelar. No es modal: transf_avanzar atiende sus eventos y llama a `fuera` (los de la ventana de
+ * quien llama; devuelve != 0 para cancelar). El cálculo de velocidad y tiempo está en transf_calc.h. */
+#include "transf_calc.h"
+#define TG_MAX 64      /* muestras del gráfico de velocidad */
+typedef struct transf {
+    char     verbo[24];            /* «Copiando», «Moviendo», «Borrando» (título de la ventana) */
+    char     cabecera[200];        /* la frase de arriba */
+    int    (*fuera)(void *);       /* se llama unas 10 veces por segundo; != 0 = cancelar */
+    void    *fuera_dato;
+    unsigned retardo_ms;           /* espera antes de abrir la ventana */
+    jan_t   *j;
+    uint32_t t0, ult_pulso, ult_texto, ult_graf, graf_periodo, pausa_desde;
+    uint64_t bytes, total;
+    uint32_t elementos, hechos;
+    char     actual[96];
+    bool     pausado, cancelado, detalles, preparando;
+    int      fase;
+    tc_vel_t vel;
+    uint32_t graf[TG_MAX];         /* KB/s */
+    int      n_graf;
+    mbotao_t b_det, b_pausa, b_cancel;
+} transf_t;
+void transf_iniciar(transf_t *t, const char *verbo, const char *cabecera, int (*fuera)(void *), void *dato);
+void transf_total(transf_t *t, uint32_t elementos, uint64_t bytes);   /* acaba «Preparando...» */
+int  transf_preparando(transf_t *t);        /* durante el recorrido que cuenta; 1 = cancelado */
+void transf_archivo(transf_t *t, const char *nombre);
+void transf_listo_archivo(transf_t *t);
+int  transf_avanzar(transf_t *t, uint32_t n);   /* suma n bytes y atiende la ventana; 1 = cancelado */
+int  transf_pulso(transf_t *t);                 /* lo mismo sin bytes; 1 = cancelado */
+void transf_saltar(transf_t *t, uint64_t bytes);   /* un archivo omitido: sus bytes cuentan como hechos */
+void transf_reloj(transf_t *t);                 /* tras un diálogo: no contar la espera en la velocidad */
+void transf_cerrar(transf_t *t);
+void transf_cabecera(transf_t *t, const char *texto);
+/* Diálogo con varios botones y casilla opcional («Aplicar a todos»). Devuelve el botón elegido (0..n-1) o -1 si se
+ * cerró con Esc o la cruz. «texto» admite '\n'. */
+int  dialogo_opciones(const char *titulo, const char *texto, const char *const *botones, int n, const char *casilla, bool *marcada);
+/* Textos de tamaño y velocidad: «12,5 MB», «3,2 MB/s», «Unos 15 segundos». */
+void transf_texto_tamano(char *s, size_t max, uint32_t kb, uint32_t unidad_de_kb);
+void transf_texto_velocidad(char *s, size_t max, uint32_t kbs);
+void transf_texto_restante(char *s, size_t max, uint32_t segundos);
+
 /* Insignia (badge) con número; devuelve el ancho dibujado (alto fijo 18). Con cor = 0 usa el color de peligro. */
 int  insignia_desenhar(jan_t *j, int x, int y, int n, uint32_t cor);
 

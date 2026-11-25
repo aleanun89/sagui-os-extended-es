@@ -1,7 +1,7 @@
 # Soporte de tarjetas gráficas (GPU) por versión
 
 Estado a 2026-11-16 (v8.0; 3dfx, Mach64 y S3, v8.3.3; Radeon de la v8.3 completadas, D357; Intel Gen7-Gen8, v8.5.2). **Leyenda:** ✅ funciona y probado · 🟡 hecho, falta confirmarlo en hardware real ·
-🔧 en desarrollo · 📅 planificado · — no previsto. El 3D por software (SaguiGL) funciona en **todas** las tarjetas.
+🔧 en desarrollo · 📅 planificado · 💡 idea, sin versión · — no previsto. El 3D por software (SaguiGL) funciona en **todas** las tarjetas.
 
 ## Lo que hay hoy y lo que viene
 
@@ -24,6 +24,7 @@ Estado a 2026-11-16 (v8.0; 3dfx, Mach64 y S3, v8.3.3; Radeon de la v8.3 completa
 | **Radeon RDNA 1/2/3** RX 5000-7000 | ✅ (GOP) | 📅 v11 (110, tras GCN) | 📅 v11 (110) | 📅 v11, RADV (64 bits) (108) | (por definir) |
 | **NVIDIA GeForce 6/7**, nForce 6100-7050 | ✅ | 🟡 v7.4 (D226), sin probar en hardware | — | — | — |
 | **NVIDIA posteriores** (8000 en adelante) | ✅ (VESA/GOP) | — | — | — | — |
+| **ARM Mali-G31 MP2** (Bifrost; Amlogic S905X3) | 💡 con ARM64, **después de la v10**: el framebuffer del UEFI de U-Boot y luego el controlador de pantalla del chip (VPU/HDMI de Meson), que no es la Mali | — (la CPU) | 💡 después de ARM64, con Panfrost (Mesa) como referencia; QEMU no emula ninguna Mali: solo en la placa | — | placa S905X3 (por definir) |
 | **3dfx Banshee/Voodoo3/4/5** (Banshee, Voodoo3 1000-3500, Velocity, Voodoo4/5 VSA-100) | ✅ (VESA) | 🟡 **v8.3.3** (D305), motor 2D por MMIO, también a 16 y 24 bits; probado solo en 86Box | — | — | 86Box (`p2-voodoo3`, `p2-450-voodoo3500`) |
 | **ATI Mach64 / Rage** GX, CT, VT, 3D Rage II/IIC, Rage Pro, LT Pro, XL, Mobility | ✅ (VESA) | 🟡 **v8.3.3** (D308), motor 2D por MMIO; en 24 bits con x3; probado solo en 86Box (VT2) | — | — | 86Box `p2-mach64` |
 | **S3 Trio64 / ViRGE** Trio64, V+, UV+, V2; ViRGE, VX, DX/GX, GX2, Trio3D, Trio3D/2X | ✅ (VESA con BIOS VBE 2.0; con las VBE 1.2, 800x600x16 con bancos y la ventana lineal del chip abierta por la etapa 2, D331, #40; 🟡 en hardware real) | 🟡 **v8.3.3** (D308): Trio64 por puertos, ViRGE por MMIO; probado solo en 86Box (Trio64V2/DX, ViRGE/DX, ViRGE/GX2 AGP y Trio3D/2X) | — | — | 86Box `p2-s3trio64`, `p2-s3virge`, `p2-s3trio64-vbe12`, `p2-s3virge-vbe12`, `p2-s3virgegx2` (con una Voodoo como segunda tarjeta), `p2-s3trio3d2x` |

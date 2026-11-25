@@ -69,7 +69,7 @@ def com_alta(nome, memoria, et, imagem=None, nucleos=1, firmware=None, k=4, mb=6
         verificar(altas and max(altas) > 800, f"[{et}] páginas altas en uso: {max(altas) if altas else -1} MB")
         f1, _ = free_m(m)
         verificar(abs(f1["mem"][2] - f0["mem"][2]) <= 8, f"[{et}] al terminar vuelve la memoria ({f0['mem'][2]} -> {f1['mem'][2]} MB libres)")
-        verificar(abs(f1["alta"][2] - f0["alta"][2]) <= 1, f"[{et}] vuelve toda la alta")
+        verificar(f1["alta"][2] >= f0["alta"][2] - 1, f"[{et}] vuelve toda la alta")
         # Programas normales con la alta en uso: el cc compila y el ejecutable funciona.
         out = m.comando("cc /ejemplos/hola.c -o /tmp/hola", tempo=180)
         out2 = m.comando("/tmp/hola Tito")

@@ -59,8 +59,13 @@ void sagui_rodar_tratadores(void);
 #define MICROPY_LONGINT_IMPL                    (MICROPY_LONGINT_IMPL_MPZ)
 #define MICROPY_ERROR_REPORTING                 (MICROPY_ERROR_REPORTING_NORMAL)
 #define MICROPY_ENABLE_SOURCE_LINE              (1)
+#ifdef SAGUI_PORTABLE
+/* En el PC (repositorio portable, D459): x86-64 o ARM del anfitrion; el NLR lo elige el propio MicroPython. */
+#define MICROPY_GCREGS_SETJMP                   (0)
+#else
 #define MICROPY_NLR_X86                         (1)
 #define MICROPY_GCREGS_SETJMP                   (0)
+#endif
 #define MICROPY_USE_INTERNAL_ERRNO              (1)
 #define MICROPY_PY_SYS_PLATFORM                 "saguios"
 #define MICROPY_ALLOC_PATH_MAX                  (256)

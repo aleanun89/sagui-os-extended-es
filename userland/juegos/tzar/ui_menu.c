@@ -8,10 +8,14 @@
 #include "ui.h"
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #define ROW 16
 #define SAVE_ROWS 9
-#define MAXW 96
+#define MAXW 160
+#define IA_FILAS 9           /* menu.rs AI_ROWS */
+#define IA_X 150             /* menu.rs CHOOSE_AI_AT */
+#define IA_Y 140
 
 #define PREVIA_X 452
 #define PREVIA_Y 320
@@ -20,8 +24,9 @@
 enum { E_BOTAO, E_ITEM, E_SPIN, E_CHECK, E_TEXTO, E_AREA, E_NOME };
 enum {
 	A_NADA, A_IR, A_VOLTAR, A_CAMPANHA, A_MAPA, A_GUARDADO, A_JOGAR, A_CONFIG, A_SPIN, A_CHECK, A_SIM_SAIR, A_CONTINUAR,
-	A_REINICIAR, A_CARREGAR, A_GUARDAR, A_NOME, A_CAMPANHA_JOGAR, A_ABRIR_MAPA, A_MISSAO, A_SEGUINTE, A_REPETIR, A_ABANDONAR,
+	A_REINICIAR, A_RENDIR, A_CARREGAR, A_GUARDAR, A_NOME, A_CAMPANHA_JOGAR, A_ABRIR_MAPA, A_MISSAO, A_SEGUINTE, A_REPETIR, A_ABANDONAR,
 	A_ALEAT_CHECK, A_ALEAT_EQUIPE, A_ALEAT_OUTRO, A_ALEAT_JOGAR, A_ALEAT_AMPLIAR,   /* pantalla del mapa aleatorio */
+	A_ALEAT_IA, A_ALEAT_IA_ITEM, A_ALEAT_IA_OK, A_ALEAT_IA_CANCELAR, A_ALEAT_RENDIR,  /* D470: comportamiento y rendición de la IA */
 };
 enum {   /* campos de los spins */
 	C_JOG, C_TIPO, C_VITORIA, C_POP, C_DIF, C_REC, C_RACA, C_VOL_SOM, C_VOL_MUS, C_VELOC, C_DIF_CAMP,
@@ -145,7 +150,7 @@ void tz_mn_aleat_normalizar(TzMnAleat *a)
 	if (a->recursos_mapa < 0 || a->recursos_mapa > 2) a->recursos_mapa = 1;
 	if (a->tipo < 0 || a->tipo > 5 || !tz_mn_aleat_tipo_ok(a->lado, a->tipo)) a->tipo = 0;
 	a->guardado = a->guardado != 0; a->animais = a->animais != 0; a->itens = a->itens != 0; a->portas = a->portas != 0;
-	a->penhascos = 0;
+	a->penhascos = a->penhascos != 0;
 	TzMnConfig *c = &a->c;
 	if (c->jogadores < 2) c->jogadores = 2;
 	if (c->jogadores > tz_mn_aleat_limite(a->lado)) c->jogadores = tz_mn_aleat_limite(a->lado);
@@ -168,8 +173,15 @@ int tz_mn_aleat_texto(const TzMnAleat *a, char *out, size_t n)
 	                 a->itens, a->portas, a->semente, c->jogadores, c->tipo, c->vitoria, c->populacao, c->dificuldade, c->recursos, c->sem_nevoa, c->explorado);
 	for (int i = 0; i < 8 && k > 0 && (size_t)k < n; ++i) k += snprintf(out + k, n - (size_t)k, " %d", c->raca[i]);
 	for (int i = 0; i < 8 && k > 0 && (size_t)k < n; ++i) k += snprintf(out + k, n - (size_t)k, " %d", c->equipe[i]);
+	if (k > 0 && (size_t)k < n) k += snprintf(out + k, n - (size_t)k, " %d", a->penhascos != 0);   /* v8.5.6: opcional al leer */
+	/* D470: «IA rendición guion[8]» («-» = el de siempre) */
+	if (k > 0 && (size_t)k < n) k += snprintf(out + k, n - (size_t)k, " IA %d", a->rendicao != 0);
+	for (int i = 0; i < 8 && k > 0 && (size_t)k < n; ++i) k += snprintf(out + k, n - (size_t)k, " %s", a->ia[i][0] ? a->ia[i] : "-");
 	return k > 0 && (size_t)k < n ? 0 : -1;
 }
+
+/* un nombre de guion de IA aceptable (sin carpetas) */
+static int guiao_ok(const char *g) { return strlen(g) < 33 && !strchr(g, '/') && !strchr(g, '\\') && !strstr(g, ".."); }
 
 int tz_mn_aleat_de_texto(const char *t, TzMnAleat *a)
 {
@@ -189,6 +201,25 @@ int tz_mn_aleat_de_texto(const char *t, TzMnAleat *a)
 	x.c.jogadores = (int)v[9]; x.c.tipo = (int)v[10]; x.c.vitoria = (int)v[11]; x.c.populacao = (int)v[12]; x.c.dificuldade = (int)v[13];
 	x.c.recursos = (int)v[14]; x.c.sem_nevoa = (int)v[15]; x.c.explorado = (int)v[16];
 	for (int i = 0; i < 8; ++i) { x.c.raca[i] = (int)v[17 + i]; x.c.equipe[i] = (int)v[25 + i]; }
+	/* v8.5.6: «penhascos» opcional; detrás, la cola «IA ...» de D470, también opcional (las líneas de antes no las llevan) */
+	{ char *fim; long long q = strtoll(p, &fim, 10); if (fim != p) { x.penhascos = q != 0; p = fim; } }
+	while (*p == ' ') ++p;
+	if (!strncmp(p, "IA ", 3)) {
+		char *fim;
+		p += 3;
+		x.rendicao = strtol(p, &fim, 10) != 0;
+		if (fim == p) return -1;
+		p = fim;
+		for (int i = 0; i < 8; ++i) {
+			while (*p == ' ') ++p;
+			char g[64];
+			int k = 0;
+			while (*p && *p != ' ' && k < 63) g[k++] = *p++;
+			g[k] = 0;
+			if (!k) return -1;
+			if (strcmp(g, "-") && guiao_ok(g)) snprintf(x.ia[i], sizeof x.ia[i], "%s", g);
+		}
+	}
 	tz_mn_aleat_normalizar(&x);
 	*a = x;
 	return 0;
@@ -299,6 +330,57 @@ static void mudar(TzMenu *m, int campo, int idx, int d)
 #undef CICLO
 }
 
+static char *ler_dados(TzUiSkin *s, const char *nome);
+
+/* D470: los comportamientos de la IA (menu.rs Texts::load, 0x48a780): el de siempre y los de [scripts] de DATA/AI/AI.INI
+ * («nombre = fichero»); y si se ofrece la rendición de la IA (están IMAGES/AIRESIGN.BMP y DATA/AI/RESIGN.AI) */
+static void ler_guioes(TzMenu *m)
+{
+	if (m->ia_lido) return;
+	m->ia_lido = 1;
+	m->nia = 1;
+	m->ia_nome[0][0] = m->ia_fich[0][0] = 0;
+	char *t = ler_dados(m->skin, "DATA/AI/AI.INI");
+	int dentro = 0;
+	for (char *l = t; l && *l && m->nia < 24;) {
+		char *fim = strchr(l, '\n');
+		if (fim) *fim = 0;
+		char *a = l;
+		while (*a == ' ' || *a == '\t') ++a;
+		size_t k = strlen(a);
+		while (k && (a[k - 1] == '\r' || a[k - 1] == ' ' || a[k - 1] == '\t')) a[--k] = 0;
+		if (*a == '[') dentro = !strncasecmp(a, "[scripts]", 9);
+		else if (dentro && *a && *a != ';') {
+			char *eq = strchr(a, '=');
+			if (eq) {
+				*eq = 0;
+				char *nome = a, *fich = eq + 1;
+				size_t kn = strlen(nome);
+				while (kn && (nome[kn - 1] == ' ' || nome[kn - 1] == '\t')) nome[--kn] = 0;
+				while (*fich == ' ' || *fich == '\t') ++fich;
+				if (*fich && guiao_ok(fich)) {
+					snprintf(m->ia_nome[m->nia], sizeof m->ia_nome[0], "%s", nome);
+					snprintf(m->ia_fich[m->nia], sizeof m->ia_fich[0], "%s", fich);
+					m->nia++;
+				}
+			}
+		}
+		if (!fim) break;
+		l = fim + 1;
+	}
+	free(t);
+	char *b = ler_dados(m->skin, "IMAGES/AIRESIGN.BMP"), *r = ler_dados(m->skin, "DATA/AI/RESIGN.AI");
+	m->rendicao_oferecida = b && r;
+	free(b); free(r);
+}
+
+/* el nombre del comportamiento de un guion (el fichero si AI.INI no lo nombra) */
+static const char *nome_guiao(const TzMenu *m, const char *g)
+{
+	for (int i = 1; i < m->nia; ++i) if (!strcasecmp(m->ia_fich[i], g)) return m->ia_nome[i];
+	return g;
+}
+
 /* los widgets de la pantalla actual, en coordenadas de su lienzo */
 static int construir(TzMenu *m, Wd *w)
 {
@@ -381,6 +463,7 @@ static int construir(TzMenu *m, Wd *w)
 	case TZ_MN_ALEAT: {
 		/* menu.rs Screen::Random: columna derecha con las opciones del mapa, filas de reinos a la izquierda y abajo las reglas */
 		const TzMnAleat *al = &m->aleat;
+		ler_guioes(m);
 		static const struct { int x, y; const char *k, *def; } et[] = {
 			{ 68, 353, "t_num_players", "Reinos" }, { 68, 410, "t_game_type", "Tipo de partida" }, { 68, 470, "t_vict_cond", "Condición de victoria" },
 			{ 273, 353, "t_poplimit", "Límite de población" }, { 273, 412, "t_diff_lvl", "Dificultad" }, { 273, 470, "t_st_res", "Recursos iniciales" },
@@ -397,7 +480,10 @@ static int construir(TzMenu *m, Wd *w)
 			int y = 35 * i;
 			wd_add(w, &n, (TzRect){ 73, 31 + y, 13, 13 }, "", E_AREA, A_NADA, 0x100 + i);   /* muestra del color */
 			if (i) snprintf(t, sizeof t, "IA %d", i); else snprintf(t, sizeof t, "%s", txt(m, "peons", "player", "Jugador 1", t2, sizeof t2));
+			if (i && al->ia[i][0]) { snprintf(t2, sizeof t2, "%.40s (%.40s)", t, nome_guiao(m, al->ia[i])); snprintf(t, sizeof t, "%s", t2); }
 			wd_add(w, &n, (TzRect){ 110, 30 + y, 163, 14 }, t, E_TEXTO, A_NADA, 0);
+			/* D470: el icono de la IA (0x4ca6d3): abre «COMPORTAMIENTO IA»; encendido si el reino tiene uno propio. La persona no. */
+			if (i) { wd_add(w, &n, (TzRect){ 273, 26 + y, 20, 20 }, "", E_AREA, A_ALEAT_IA, i); ultimo(w, n)->marcado = al->ia[i][0] != 0; }
 			wd_spin(w, &n, (TzRect){ 311, 23 + y, 180, 27 }, "", C_RACA, 1, i);
 			valor_cfg(m, C_RACA, i, w[n - 2].rot, sizeof w[0].rot);
 			wd_add(w, &n, (TzRect){ 511, 31 + y, 13, 13 }, "", E_AREA, A_ALEAT_EQUIPE, 0x200 + i);   /* equipo */
@@ -414,12 +500,13 @@ static int construir(TzMenu *m, Wd *w)
 			valor_cfg(m, sm[i].campo, 0, w[n - 2].rot, sizeof w[0].rot);
 		}
 		static const struct { int y; const char *k, *def; } ck[5] = { { 267, "t_gslocations", "Torres de guardia" }, { 303, "t_animals", "Animales" },
-			{ 339, "t_mitems", "Objetos mágicos" }, { 376, "t_cliffs", "Montañas (no disponible)" }, { 411, "t_gateways", "Puertas mágicas" } };
+			{ 339, "t_mitems", "Objetos mágicos" }, { 376, "t_cliffs", "Montañas" }, { 411, "t_gateways", "Puertas mágicas" } };
 		for (int i = 0; i < 5; ++i) {
 			wd_add(w, &n, (TzRect){ 564, ck[i].y, 30, 30 }, txt(m, "sp_setuprnd", ck[i].k, ck[i].def, t, sizeof t), E_CHECK, A_ALEAT_CHECK, i);
-			ultimo(w, n)->marcado = i == 0 ? al->guardado : i == 1 ? al->animais : i == 2 ? al->itens : i == 3 ? 0 : al->portas;
-			ultimo(w, n)->ok = i != 3;   /* las montañas no las genera el programa (apagadas en ReTzar) */
+			ultimo(w, n)->marcado = i == 0 ? al->guardado : i == 1 ? al->animais : i == 2 ? al->itens : i == 3 ? al->penhascos : al->portas;
 		}
+		/* D470: «rendición de la IA» (0x4c92b0), si los datos la traen */
+		if (m->rendicao_oferecida) { wd_add(w, &n, (TzRect){ 471, 427, 32, 32 }, "", E_AREA, A_ALEAT_RENDIR, 0); ultimo(w, n)->marcado = al->rendicao; }
 		wd_add(w, &n, (TzRect){ 268, 539, 30, 30 }, txt(m, "sp_setuprnd", "t_fog", "Sin niebla", t, sizeof t), E_CHECK, A_CHECK, 0);
 		ultimo(w, n)->marcado = al->c.sem_nevoa;
 		wd_add(w, &n, (TzRect){ 268, 569, 30, 30 }, txt(m, "sp_setuprnd", "t_expolre", "Explorar", t, sizeof t), E_CHECK, A_CHECK, 1);
@@ -428,6 +515,20 @@ static int construir(TzMenu *m, Wd *w)
 		wd_boton(w, &n, (TzRect){ 556, 459, 210, 27 }, txt(m, "sp_setuprnd", "newmap", "OTRO MAPA", t, sizeof t), A_ALEAT_OUTRO, 0, "SCREENS/S_SINGLERND/BTN", 2, 1);
 		wd_boton(w, &n, (TzRect){ 556, 499, 210, 27 }, txt(m, "sp_setuprnd", "play", "JUGAR", t, sizeof t), A_ALEAT_JOGAR, 0, "SCREENS/S_SINGLERND/BTN", 2, 1);
 		wd_boton(w, &n, (TzRect){ 556, 554, 210, 27 }, txt(m, "sp_setuprnd", "back", "VOLVER", t, sizeof t), A_VOLTAR, 0, "SCREENS/S_SINGLERND/BTN", 2, 1);
+		if (m->escolher_ia > 0) {
+			/* D470: «COMPORTAMIENTO IA» (menu.rs choose_ai_widgets), la única que atiende mientras está abierta: una capa que
+			 * tapa la pantalla (dibuja el fondo de la ventana), la lista y «Aceptar» y «Cancelar» */
+			wd_add(w, &n, (TzRect){ -400, -300, 1600, 1200 }, txt(m, "chooseai", "title", "COMPORTAMIENTO IA", t, sizeof t), E_AREA, A_NADA, 0x300);
+			int pr = m->rolo > m->nia - IA_FILAS ? m->nia - IA_FILAS : m->rolo;
+			if (pr < 0) pr = 0;
+			for (int k = pr; k < m->nia && k < pr + IA_FILAS; ++k) {
+				const char *nm = k ? m->ia_nome[k] : txt(m, "chooseai", "default", "Por defecto", t2, sizeof t2);
+				wd_add(w, &n, (TzRect){ IA_X + 46, IA_Y + 88 + (k - pr) * ROW, 377, ROW }, nm, E_ITEM, A_ALEAT_IA_ITEM, k);
+				ultimo(w, n)->marcado = m->ia_sel == k;
+			}
+			wd_boton(w, &n, (TzRect){ IA_X + 47, IA_Y + 254, 189, 27 }, txt(m, "chooseai", "ok", "ACEPTAR", t, sizeof t), A_ALEAT_IA_OK, 0, "SCREENS/D_CHOOSEAI/BTN", 2, 1);
+			wd_boton(w, &n, (TzRect){ IA_X + 261, IA_Y + 254, 189, 27 }, txt(m, "chooseai", "cancel", "CANCELAR", t, sizeof t), A_ALEAT_IA_CANCELAR, 0, "SCREENS/D_CHOOSEAI/BTN", 2, 1);
+		}
 		break;
 	}
 	case TZ_MN_CARREGAR: case TZ_MN_GUARDAR: {
@@ -501,11 +602,12 @@ static int construir(TzMenu *m, Wd *w)
 		wd_boton(w, &n, (TzRect){ 155, 258, 189, 27 }, txt(m, "general", "close", "Cerrar", t, sizeof t), A_VOLTAR, 0, "SCREENS/D_MSGWND/BTN", 2, 1);
 		break;
 	case TZ_MN_PARTIDA: {
-		static const struct { const char *k, *def; int dy, acao, arg; } it[7] = {
+		static const struct { const char *k, *def; int dy, acao, arg; } it[8] = {
 			{ "inst", "INSTRUCCIONES", 46, A_IR, TZ_MN_AJUDA }, { "load", "CARGAR PARTIDA", 86, A_IR, TZ_MN_CARREGAR }, { "save", "GUARDAR PARTIDA", 126, A_IR, TZ_MN_GUARDAR },
 			{ "opti", "OPCIONES", 166, A_IR, TZ_MN_OPCOES }, { "rest", "REINICIAR", 206, A_REINICIAR, 0 }, { "quit", "SALIR", 246, A_IR, TZ_MN_SAIR },
+			{ "surr", "RENDIRSE", 286, A_RENDIR, 0 },
 			{ "back", "VOLVER AL JUEGO", 326, A_CONTINUAR, 0 } };
-		for (int i = 0; i < 7; ++i)
+		for (int i = 0; i < 8; ++i)
 			wd_boton(w, &n, (TzRect){ 63, it[i].dy, 150, 25 }, txt(m, "menu", it[i].k, it[i].def, t, sizeof t), it[i].acao, it[i].arg, "SCREENS/D_MENU/BTN BACK", 4, it[i].acao != A_NADA);
 		break;
 	}
@@ -593,7 +695,7 @@ static void executar(TzMenu *m, const Wd *x)
 	}
 	case A_ALEAT_CHECK: {
 		TzMnAleat *a = &m->aleat;
-		switch (x->arg) { case 0: a->guardado ^= 1; break; case 1: a->animais ^= 1; break; case 2: a->itens ^= 1; break; case 4: a->portas ^= 1; break; default: break; }
+		switch (x->arg) { case 0: a->guardado ^= 1; break; case 1: a->animais ^= 1; break; case 2: a->itens ^= 1; break; case 3: a->penhascos ^= 1; break; case 4: a->portas ^= 1; break; default: break; }
 		m->aleat_mudou = 1;
 		break;
 	}
@@ -601,6 +703,25 @@ static void executar(TzMenu *m, const Wd *x)
 		if (x->arg >= 0 && x->arg < 8) { m->aleat.c.equipe[x->arg] = (m->aleat.c.equipe[x->arg] + 1) % 5; m->aleat_mudou = 1; }
 		break;
 	case A_ALEAT_AMPLIAR: m->ampliada = 1; break;
+	case A_ALEAT_IA:   /* D470: abrir la ventana con el guion de la fila marcado */
+		if (x->arg > 0 && x->arg < 8) {
+			m->escolher_ia = x->arg; m->ia_sel = 0; m->rolo = 0;
+			for (int k = 1; k < m->nia; ++k) if (!strcasecmp(m->ia_fich[k], m->aleat.ia[x->arg])) m->ia_sel = k;
+			m->sobre = m->prem = -1;
+		}
+		break;
+	case A_ALEAT_IA_ITEM: if (x->arg >= 0 && x->arg < m->nia) m->ia_sel = x->arg; break;
+	case A_ALEAT_IA_OK:
+		if (m->escolher_ia > 0 && m->escolher_ia < 8 && m->ia_sel >= 0 && m->ia_sel < m->nia) {
+			char g[33];
+			snprintf(g, sizeof g, "%s", m->ia_fich[m->ia_sel]);
+			memcpy(m->aleat.ia[m->escolher_ia], g, sizeof g);
+			m->aleat_mudou = 1;
+		}
+		m->escolher_ia = 0; m->rolo = 0; m->sobre = m->prem = -1;
+		break;
+	case A_ALEAT_IA_CANCELAR: m->escolher_ia = 0; m->rolo = 0; m->sobre = m->prem = -1; break;
+	case A_ALEAT_RENDIR: m->aleat.rendicao ^= 1; m->aleat_mudou = 1; break;
 	case A_ALEAT_OUTRO: m->aleat.semente = semente_siguiente(m->aleat.semente); m->aleat_mudou = 1; break;
 	case A_ALEAT_JOGAR:
 		m->acao = TZ_MR_JOGAR; m->res_aleat = m->aleat; m->res_cfg = m->aleat.c; m->res_indice = -1;
@@ -620,6 +741,7 @@ static void executar(TzMenu *m, const Wd *x)
 	case A_SIM_SAIR: m->acao = TZ_MR_SAIR; break;
 	case A_CONTINUAR: m->acao = TZ_MR_CONTINUAR; break;
 	case A_REINICIAR: m->acao = TZ_MR_REINICIAR; break;
+	case A_RENDIR: m->acao = TZ_MR_RENDIR; break;
 	default: break;
 	}
 }
@@ -656,6 +778,7 @@ void tz_menu_entrada(TzMenu *m, const TzUiEntrada *e)
 		for (int i = 0; i < m->nmissoes; ++i) nm += m->missoes[i].campanha == m->campanha_sel;
 		int max = m->tela == TZ_MN_MAPAS ? m->nmapas - 15 : m->tela == TZ_MN_CARREGAR || m->tela == TZ_MN_GUARDAR ? m->nguardados + (m->tela == TZ_MN_GUARDAR) - SAVE_ROWS
 		        : m->tela == TZ_MN_CAMPANHAS ? nm - 9 : m->tela == TZ_MN_AJUDA ? m->najuda - 9 : 0;
+		if (m->tela == TZ_MN_ALEAT && m->escolher_ia > 0) max = m->nia - IA_FILAS;
 		m->rolo -= e->delta;
 		if (m->rolo > max) m->rolo = max;
 		if (m->rolo < 0) m->rolo = 0;
@@ -668,7 +791,8 @@ void tz_menu_entrada(TzMenu *m, const TzUiEntrada *e)
 			if (e->tecla == TZ_TC_BORRAR && l) { m->nome_guardar[l - 1] = 0; return; }
 			if (e->tecla == TZ_TC_ENTER) { m->editando = 0; return; }
 		}
-		if (e->tecla == TZ_TC_ESC) voltar(m);
+		if (e->tecla == TZ_TC_ESC && m->tela == TZ_MN_ALEAT && m->escolher_ia > 0) { m->escolher_ia = 0; m->rolo = 0; }
+		else if (e->tecla == TZ_TC_ESC) voltar(m);
 		else if (e->tecla == TZ_TC_ENTER) {   /* el botón principal de la pantalla */
 			for (int i = 0; i < n; ++i)
 				if (w[i].est == E_BOTAO && w[i].ok && (w[i].acao == A_JOGAR || w[i].acao == A_ALEAT_JOGAR || w[i].acao == A_CAMPANHA_JOGAR || w[i].acao == A_CARREGAR || w[i].acao == A_GUARDAR || w[i].acao == A_SIM_SAIR)) { executar(m, &w[i]); break; }
@@ -938,6 +1062,23 @@ void tz_menu_desenhar(TzMenu *m, TzTela *t)
 					tz_tela_preencher(t, r, 0xff1e1c16); tz_tela_moldura(t, r, 0xff907850);
 					tz_ui_fonte_caixa(t, &s->f10, r, b, 0xd8c070, 1);
 				}
+			}
+			else if (x->acao == A_ALEAT_IA) {   /* D470: COMMON/AI, dos cuadros en horizontal: apagado y encendido */
+				const TzImg *ai = tz_ui_img(s, "COMMON/AI", -1);
+				int fw = ai ? ai->w / 2 : 0;
+				if (ai && fw > 0) tz_tela_imagem(t, ai, (TzRect){ x->marcado == 1 ? fw : 0, 0, fw, ai->h }, r.x, r.y, 0);
+				else { tz_tela_preencher(t, r, x->marcado == 1 ? 0xff605020 : 0xff1e1c16); tz_tela_moldura(t, r, 0xff907850); tz_ui_fonte_caixa(t, &s->f10, r, "IA", 0xd8c070, 1); }
+			} else if (x->acao == A_ALEAT_RENDIR) {   /* D470: AIRESIGN, 2x2: bandera blanca (permitida) o espadas; la 2.ª columna bajo el ratón */
+				const TzImg *rs = tz_ui_img(s, "AIRESIGN", -1);
+				int fw = rs ? rs->w / 2 : 0, fh = rs ? rs->h / 2 : 0;
+				if (rs && fw > 0 && fh > 0) tz_tela_imagem(t, rs, (TzRect){ sobre ? fw : 0, x->marcado == 1 ? 0 : fh, fw, fh }, r.x, r.y, 0);
+				else { tz_tela_preencher(t, r, x->marcado == 1 ? 0xffd0d0c0 : 0xff602018); tz_tela_moldura(t, r, 0xff907850); }
+			} else if (x->arg == 0x300) {   /* D470: el fondo de «COMPORTAMIENTO IA» (D_CHOOSEAI/BACK, 500x320) y su título */
+				tz_tela_preencher(t, (TzRect){ 0, 0, t->w, t->h }, 0x80000000);
+				const TzImg *bk = tz_ui_img(s, "SCREENS/D_CHOOSEAI/BACK", -1);
+				if (bk) tz_tela_imagem(t, bk, (TzRect){ 0, 0, 0, 0 }, ox + IA_X, oy + IA_Y, 0);
+				else { tz_tela_preencher(t, (TzRect){ ox + IA_X, oy + IA_Y, 500, 320 }, 0xff282018); tz_tela_moldura(t, (TzRect){ ox + IA_X, oy + IA_Y, 500, 320 }, 0xff907850); }
+				tz_ui_fonte_caixa(t, &s->f14b, (TzRect){ ox + IA_X + 44, oy + IA_Y + 48, 407, 17 }, x->rot, 0xe8d890, 1);
 			}
 			else if (x->arg == 1) tz_tela_preencher(t, r, 0xff1e1c16);
 			else if (x->arg >= 0x100) tz_tela_preencher(t, r, 0xff000000u | s->cores[(x->arg - 0x100) & 7]);

@@ -25,6 +25,10 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from qemu import Maquina, verificar, ler_ppm, SAIDA  # noqa: E402
+from qemu import BUILD  # noqa: E402
+
+# La orden git (libgit2) solo entra si se bajaron sus fuentes (tools/git_fuentes.sh).
+TEM_GIT = any(os.path.exists(os.path.join(BUILD, d, "git")) for d in ("apps/raiz/bin", "rootfs/bin"))
 
 LATERAL, Y_ORDENS, Y_LISTA = 140, 40, 98
 LISTA_X = LATERAL + 6
@@ -289,14 +293,18 @@ def principal():
         m.tecla("esc")
         time.sleep(0.5)
 
-        # ---- (9) git: la rama y el estado
-        marca = len(m.serial())
-        ir(m, "/tmp/h420g")
-        esperar(m, r"arquivos: git rama \w+ en /tmp/h420g", 20, desde=marca)
-        verificar(True, "en una carpeta con repositorio de git, Archivos lee la rama y el estado")
-        time.sleep(0.8)
-        img = tela(m, "git")
-        m.captura("H420-13-git")
+        # ---- (9) git: la rama y el estado. Solo si la imagen lleva la orden git (libgit2: sin
+        # tools/git_fuentes.sh el make la salta y Archivos no puede leer la rama).
+        if TEM_GIT:
+            marca = len(m.serial())
+            ir(m, "/tmp/h420g")
+            esperar(m, r"arquivos: git rama \w+ en /tmp/h420g", 20, desde=marca)
+            verificar(True, "en una carpeta con repositorio de git, Archivos lee la rama y el estado")
+            time.sleep(0.8)
+            img = tela(m, "git")
+            m.captura("H420-13-git")
+        else:
+            print("  aviso: la imagen no lleva git (faltan sus fuentes: tools/git_fuentes.sh); se salta el punto 9", flush=True)
 
         # ---- Inicio con recientes
         marca = len(m.serial())

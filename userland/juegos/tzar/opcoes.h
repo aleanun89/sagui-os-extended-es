@@ -25,7 +25,7 @@ typedef struct {
 	int painel_direita;      /* el panel de la partida a la derecha (LAYOUT800R) */
 	int cursor_jogo;         /* 1 = los cursores del juego (por defecto) */
 	int volume_som, volume_musica;   /* 0-100 */
-	char aleat[240];         /* últimas opciones de la pantalla del mapa aleatorio (línea «ALEAT2 ...» de ui_menu.c), vacía si no hay */
+	char aleat[640];         /* últimas opciones de la pantalla del mapa aleatorio (línea «ALEAT2 ...» de ui_menu.c), vacía si no hay */
 } TzOpcoes;
 
 void tz_opcoes_padrao(TzOpcoes *o);

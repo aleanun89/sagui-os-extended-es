@@ -97,7 +97,7 @@ int tz_ui_iniciar(TzUi *u, TzUiSkin *s, TzMundo *m, const TzBiblioteca *bib, int
 {
 	memset(u, 0, sizeof *u);
 	u->skin = s; u->m = m; u->bib = bib;
-	u->botao_sobre = -1; u->sel_menu_obj = TZ_NENHUM; u->sel.clique_obj = TZ_NENHUM;
+	u->pergaminho_pedido = TZ_NENHUM; u->botao_sobre = -1; u->sel_menu_obj = TZ_NENHUM; u->sel.clique_obj = TZ_NENHUM;
 	u->w = w < 800 ? 800 : w; u->h = h < 600 ? 600 : h;
 	calcular_rects(u);
 	fazer_fundo(u);
@@ -285,6 +285,7 @@ void tz_ui_botao_premir(TzUi *u, int i, int mods)
 	const TzUiBotao *b = &u->botoes[i];
 	const TzOrdemDef *d = b->def;
 	if (!b->ok) { tz_ui_aviso(u, "%s", b->motivo[0] ? b->motivo : b->rotulo); return; }
+	if (tz_ui_neg_acao(u, d->acao, d->chave, d->submenu)) return;   /* taberna, dados, préstamos, comercio, cruzada... */
 	if (b->submenu[0]) {
 		if (u->npilha < TZ_UI_PILHA) {
 			char sub[32];
@@ -415,6 +416,10 @@ static void vista_selecao(TzUi *u, TzTela *t)
 	if (tz_ui_icone_classe(u->skin, u->bib, o->classe, o->civ, o->cor, &ic, &src)) tz_tela_imagem(t, ic, src, ret.x, ret.y, 0);
 	else tz_tela_preencher(t, ret, 0xff303030);
 	if (moldura) tz_tela_imagem(t, moldura, (TzRect){ 0, 0, 0, 0 }, ret.x, ret.y, 0);
+	if (tz_obj_unidade(o) && o->dono == m->jogador && tz_mundo_capacidade_itens(m, u->sel.id[0])) {
+		snprintf(b, sizeof b, "Obj %d/%d", o->ator ? o->ator->nitens : 0, tz_mundo_capacidade_itens(m, u->sel.id[0]));
+		tz_ui_fonte_texto(t, f, v.x + 3, v.y + 54, b, COR_BRANCO);
+	}
 	if (o->vida_max > 0) {
 		snprintf(b, sizeof b, "%d/%d", (int)o->vida, (int)o->vida_max);
 		tz_ui_fonte_texto(t, f, v.x + 3, v.y + 66, b, COR_TEXTO);
@@ -423,7 +428,8 @@ static void vista_selecao(TzUi *u, TzTela *t)
 	/* dos líneas: dueño y nombre de la clase (o del héroe) */
 	const TzReinoEstado *rk = o->dono <= TZ_REINOS ? &m->reino[o->dono] : NULL;
 	if (rk && rk->nome[0]) tz_ui_fonte_texto(t, f, v.x + 3, v.y + 93, rk->nome, COR_BRANCO);
-	const char *nome = tz_ui_txt(u->skin, "objects", tz_classes[o->classe], tz_classes[o->classe]);
+	const char *nome = tz_heroi_nome(m, o);
+	if (!nome) nome = tz_ui_txt(u->skin, "objects", tz_classes[o->classe], tz_classes[o->classe]);
 	caixa_texto(u, t, f, (TzRect){ v.x + 3, v.y + 108, 113, 15 }, nome, COR_BRANCO, 0);
 	/* estadísticas (hud.rs object_statistics) */
 	int k = 0;
@@ -621,6 +627,22 @@ void tz_ui_desenhar_marcas(TzUi *u, TzTela *t)
 			TzRect r = { mr.x + o->cx * TZ_CASILLA - u->camx, mr.y + o->cy * TZ_CASILLA - u->camy, w * TZ_CASILLA, h * TZ_CASILLA };
 			tz_tela_moldura(t, r, cor);
 			if (o->vida_max > 0) barra_vida(t, (TzRect){ r.x + 2, r.y - 6, r.w - 4, 4 }, o->vida, o->vida_max);
+		}
+	}
+	/* v8.5.6: la bandera de reunión de los edificios propios elegidos (animada, con el color del reino) y el acuse de la última orden */
+	for (int i = 0; i < u->sel.n; ++i) {
+		const TzObj *o = &m->obj[u->sel.id[i]];
+		if (!tz_obj_vivo(o) || !tz_obj_edificio(o) || o->dono != m->jogador || !o->ator || o->ator->reuniao[0] < 0 || o->ator->reuniao[1] < 0) continue;
+		int sx = mr.x + o->ator->reuniao[0] * TZ_CASILLA + TZ_CASILLA / 2 - u->camx, sy = mr.y + o->ator->reuniao[1] * TZ_CASILLA + TZ_CASILLA / 2 - u->camy;
+		if (tz_rect_dentro(mr, sx, sy)) tz_ui_cursor_indicador(u->skin, t, "gath_flag", o->cor, u->agora_ms, 1, sx, sy);
+	}
+	if (u->fb.on) {
+		uint32_t idade = u->agora_ms - u->fb.ms;
+		int sx = mr.x + u->fb.px - u->camx, sy = mr.y + u->fb.py - u->camy;
+		if (idade >= 1200 || !tz_rect_dentro(mr, sx, sy)) { if (idade >= 1200) u->fb.on = 0; }
+		else {
+			if (u->fb.bandeira) tz_ui_cursor_indicador(u->skin, t, "wp_flag", -1, idade, 0, sx, sy);
+			if (idade < 600) tz_ui_cursor_indicador(u->skin, t, "cursor", -1, idade, 0, sx, sy);
 		}
 	}
 	if (u->arrasta) {

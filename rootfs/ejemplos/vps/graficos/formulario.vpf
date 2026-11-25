@@ -1,0 +1,66 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Gráficos'
+  ancho = 720
+  alto = 520
+control Grafico Grafico1
+  x = 8
+  y = 8
+  ancho = 350
+  titulo = 'Ventas por mes'
+  series = ['2025: 120; 150; 90; 180; 140; 200', '2026: 150; 170; 130; 210; 190; 240']
+  categorias = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun']
+  formato = '#,##0'
+control Grafico Grafico2
+  x = 366
+  y = 8
+  ancho = 340
+  tipo = 'lineas'
+  titulo = 'Evolución'
+  series = ['Visitas: 20; 35; 30; 50; 45; 70; 65', 'Altas: 5; 12; 9; 20; 18; 30; 28']
+  categorias = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
+  suave = True
+control Grafico Grafico3
+  x = 8
+  y = 256
+  ancho = 350
+  alto = 220
+  tipo = 'tarta'
+  titulo = 'Reparto por zona'
+  series = ['Reparto: 40; 25; 20; 15']
+  categorias = ['Norte', 'Sur', 'Este', 'Oeste']
+  leyenda = 'derecha'
+  valores = True
+  duracion = 2500
+control Grafico Grafico4
+  x = 366
+  y = 256
+  ancho = 340
+  alto = 180
+  tipo = 'area'
+  titulo = 'En vivo'
+  series = ['Carga: 10']
+  leyenda = 'ninguna'
+  puntos = False
+  ventana = 30
+  minimo = '0'
+  maximo = '100'
+control Etiqueta Etiqueta1
+  x = 366
+  y = 444
+  ancho = 340
+  texto = 'Pulsa una barra, un punto o una porción'
+control Boton Boton1
+  x = 366
+  y = 468
+  ancho = 100
+  texto = 'Exportar'
+control Boton Boton2
+  x = 474
+  y = 468
+  ancho = 120
+  texto = 'Nuevos datos'
+control Temporizador Temporizador1
+  x = 640
+  y = 468
+  intervalo = 400

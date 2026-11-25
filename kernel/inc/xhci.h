@@ -43,6 +43,13 @@ void xhci_liberar(usb_disp_t *d);
 /* Transferencias: bytes transferidos o USB_ERRO_*. */
 int  xhci_controle(usb_disp_t *d, const uint8_t setup[8], void *dados, uint16_t tam, bool entrada);
 int  xhci_bulk(usb_disp_t *d, bool entrada, void *dados, uint32_t tam);
+/* D468: usb_bulk_cadeia por el xHCI (un TD por parte, todos en el anillo antes del timbre) y el
+ * tamaño máximo de una transferencia bulk. */
+int  xhci_bulk_cadeia(usb_disp_t *d, bool entrada, usb_parte_t *p, int n);
+uint32_t xhci_bulk_max(void);
+/* D468: pone a cero la alternancia o la secuencia de un endpoint bulk en el controlador (tras el
+ * CLEAR_FEATURE que la pone a cero en el dispositivo). No hace nada si el disp. no es de un xHCI. */
+void xhci_reiniciar_ep(usb_disp_t *d, bool entrada);
 /* Interrupción de entrada (HID): se arma una lectura y se consulta sin esperar
  * (>0 bytes, 0 nada todavía, <0 error). xhci_int_ler vuelve a armarla. */
 int  xhci_int_armar(usb_disp_t *d, uint8_t ep, uint16_t tam);

@@ -12,8 +12,7 @@ manejadores sin parámetros.
   completos, herramientas y errores frecuentes.
 - Ejemplos: `/ejemplos/vps/` (veintiún proyectos y `hola.py`, una aplicación solo con código).
 - Decisiones D297 (el entorno), D299 (la versión avanzada) y D303 (componentes nuevos y autocompletado de
-  sintaxis), mejoras 123 y 124, pruebas `tests/h297_visualpython.py`, `tests/h299_vps_avanzado.py` y
-  `tests/h303_vps_manual.py`.
+  sintaxis), mejoras 123 y 124.
 
 ## Tutorial de 5 minutos: una calculadora
 
@@ -57,6 +56,13 @@ manejadores sin parámetros.
 | Formulario (centro) | Rejilla de puntos de 8 píxeles. Clic en un control: lo selecciona; arrastrarlo lo mueve; los 8 **tiradores** lo redimensionan; Mayús o Ctrl+clic suma a la selección; un recuadro arrastrado en el vacío selecciona lo que encierra. |
 | Propiedades (derecha) | Una fila por propiedad. Las de texto o número se editan en el cuadro de abajo (Intro aplica); las lógicas se alternan con un clic; las de opciones y los colores abren un menú; `elementos` abre un cuadro con una línea por elemento. Con varios controles seleccionados, el cambio vale para todos. |
 | Código (F7, o doble clic en un control) | Editor de Python con resaltado y, encima, los combos **Control** y **Evento**: elegir uno crea `def Control_evento():` si no existe y lleva el cursor allí. El doble clic en un control abre su evento por defecto (`click`, `cambio`, `seleccion`, `tic`...); en el formulario, `Formulario_cargar`. |
+
+**Explorador del proyecto (v8.4.1, D315).** **Ver > Explorador** (o **Ctrl+R**) muestra, encima de las propiedades, un árbol
+Proyecto > Formularios > controles (con Marcos, páginas de las Pestanas y controles sin ventana) y, al final, los manejadores de
+`codigo.py`. Clic: selecciona el control en el diseñador (cambia de formulario y de pestaña); doble clic: abre su evento por defecto
+(o salta a la línea del manejador); clic derecho: ver código, renombrar (con la refactorización de D299), eliminar, traer al frente,
+enviar atrás y agregar formulario; **F2** y **Supr** renombran y eliminan; el cuadro **Buscar** filtra por nombre. Se mantiene al
+día al colocar, borrar, renombrar y deshacer.
 
 Teclas: **Supr** borra, **Ctrl+C/X/V** copia, corta y pega (con los hijos de un Marco), **Ctrl+A**
 selecciona todo, las **flechas** mueven el control (una rejilla; con Ctrl, un píxel), **Ctrl+Z** y
@@ -272,12 +278,12 @@ Los constructores admiten por posición `(padre, texto, x, y, ancho, alto)` y el
 
 | Control | Propiedades propias | Eventos | Notas |
 | --- | --- | --- | --- |
-| `Formulario(texto, ancho, alto)` | `texto` (título), `ancho`, `alto`, `color`, `redimensionable`, `resultado`, `datos` | `cargar`, `cerrar`, `tecla`, `click`, `redimensionar` | `mostrar(modal=False, datos=None)`, `ocultar()`, `cerrar(resultado=None)`. Los controles son atributos (`Formulario2.Boton1`). En `Formulario_cerrar`, devolver `False` impide cerrar |
+| `Formulario(texto, ancho, alto)` | `texto` (título), `ancho`, `alto`, `color`, `redimensionable`, `resultado`, `datos`, `cancelar` | `cargar`, `cerrando`, `cerrado`, `redimensionar`, `activar`, `desactivar`, `tecla`, `click`, `cerrar` | `mostrar(modal=False, datos=None)`, `ocultar()`, `cerrar(resultado=None)`. Los controles son atributos (`Formulario2.Boton1`). En `Formulario_cerrando`, `Formulario.cancelar = True` impide cerrar (el antiguo `cerrar` devolviendo `False` sigue valiendo). No hay `soltar_archivo`: el sistema aún no tiene arrastrar y soltar archivos |
 | `Etiqueta` | `texto`, `alineacion` (izquierda, centro, derecha) | `click` | |
 | `Boton` | `texto`, `defecto` (Intro lo pulsa) | `click` | `pulsar()` simula la pulsación |
-| `CuadroTexto` | `texto`, `multilinea`, `clave` (muestra `*`), `solo_lectura` | `cambio`, `tecla`, `click` | `multilinea` se fija al crearlo |
-| `Casilla` | `texto`, `valor` (`True`/`False`) | `click` | |
-| `Opcion` | `texto`, `valor`, `grupo` | `click` | Las del mismo `grupo` en el mismo formulario o Marco son excluyentes |
+| `CuadroTexto` | `texto`, `multilinea`, `clave` (muestra `*`), `solo_lectura` | `cambio`, `tecla`, `click`, `intro`, `validar` | `multilinea` se fija al crearlo. `validar` salta al perder el foco; con `CuadroTexto1.cancelar = True` el foco vuelve al cuadro |
+| `Casilla` | `texto`, `valor` (`True`/`False`) | `click`, `cambio` | |
+| `Opcion` | `texto`, `valor`, `grupo` | `click`, `cambio` | Las del mismo `grupo` en el mismo formulario o Marco son excluyentes |
 | `Lista` | `elementos`, `seleccion` (índice o -1), `valor` (texto elegido, solo lectura) | `seleccion`, `doble_click`, `click` | `agregar(t)`, `quitar(i)`, `limpiar()`, `contar()` |
 | `Combo` | `elementos`, `texto`, `editable`, `seleccion` | `seleccion`, `cambio` | `agregar(t)`, `limpiar()` |
 | `Imagen` | `archivo` (BMP, PNG, PPM), `ajustar` | `click` | `ajustar` reduce por un entero para que quepa |
@@ -287,7 +293,7 @@ Los constructores admiten por posición `(padre, texto, x, y, ancho, alto)` y el
 | `Temporizador` | `intervalo` (ms), `activo` | `tic` | Sin ventana: dispara `tic` cada `intervalo` mientras `activo` |
 | `Menu` | `elementos`: una línea por título (sin sangría) y por opción (con sangría, `Abrir\|MnuAbrir`; `-` es una línea) | cada opción: `MnuAbrir_click` | Barra de menús del formulario |
 | `Pestanas` | `elementos` (títulos), `seleccion` (página que se ve), `valor` (su título) | `cambio`, `click` | Contenedor con páginas: los controles hijos eligen página con `pagina` |
-| `Tabla` | `columnas`, `filas` (listas de celdas; en el diseñador una línea `a;b;c` por fila), `seleccion`, `editable`, `ordenable`, `valor` (fila elegida), `columna` | `seleccion`, `cambio`, `doble_click`, `click` | Clic en la cabecera ordena; doble clic edita. `agregar(fila)`, `quitar(i)`, `limpiar()`, `contar()`, `celda(f, c)`, `poner_celda(f, c, v)`, `ordenar(col, descendente)`, `cargar_csv(ruta)`, `guardar_csv(ruta)` |
+| `Tabla` | `columnas`, `filas` (listas de celdas; en el diseñador una línea `a;b;c` por fila), `seleccion`, `editable`, `ordenable`, `valor` (fila elegida), `columna`, `fila`, `descendente` | `seleccion`, `cambio`, `doble_click`, `click`, `celda_cambio` (`fila`, `columna`), `ordenar` (`columna`, `descendente`) | Clic en la cabecera ordena; doble clic edita. `agregar(fila)`, `quitar(i)`, `limpiar()`, `contar()`, `celda(f, c)`, `poner_celda(f, c, v)`, `ordenar(col, descendente)`, `cargar_csv(ruta)`, `guardar_csv(ruta)` |
 | `Numerico` | `valor`, `minimo`, `maximo`, `paso`, `decimales` | `cambio` | Cuadro con flechas; `valor` siempre queda entre el mínimo y el máximo |
 | `Lienzo` | `raton_x`, `raton_y` (solo lectura) | `click`, `arrastrar`, `soltar`, `mover` | `linea`, `rectangulo`, `circulo`, `texto`, `imagen`, `limpiar` |
 | `Enlace` | `texto`, `url` | `click` | Etiqueta azul y subrayada |
@@ -295,6 +301,21 @@ Los constructores admiten por posición `(padre, texto, x, y, ancho, alto)` y el
 | `SelectorColor` | `valor` (`0xRRGGBB`) | `cambio`, `click` | Abre una paleta; `elegir()` la abre por código |
 | `Reloj` | `intervalo`, `activo`; solo lectura: `anio`, `mes`, `dia`, `hora`, `minuto`, `segundo`, `dia_semana`, `fecha`, `hora_texto`, `nombre_dia`, `nombre_mes` | `tic` | Sin ventana. `ahora()`, `formatear("%d/%m/%Y %H:%M")` |
 | `Archivo` | `ruta`, `separador` | | Sin ventana. `existe()`, `leer()`, `escribir(t)`, `agregar(t)`, `leer_lineas()`, `escribir_lineas(l)`, `leer_csv()`, `escribir_csv(filas)`, `borrar()` |
+| `Calendario` | `valor` (o `fecha`, «AAAA-MM-DD»), `anio`, `mes`, `dia`, `minimo` y `maximo` («AAAA-MM-DD», vacío = sin límite) | `cambio`, `doble_click` | Un mes con flechas: `<` `>` cambian de mes y `<<` `>>` de año (también Re Pág y Av Pág); un clic elige el día, un doble clic dispara `doble_click`, las flechas del teclado mueven el día. Los días fuera de `minimo`/`maximo` salen en gris y no se eligen. `hoy()`, `ir_a(anio, mes)`, `mes_visible()`, `en_rango(fecha)` |
+| `SelectorFecha` | `valor` («AAAA-MM-DD») | `cambio` | Cuadro con la fecha y un botón que despliega un calendario; `desplegar()` |
+| `Arbol` | `nodos` (una línea por nodo, dos espacios de sangría por nivel, `texto\|clave`), `expandido` (si los nodos empiezan abiertos), `seleccion` (índice en el orden de recorrido, -1 si ninguno); `clave` y `valor` (texto) del nodo elegido; `nodo` (el último abierto o cerrado) | `seleccion`, `click`, `doble_click`, `expandir`, `contraer` | Vista en árbol. `agregar(padre, texto, clave=None)` (padre `None` = primer nivel; devuelve la clave), `quitar(clave)` (con sus hijos), `limpiar()`, `expandir(clave=None)`, `contraer(clave=None)`, `alternar(clave)`, `elegir(clave)` (sin eventos), `contar()`, `claves()`, `existe(clave)`, `texto_de(clave)`, `padre_de(clave)`, `hijos(clave=None)`, `ruta(clave=None)` («Trabajo/Reuniones»). Un clic en el cuadrito `[+]`/`[-]` abre o cierra; con el teclado, arriba/abajo recorren, derecha/izquierda abren, cierran o suben al padre, Intro dispara `doble_click` |
+| `Notificacion` | `texto`, `tipo` (`info`, `exito`, `aviso`, `error`), `duracion` (ms; 0 = hasta cerrarla), `posicion` (`abajo_derecha`, `arriba_derecha`, `abajo_centro`, `arriba_centro`), `titulo`, `accion` (texto de un botón dentro del aviso); solo lectura: `motivo` | `click`, `accion`, `cerrado` | Sin ventana: `mostrar(texto=None)` enseña un toast con esas propiedades; `cerrar()`. `click` salta al pulsar el aviso, `accion` al pulsar su botón y `cerrado` al irse (`motivo`: `tiempo`, `click`, `boton`, `accion` o `api`) |
+| `Grafico` | `tipo` (`lineas`, `area`, `barras`, `barras_h`, `tarta`, `anillo`, `dispersion`, `histograma`, `velas`), `titulo`, `series` (una línea por serie: `nombre: 1; 2; 3`; en dispersión `x,y[,tamaño]`; en velas cuatro series: apertura, máximo, mínimo, cierre), `categorias`, `leyenda` (`ninguna`, `abajo`, `arriba`, `derecha`, `izquierda`), `rejilla`, `animado`, `apilado`, `suave`, `puntos`, `valores`, `formato` (`auto`, `0.0`, `#,##0`, `0%`, `$0.00`...), `colores`, `eje_x`, `eje_y`, `ventana`, `duracion`, `hueco`, `bins`, `minimo`, `maximo`; datos del evento: `serie`, `indice`, `valor`, `categoria`, `nombre_serie`, `oculta` | `click`, `pasar`, `leyenda` | Gráficos con animación, tooltip y leyenda interactiva. `agregar_serie(nombre, datos=None, color=None, xs=None, tam=None)`, `poner_datos(datos, serie=0)`, `agregar_punto(valor, serie=0)` (en vivo), `limpiar()`, `ocultar_serie(i)`, `serie_oculta(i)`, `reiniciar_animacion()`, `valores_de(i)`, `exportar(ruta, ancho=None, alto=None)` (.png o .bmp), `tooltip()` |
+
+### Eventos comunes (v8.4.1, D315)
+
+Todo control con ventana tiene además: `doble_click`, `raton_abajo`, `raton_arriba`, `raton_entra`, `raton_sale`, `raton_mueve`,
+`rueda`, `foco_gana`, `foco_pierde`, `tecla_abajo`, `tecla_arriba` y `menu_contextual`. Los datos están en el control
+(manejadores sin parámetros): `raton_x`, `raton_y` y `boton` (1 izquierdo, 2 central, 3 derecho) en los de ratón, `rueda_delta`
+(positivo hacia arriba) en `rueda`, y `tecla`, `caracter`, `ctrl` y `mayus` en los de teclado. Solo se calculan si hay un
+manejador conectado. El sistema no avisa de cuándo se suelta una tecla: `tecla_arriba` se dispara justo después de `tecla_abajo`.
+La tabla completa por control y los ejemplos (guardar al cerrar, botón con el ratón, validar al perder el foco) están en el
+[manual](visualpythons-manual.md#3-eventos).
 
 ### Funciones
 
@@ -309,6 +330,38 @@ Los constructores admiten por posición `(padre, texto, x, y, ancho, alto)` y el
 | `dialogo_carpeta(titulo, carpeta)` | El de elegir carpeta |
 | `pausa(ms)` | Espera sin congelar la ventana |
 | `depurar(variables=None)` | Para el programa y enseña las variables en la ventana del depurador |
+| `notificar(texto, tipo="info", duracion=3000, titulo="")` | Aviso tipo toast, no modal, en una esquina del formulario activo (abajo a la derecha). `tipo`: `info`, `exito`, `aviso`, `error`; `duracion` en ms (0 = hasta que se cierre). Se apila si hay varios, se va solo, se cierra con un clic o con su «x» y no roba el foco. Otros argumentos por nombre: `accion="Deshacer"` con `al_accion=funcion`, `posicion="arriba_centro"`, `formulario=Formulario2`, `al_click=` y `al_cerrar=`. Devuelve la notificación (`.cerrar()`, `.abierta`, `.motivo`) |
+| `notificaciones(formulario=None)` | Las notificaciones que se ven ahora (la más antigua primero) |
+| `cerrar_notificaciones(formulario=None)` | Las cierra todas |
+
+### Notificaciones (toast)
+
+`notificar()` y el control `Notificacion` (v8.5.6, D466) dan avisos que no bloquean la ventana, a diferencia de `msgbox`. El
+aspecto es el del toast de la libsagui (fondo oscuro del tema y un punto de color por tipo). La libsagui lo tiene en C
+(`toast_*`), pero el módulo `sagui` de MicroPython no lo ofrece y añadir nombres pide regenerar los qstr (D034): por eso se dibuja
+desde Python con un componente de `tkinter` puesto encima del formulario.
+
+```python
+notificar("Guardado", "exito")                                  # se va solo a los 3 segundos
+notificar("No se pudo guardar", "error", 0, "Fallo")            # se queda hasta que se cierre
+notificar("Nota borrada", accion="Deshacer", al_accion=deshacer)
+```
+
+### Gráficos
+
+`Grafico` (v8.5.6, D469) dibuja con el componente de C de la libsagui (`docs/grafico.md`) a través del módulo `sagui_grafico`: el
+gráfico pinta en una `Imagen` del tamaño del control y el control la enseña; la animación avanza por tiempo con `after` (no bloquea).
+
+```python
+Grafico1 = Grafico(f, 8, 8, 360, 220, tipo="barras", titulo="Ventas por mes", categorias=["Ene", "Feb", "Mar"])
+Grafico1.agregar_serie("2026", [120, 150, 90])
+def Grafico1_click(): Etiqueta1.texto = "%s: %s" % (Grafico1.categoria, Grafico1.valor)
+Grafico4.agregar_punto(carga)          # en vivo: con ventana=30 conserva los últimos 30 puntos
+Grafico1.exportar("/home/ventas.png")
+```
+
+`tipo` es a la vez la propiedad y el nombre del tipo de control (como en `Notificacion`, D466): vive en el objeto y un cambio por
+código (`Grafico1.tipo = "tarta"`) se aplica en menos de 150 ms (un vigilante del control). Ejemplo en Nuevo > «Gráficos».
 
 ### Sobre tkinter
 
@@ -335,7 +388,7 @@ trozos de texto, tipos de letra vectoriales) tampoco está en `vps`.
   `tkinter`).
 - La `Tabla` (v8.3.2) es una rejilla sencilla de texto: sin columnas redimensionables, sin tipos de dato
   por columna y sin enlace a una base de datos (para eso está la `RejillaDatos`, ver «Bases de datos» al final; BaseDatos, Descarga
-  y AgenteIA son de la fase 2, mejora 124). Todavía no hay `Calendario`, `Arbol` ni `Pestanas` anidadas dentro de un `Marco` que
+  y AgenteIA son de la fase 2, mejora 124). Todavía no hay `Pestanas` anidadas dentro de un `Marco` que
   esté en otra página (los controles de una página oculta se esconden con ella, pero el diseñador solo
   deja elegir la página de las Pestanas de primer nivel).
 - Las **Pestanas** y la **Tabla** no están hechas con ventanas del sistema sino con componentes de

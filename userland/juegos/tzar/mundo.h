@@ -129,6 +129,7 @@ typedef struct {
 	TzAtributos at[4][TZ_NCLASSES];     /* [civilización 0..3][clase]; [0] = «comm» */
 	TzTecnologia *tec; int ntec;
 	TzOrdemDef *ord; int nord;
+	struct TzHeroiNome { char nome[32]; uint16_t civs; } *herois; int nherois;   /* HEROES.INI en orden (euro, asia, arab, comm); civs: bit civ */
 	TzIni menus, arvores[4], bonus, ordens_ini, recursos_ini;   /* INI tal cual, para lo que haga falta */
 	int16_t *bonus_tab;           /* [atacante 0..73][civ][defensor 0..73][civ]: % si bonus_pct, si no puntos */
 	uint8_t *bonus_pct;
@@ -328,6 +329,8 @@ typedef struct {
 	uint8_t finito;               /* libro con cargas contadas */
 	uint16_t cargas;              /* libro: usos que le quedan (si finito) */
 	uint8_t texto;                /* pergamino: tiene texto de historia (lo muestra el guion) */
+	char imagem[20];              /* v8.5.6: dibujo de un objeto hecho en la partida (fábrica mágica, joyas); vacío = el del mapa */
+	TzId ligado;                  /* v8.5.6, piedra del alma: la unidad a la que está ligada + 1 (0 = ninguna) */
 } TzItem;
 
 typedef struct {
@@ -353,6 +356,7 @@ typedef struct {
 	 * dentro_de = quien lo lleva (no cuenta como TZ_F_DENTRO: no es de guarnición). */
 	TzItem item;
 	uint16_t pocao_ataque, pocao_defesa;   /* lo que sumaron las pociones bebidas (permanente) */
+	uint8_t heroi_nome;           /* v8.5.6: nombre de héroe de HEROES.INI (índice + 1 en cat->herois; 0 = sin nombre) */
 } TzObj;
 
 /* ================================================================== reinos */
@@ -390,6 +394,12 @@ typedef struct {
 	uint32_t cruz_proximo;        /* tic del siguiente que llega */
 	uint16_t proxima_oferta;      /* contador de ofertas de la taberna (id) */
 	uint16_t torneio;             /* Tournaments: puntos de experiencia del reino hacia el siguiente punto a los monjes */
+	/* ---- v8.5.6: joyas del mercado asiático (Jewelry): el mercado que las ofrece y hasta ocho, la más vieja primero ---- */
+	TzId joia_mercado;            /* el mercado que las ofrece + 1 (0 = ninguno) */
+	struct TzJoia { uint16_t id; uint16_t classe; TzItem item; } joia[8];
+	uint8_t njoias;
+	uint32_t joia_prox;           /* tic de la siguiente oferta (0 = la primera, un segundo después de abrir el mercado) */
+	uint16_t joia_id;
 } TzReinoEstado;
 
 /* ================================================================== eventos (gameplay.rs GameEvent, SoundEvent, Show) */
@@ -430,6 +440,9 @@ enum TzEventoTipo {
 	TZ_EV_EMPRESTIMO,    /* el reino recibió (valor > 0) o devolvió (valor < 0) un préstamo del recurso classe */
 	TZ_EV_CRUZADA,       /* el reino lanzó una cruzada desde obj; alvo = el ancla; valor = cruzados */
 	TZ_EV_TROCA,         /* obj (taberna) entregó una unidad del recurso classe en un intercambio */
+	TZ_EV_PERGAMINHO,    /* v8.5.6: obj (quien lo lleva) recibió (valor 1) o usó (0) el pergamino alvo, que abre su historia */
+	TZ_EV_TRIBUTO,       /* el reino dio valor del recurso classe al reino x (v8.5.6) */
+	TZ_EV_APOSTA,        /* obj (taberna) tiró los dados: classe = recurso, valor > 0 ganado, < 0 perdido (v8.5.6) */
 	TZ_EV_NTIPOS
 };
 
@@ -464,6 +477,11 @@ enum TzComandoTipo {
 	TZ_C_CRUZADA,        /* catedral ids[0]: lanzar la cruzada en (x, y) con los cruzados listos */
 	TZ_C_CONVERTIR,      /* ids[]: arg = TZC_PRIEST o TZC_JIHAD (become_priest, become_jihad_warrior) */
 	TZ_C_VENDER,         /* mercado ids[0]: vender el objeto arg (TzId en valor) por su valor en oro */
+	TZ_C_APOSTAR,        /* v8.5.6, taberna ids[0]: «gamble» de D_GAMBLE: arg = recurso | (proporción 0..3 << 2), valor = la puesta (múltiplo de 50) */
+	TZ_C_FABRICAR,       /* v8.5.6, fábrica mágica ids[0] (D_build): arg = categoría (0 libro, 1 poción, 2 poder) | (objeto << 2), valor = oro */
+	TZ_C_COMPRAR,        /* v8.5.6, mercado ids[0] con Jewelry: comprar la joya arg (TzJoia.id) por cuatro veces su valor en oro */
+	TZ_C_ALMA,           /* v8.5.6, piedra del alma ids[0]: arg 0 mata a la unidad ligada (item_kill), 1 la enfurece (item_berserk) */
+	TZ_C_TRIBUTO,        /* v8.5.6: dar al reino arg la cantidad valor del recurso x (recorta a lo que tiene; ventana «Enviar recursos») */
 };
 #define TZ_CMD_FILA   1          /* encolar en vez de sustituir */
 #define TZ_CMD_IDS    64         /* objetos por comando (más: varios comandos) */
@@ -504,6 +522,8 @@ typedef struct {
 	uint8_t campanha;             /* las reglas las ponen los guiones */
 	uint8_t troncos;              /* árboles con dibujo hasta este número son tocones (TERRAIN.INI treename; 0 = 3) */
 	uint8_t sem_vitoria_auto;     /* un guion decide el final: no comprobar la victoria normal */
+	uint8_t ia_rendicao;          /* v8.5.6.1 (D470): «rendición de la IA» (AIRESIGN, 0x5cf6d4): los reinos de la IA pueden rendirse
+	                               * cuando su guion lo pide (HAVE RESIGN). La guarda la propia IA en su bloque de la partida. */
 } TzRegras;
 
 /* ================================================================== el mundo */
@@ -541,6 +561,7 @@ typedef struct TzMundo {
 	/* rendimiento y depuración */
 	uint32_t ms_ultimo_tic;
 	void *priv;                   /* lo interno de la simulación (búsqueda de caminos...) */
+	uint8_t herois_usados[32];    /* v8.5.6: bit q = el nombre q de cat->herois ya se dio (no se repite en la partida) */
 	uint16_t sem_resgate;         /* v8.5.5.2: bit k = el reino k no rescata prisioneros (@kingdomcanrescue); se guarda con la partida */
 } TzMundo;
 
@@ -582,6 +603,7 @@ int tz_mundo_ve(const TzMundo *m, int k, TzId i);
 int tz_mundo_pode(const TzMundo *m, int k, TzId obj, const char *chave_ordem);
 /* coste de entrenar/construir una clase o de una tecnología para el reino (ya con sus investigaciones) */
 void tz_mundo_custo_classe(const TzMundo *m, int k, int classe, uint32_t custo[TZ_NREC], uint32_t *tempo_ms);
+void tz_mundo_custo_classe_civ(const TzMundo *m, int k, int classe, int civ, uint32_t custo[TZ_NREC], uint32_t *tempo_ms);
 void tz_mundo_custo_tec(const TzMundo *m, int k, int tec, uint32_t custo[TZ_NREC], uint32_t *tempo_ms);
 /* ¿se puede poner una obra de la clase en (cx, cy)? 0 sí */
 int tz_mundo_cabe(const TzMundo *m, int k, int classe, int cx, int cy);
@@ -643,6 +665,8 @@ int tz_mundo_ofertas(const TzMundo *m, TzId taberna, int lista, struct TzOferta 
 /* precio de una oferta (gameplay.rs hire_price: coste de la clase × cantidad × 1,6, + 30 de oro por nivel y 15 por nivel de
  * los demás recursos que cueste la clase) */
 void tz_mundo_preco_oferta(const TzMundo *m, const struct TzOferta *o, uint32_t preco[TZ_NREC]);
+/* con las rebajas de las investigaciones del reino k (lo que se cobra de verdad) */
+void tz_mundo_preco_oferta_reino(const TzMundo *m, int k, const struct TzOferta *o, uint32_t preco[TZ_NREC]);
 /* experiencia y niveles (gameplay.rs add_experience, experience_rules): el reino puede subir de nivel hasta este tope
  * (0 sin investigaciones, +4 por Learning, +10 por academia, sin tope con Heroism) y cuántos puntos pide cada nivel (%) */
 void tz_mundo_regras_xp(const TzMundo *m, int k, int *tope, int *velocidad);
@@ -650,6 +674,12 @@ void tz_mundo_experiencia(TzMundo *m, TzId i, int pontos);
 /* objetos: ¿puede la unidad llevar más? ¿qué lleva? */
 int tz_mundo_itens(const TzMundo *m, TzId i, TzId *out, int max);
 int tz_mundo_capacidade_itens(const TzMundo *m, TzId i);
+/* la historia de un pergamino (record: texto 0x60, dibujo 0x460, voz 0x4a0, música 0x4e0, tiempo 0x520, cierre 0x524). Devuelve 0 si
+ * no tiene (tiempo -1 o registro corto); si «al_llegar» es 1 se exige el tiempo ≠ -1 de ReTzar scroll_entered */
+int tz_mundo_pergaminho(const TzMundo *m, TzId j, int al_llegar, char *texto, size_t nt, char *retrato, char *som, char *musica, uint32_t *ms, int *fecha);
+/* promoción a héroe (0x506d60): la marca y, si aún no tiene, el siguiente nombre libre de HEROES.INI para su civilización */
+void tz_heroi_promover(TzMundo *m, TzId i);
+const char *tz_heroi_nome(const TzMundo *m, const TzObj *o);   /* NULL si no tiene */
 int tz_obj_item(const TzObj *o);                      /* es un objeto recogible (poción, libro, pergamino, equipo, alma) */
 /* un objeto nuevo en el suelo con esa carga (para guiones, taberna y mercado; TZ_NENHUM si no cabe) */
 TzId tz_mundo_criar_item(TzMundo *m, int classe, int cx, int cy, const TzItem *item);
@@ -658,6 +688,13 @@ int tz_mundo_conhece_feitico(const TzMundo *m, TzId i, const char *chave);
 /* la orden de hechizo (índice en cat->ord, para TzOrdem.arg de TZ_O_HECHIZO) de «spell_curse»... o -1; y la clave de un libro (0..20) */
 int tz_feitico_ordem(const TzMundo *m, const char *chave);
 const char *tz_feitico_chave(int idx);
+/* D470: el alcance (casillas) y el maná que pide el hechizo «spell_...» a la unidad (gameplay.rs spell_parameters) */
+void tz_feitico_parametros(const TzMundo *m, TzId i, const char *chave, int *alcance, int *mana);
+/* fábrica mágica (gameplay.rs create_item, book_minimum, book_divisor) y joyas del mercado (market_jewels) */
+uint32_t tz_mundo_livro_minimo(const TzMundo *m, int feitico);      /* oro mínimo de un libro de ese hechizo (0..20) */
+int tz_mundo_fabrica_ocupada(const TzMundo *m, int k);              /* el reino ya está fabricando un objeto (uno a la vez) */
+int tz_mundo_joias(const TzMundo *m, int k, struct TzJoia *out, int max);   /* las joyas que ofrece el mercado del reino */
+uint32_t tz_mundo_preco_joia(const TzMundo *m, const struct TzJoia *j);     /* oro: cuatro veces su valor */
 /* valor en oro de un objeto (ReTzar item_value); 0 = no se puede vender */
 uint32_t tz_mundo_valor_item(const TzMundo *m, TzId i);
 

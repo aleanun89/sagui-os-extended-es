@@ -522,7 +522,7 @@ CLASSNAME = archer
 [te_goldplus]
 ACTION = TECHNOLOGY
 CLASSNAME = te_goldplus
-""" + b"[spell_firerain]\nACTION = spell spell_firerain\nCLASSNAME = spell_firerain\n\n[spell_lightning]\nACTION = spell spell_lightning\nCLASSNAME = spell_lightning\n\n[spell_heal]\nACTION = spell spell_heal\nCLASSNAME = spell_heal\n\n[spell_spawncarpet]\nACTION = spell spell_spawncarpet\nCLASSNAME = spell_spawncarpet\n\n[spell_spawnbat]\nACTION = spell spell_spawnbat\nCLASSNAME = spell_spawnbat\n\n[spell_bless]\nACTION = spell spell_bless\nCLASSNAME = spell_bless\n\n[spell_freeze]\nACTION = spell spell_freeze\nCLASSNAME = spell_freeze\n\n[spell_berserk]\nACTION = spell spell_berserk\nCLASSNAME = spell_berserk\n\n[spell_cloak]\nACTION = spell spell_cloak\nCLASSNAME = spell_cloak\n\n[spell_spawnstonegolem]\nACTION = spell spell_spawnstonegolem\nCLASSNAME = spell_spawnstonegolem\n\n[spell_magicvision]\nACTION = spell spell_magicvision\nCLASSNAME = spell_magicvision\n\n[spell_raisedead]\nACTION = spell spell_raisedead\nCLASSNAME = spell_raisedead\n\n[spell_hypnotize]\nACTION = spell spell_hypnotize\nCLASSNAME = spell_hypnotize\n\n[spell_turntostone]\nACTION = spell spell_turntostone\nCLASSNAME = spell_turntostone\n\n[spell_whirlpool]\nACTION = spell spell_whirlpool\nCLASSNAME = spell_whirlpool\n\n[spell_spawndragon]\nACTION = spell spell_spawndragon\nCLASSNAME = spell_spawndragon\n\n[spell_flamebolt]\nACTION = spell spell_flamebolt\nCLASSNAME = spell_flamebolt\n\n[spell_raiseexp]\nACTION = spell spell_raiseexp\nCLASSNAME = spell_raiseexp\n\n[spell_spawnjin]\nACTION = spell spell_spawnjin\nCLASSNAME = spell_spawnjin\n\n[spell_curse]\nACTION = spell spell_curse\nCLASSNAME = spell_curse\n"))
+""" + b"[spell_firerain]\nACTION = spell spell_firerain\nCLASSNAME = spell_firerain\n\n[spell_lightning]\nACTION = spell spell_lightning\nCLASSNAME = spell_lightning\n\n[spell_heal]\nACTION = spell spell_heal\nCLASSNAME = spell_heal\n\n[spell_spawncarpet]\nACTION = spell spell_spawncarpet\nCLASSNAME = spell_spawncarpet\n\n[spell_spawnbat]\nACTION = spell spell_spawnbat\nCLASSNAME = spell_spawnbat\n\n[spell_bless]\nACTION = spell spell_bless\nCLASSNAME = spell_bless\n\n[spell_freeze]\nACTION = spell spell_freeze\nCLASSNAME = spell_freeze\n\n[spell_berserk]\nACTION = spell spell_berserk\nCLASSNAME = spell_berserk\n\n[spell_cloak]\nACTION = spell spell_cloak\nCLASSNAME = spell_cloak\n\n[spell_spawnstonegolem]\nACTION = spell spell_spawnstonegolem\nCLASSNAME = spell_spawnstonegolem\n\n[spell_magicvision]\nACTION = spell spell_magicvision\nCLASSNAME = spell_magicvision\n\n[spell_raisedead]\nACTION = spell spell_raisedead\nCLASSNAME = spell_raisedead\n\n[spell_hypnotize]\nACTION = spell spell_hypnotize\nCLASSNAME = spell_hypnotize\n\n[spell_turntostone]\nACTION = spell spell_turntostone\nCLASSNAME = spell_turntostone\n\n[spell_whirlpool]\nACTION = spell spell_whirlpool\nCLASSNAME = spell_whirlpool\n\n[spell_spawndragon]\nACTION = spell spell_spawndragon\nCLASSNAME = spell_spawndragon\n\n[spell_flamebolt]\nACTION = spell spell_flamebolt\nCLASSNAME = spell_flamebolt\n\n[spell_raiseexp]\nACTION = spell spell_raiseexp\nCLASSNAME = spell_raiseexp\n\n[spell_spawnjin]\nACTION = spell spell_spawnjin\nCLASSNAME = spell_spawnjin\n\n[spell_curse]\nACTION = spell spell_curse\nCLASSNAME = spell_curse\n\n[spell_soulbind]\nACTION = spell spell_soulbind\nCLASSNAME = spell_soulbind\n"))
     data.append(("DATA\\MENU.INI", b"""[e_peon]
 move = M
 e_build = B
@@ -539,7 +539,8 @@ e_archer = A
     data.append(("DATA\\TECHNOLOGIES.INI", b"[te_goldplus]\ndisplayname = Mas oro\ntime = 20000\ngold = 100\n" +
                  b"".join(b"[%s]\ndisplayname = %s\ntime = 10000\ngold = 10\n" % (t, t) for t in
                           [b"te_mercenaries", b"te_heroesquest", b"te_learning", b"te_heroism", b"te_fame", b"te_tradetaxes", b"te_banking",
-                           b"te_nobility", b"te_bodybuilding", b"te_tournaments", b"te_warfare"])))
+                           b"te_feudalism", b"te_jewelry", b"te_nobility", b"te_bodybuilding", b"te_tournaments", b"te_warfare"])))
+    data.append(("DATA\\HEROES.INI", b"[euro]\nSir Alfa\nSir Beta\n[asia]\nLord Gama\n[arab]\nEmir Delta\n[comm]\nComun Eps\n"))
     data.append(("DATA\\RES.INI", b"[Others]\ngolden rocks = 2000\nrocks = 2000\nfish patch = 500\n[Low]\ngold=500\nstone=500\nfood=300\nwood=300\n[Medium]\ngold=1500\nstone=1000\nfood=500\nwood=500\n[High]\ngold=5000\nstone=3000\nfood=1000\nwood=1000\n"))
 
 
@@ -818,6 +819,7 @@ def instalacion_campanhas(dst):
         ("SOUND\\NOTIFY\\CHAT.WAV", wav16(440, 0.4)),
         ("SOUND\\ATTACKS\\HAND1.WAV", wav16(300, 0.3)),
         ("SOUND\\ATTACKS\\HAND2.WAV", wav16(500, 0.3, canales=2)),
+        ] + [("SOUND\\WORK\\%s %d.WAV" % (p, i), wav16(200, 0.2)) for p, n in (("CHOP", 11), ("MINE", 3), ("DIG", 3), ("HIT", 7)) for i in range(1, n + 1)] + [
         ("SOUND\\ATTACKS\\HAND3.WAV", wav16(700, 0.3, taxa=11025, bits=8)),
         ("MUSIC\\INTRO.MID", midi([60, 64, 67, 72])),
         ("MUSIC\\1.MID", midi([62, 65])),

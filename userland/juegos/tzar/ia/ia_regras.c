@@ -454,7 +454,15 @@ static int executar(TzIa *ia, int tipo, uint32_t quer)
 	if (!ia_disponivel_tipo(ia, tipo)) return 0;
 	switch (tipo) {
 	case TZ_IA_M_RENDER:
-		return 0;   /* 0x4096d1: solo si la partida deja rendirse a la IA (TzRegras no lo tiene) */
+		/* 0x4096d1: si la partida deja rendirse a la IA (0x5cf6d4), el comando 0x43 marca el reino rendido sin decir nada
+		 * y la simulación mira el final de la partida (D470) */
+		if (ia->rendicao && !ia->rendeu) {
+			TzComando c;
+			memset(&c, 0, sizeof c);
+			c.tipo = TZ_C_RENDIR;
+			if (!ia_enviar(ia, &c)) ia->rendeu = 1;
+		}
+		return 0;
 	case TZ_IA_M_BLOQUEIO:
 		memset(ia->baldes[B_NAVAL], 0, sizeof ia->baldes[0]);
 		memset(ia->baldes[B_ARMAZENS], 0, sizeof ia->baldes[0]);
@@ -465,14 +473,16 @@ static int executar(TzIa *ia, int tipo, uint32_t quer)
 	case TZ_IA_M_OURO: case TZ_IA_M_PEDRA: case TZ_IA_M_COMIDA: case TZ_IA_M_MADEIRA:
 		return 0;
 	case TZ_IA_M_CONVERTER:
-		return 0;   /* 0x409771: la taberna cambia comida; mundo.h no tiene ese comando */
-	case IC_JIHAD: case IC_CRUSADEANCHOR:
-		return 0;   /* goals.rs jihad y crusade: pendientes */
+		ia_converter(ia, quer);   /* 0x409771: la taberna cambia comida (TZ_C_TROCAR, D470) */
+		return 0;
+	case IC_JIHAD: return ia_jihad(ia);           /* goals.rs jihad (D470) */
+	case IC_CRUSADEANCHOR: return ia_cruzada(ia); /* goals.rs crusade (D470) */
 	}
 	int cat = tz_ia_bib_categoria(ia->b, tipo);
 	if (cat == 1 || cat == 3) {
 		int prod = ia->produtor ? ia->produtor[tipo] : -1;
-		if (prod < 0 || prod == IC_MAGE) return 0;   /* goals.rs summon: pendiente */
+		if (prod == IC_MAGE) return cat == 1 && ia_invocar(ia, tipo);   /* goals.rs summon (D470) */
+		if (prod < 0) return 0;
 		TzId at = produtor_ocioso(ia, prod);
 		if (at == TZ_NENHUM) return 0;
 		int32_t c[4];
@@ -498,6 +508,23 @@ static int executar(TzIa *ia, int tipo, uint32_t quer)
 	return 0;
 }
 
+/* rules.rs resignation (diferencia decidida de ReTzar con resign.ai): con la rendición permitida, todas las reglas del
+ * grupo que tiene «HAVE RESIGN» se leen otra vez en cada fase de construir, en orden (sus interruptores se ponen al
+ * principio y un reino que tuvo castillo no se rendiría nunca) */
+static void rendicao(TzIa *ia)
+{
+	int aberto[64], na = 0;
+	for (int r = 0; r < ia->prog.nregras; ++r) {
+		TzIaRegra *rg = &ia->prog.regra[r];
+		if (rg->flags & TZ_IA_R_GRUPO_INI) { if (na < 64) aberto[na++] = r; }
+		else if (rg->flags & TZ_IA_R_GRUPO_FIM) { if (na) na--; }
+		else if (rg->tem_meta && rg->meta_tipo == TZ_IA_M_RENDER && na) {
+			int ini = aberto[na - 1], fim = (int)ia->prog.regra[ini].fim;
+			for (int q = ini; q <= fim && q < ia->prog.nregras; ++q) ia->prog.regra[q].flags |= TZ_IA_R_SUJA;
+		}
+	}
+}
+
 /* 0x408960: la fase de construir. Se leen otra vez los recursos, se vacía la parte del guion y las reglas corren en
  * orden; la primera meta que puede pagar se cumple y un edificio termina la fase. Una regla crítica que se para para
  * la fase, o su grupo. */
@@ -513,6 +540,7 @@ void ia_fase_construir(TzIa *ia)
 	memset(ia->baldes[B_GUIAO], 0, sizeof ia->baldes[0]);
 	ia->trancado = 0;
 	ia_tocar(ia, V_SONDA, 0);
+	if (ia->rendicao) rendicao(ia);
 	uint32_t grupos[64];
 	int ng = 0;
 	int n = ia->prog.nregras;

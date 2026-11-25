@@ -220,9 +220,14 @@ static int mandar(TzUi *u, TzComando *c, const TzId *ids, int n)
 	return enviados;
 }
 
+/* el acuse visual de una orden con punto en el mapa: la cruz «cursor» y, si es de moverse, la bandera «wp_flag» (orders.rs order_feedback) */
 static void ordem_ack(TzUi *u, const TzOrdem *o)
 {
-	(void)u; (void)o;
+	if (o->tipo == TZ_O_NADA || o->tipo == TZ_O_PARAR) return;
+	u->fb.on = 1; u->fb.ms = u->agora_ms;
+	u->fb.bandeira = o->tipo == TZ_O_MOVER || o->tipo == TZ_O_ATACAR_CHAO || o->tipo == TZ_O_CORTAR;
+	if (o->alvo >= 0 && o->alvo < u->m->nobj) { u->fb.px = u->m->obj[o->alvo].cx * TZ_CASILLA + TZ_CASILLA / 2; u->fb.py = u->m->obj[o->alvo].cy * TZ_CASILLA + TZ_CASILLA / 2; }
+	else { u->fb.px = o->x * TZ_CASILLA + TZ_CASILLA / 2; u->fb.py = o->y * TZ_CASILLA + TZ_CASILLA / 2; }
 }
 
 int tz_ui_ordem_direita(TzUi *u, int px, int py, int enfileirar)
@@ -281,5 +286,6 @@ int tz_ui_ordem_alvo(TzUi *u, int px, int py, int enfileirar)
 	memset(&c, 0, sizeof c);
 	c.tipo = TZ_C_ORDEM; c.reino = (uint8_t)u->m->jogador; c.ordem = o;
 	c.flags = enfileirar ? TZ_CMD_FILA : 0;
+	ordem_ack(u, &o);
 	return mandar(u, &c, ids, n);
 }

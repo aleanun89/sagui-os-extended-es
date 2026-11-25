@@ -14,6 +14,9 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <dirent.h>
+#include <poll.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
 #include <time.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -77,7 +80,7 @@ const char *portavel_ruta(const char *s, char *buf, size_t max)
     if (prefijo(s, "/home")) { snprintf(buf, max, "%s%s", casa(), s + 5); return buf; }
     if (prefijo(s, "/sistema") || prefijo(s, "/fontes")) { snprintf(buf, max, "%s%s", portavel_datos(), s); return buf; }
     if (prefijo(s, "/apps/fuentes")) { snprintf(buf, max, "%s/fontes%s", portavel_datos(), s + 13); return buf; }
-    if (prefijo(s, "/apps") || prefijo(s, "/bin") || prefijo(s, "/etc") || prefijo(s, "/ejemplos") || prefijo(s, "/imagenes")) { snprintf(buf, max, "%s%s", portavel_datos(), s); return buf; }
+    if (prefijo(s, "/apps") || prefijo(s, "/bin") || prefijo(s, "/etc") || prefijo(s, "/ejemplos") || prefijo(s, "/lib/python") || prefijo(s, "/imagenes")) { snprintf(buf, max, "%s%s", portavel_datos(), s); return buf; }
     return s;
 }
 
@@ -105,13 +108,14 @@ int abrir(const char *caminho, int modo)
 int ler(int fd, void *buf, unsigned n)
 {
     ssize_t r = read(fd, buf, n);
-    return r < 0 ? ERRO_DESCRITOR : (int)r;
+    if (r < 0) return errno == EAGAIN ? ERRO_TEMPO : errno == ECONNRESET ? ERRO_CONEXAO_CAIU : ERRO_DESCRITOR;   /* sockets (red_sdl.c) */
+    return (int)r;
 }
 
 int escrever(int fd, const void *buf, unsigned n)
 {
     ssize_t r = write(fd, buf, n);
-    return r < 0 ? (errno == ENOSPC ? ERRO_SEM_ESPACO : ERRO_DESCRITOR) : (int)r;
+    return r < 0 ? (errno == ENOSPC ? ERRO_SEM_ESPACO : errno == EPIPE ? ERRO_PIPE_QUEBRADO : errno == ECONNRESET ? ERRO_CONEXAO_CAIU : errno == EAGAIN ? ERRO_TEMPO : ERRO_DESCRITOR) : (int)r;
 }
 
 int fechar(int fd) { return close(fd) == 0 ? 0 : ERRO_DESCRITOR; }
@@ -270,7 +274,19 @@ int tipo_descritor(int fd)
 
 int duplicar(int antigo, int novo) { return dup2(antigo, novo) < 0 ? ERRO_DESCRITOR : novo; }
 int criar_pipe(int fds[2]) { return pipe(fds) == 0 ? 0 : ERRO_LIMITE; }
-int disponivel(int fd) { (void)fd; return 0; }
+/* Bytes que se pueden leer sin bloquear (0 = nada todavia, ERRO_PIPE_QUEBRADO = el otro lado cerro). Para sockets,
+ * pipes y la entrada estandar; en un socket que escucha, 1 si hay una conexion esperando. */
+int disponivel(int fd)
+{
+    struct pollfd p = { fd, POLLIN, 0 };
+    if (poll(&p, 1, 0) <= 0) return 0;
+    if (p.revents & POLLNVAL) return ERRO_DESCRITOR;
+    int n = 0, esc = 0;
+    socklen_t l = sizeof esc;
+    if (getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &esc, &l) == 0 && esc) return 1;
+    if (ioctl(fd, FIONREAD, &n) == 0 && n > 0) return n;
+    return (p.revents & (POLLIN | POLLHUP | POLLERR)) ? ERRO_PIPE_QUEBRADO : 0;
+}
 
 /* ---------------------------------------------------------------- reloj */
 

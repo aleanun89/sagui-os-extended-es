@@ -675,6 +675,23 @@ void tz_som_eventos(TzSom *s, const TzMundo *m)
 				if (e->valor >= 0 && e->valor < 21 && FEITICOS[e->valor] && o && visivel(m, o->cx, o->cy))
 					tz_som_tocar(s, FEITICOS[e->valor], TZ_CAT_FEITICO, TZ_CANAL_EFEITO, o->cx, o->cy);
 				break;
+			case TZ_EV_TRABALHO: {
+				/* v8.5.6: el golpe de trabajo suena en la casilla del obrero si se ve (talar, minar, cavar el campo, construir o reparar);
+				 * ReTzar no nombra estos clips: los de SOUND/WORK de la instalación, uno por golpe según su número de evento */
+				static const struct { int trab; const char *pref; int n; } W[] = {
+					{ TZ_TRAB_CORTAR, "CHOP", 11 }, { TZ_TRAB_MINAR, "MINE", 3 }, { TZ_TRAB_CAMPO, "DIG", 3 },
+					{ TZ_TRAB_CONSTRUIR, "HIT", 7 }, { TZ_TRAB_REPARAR, "HIT", 7 },
+				};
+				if (!visivel(m, e->x, e->y)) break;
+				for (unsigned w = 0; w < sizeof W / sizeof *W; ++w)
+					if (W[w].trab == e->valor) {
+						char b[64];
+						snprintf(b, sizeof b, "SOUND/WORK/%s %u.WAV", W[w].pref, (unsigned)((e->seq * 7u + e->tic) % (unsigned)W[w].n) + 1);
+						tz_som_tocar(s, b, TZ_CAT_OBJ_MAPA, TZ_CANAL_EFEITO, e->x, e->y);
+						break;
+					}
+				break;
+			}
 			case TZ_EV_ESGOTADO:
 				if (o && o->classe == TZC_RES_GOLD && visivel(m, o->cx, o->cy)) tz_som_tocar(s, "SOUND/EFFECTS/DESTROY MINE.WAV", TZ_CAT_DESABA, TZ_CANAL_EFEITO, o->cx, o->cy);
 				break;

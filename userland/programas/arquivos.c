@@ -1287,6 +1287,8 @@ static void desenhar_linha(int i, int y, bool sel, bool atual)
 static void desenhar_lista(void);
 static const char *vista_nome(void);
 static void desenhar_rodape(const char *msg);
+static void novo_tamanho(void);
+static void repintar_tema(void);
 static void info_item(int i, char *msg, size_t max);
 static void previa_atualizar(void);
 
@@ -2566,36 +2568,269 @@ static void conservar_data(const char *origem, const char *destino)
     if (datas_arquivo(origem, &d) == 0 && d.modificado) fixar_datas(destino, d.modificado, PARQ_DATA_MANTER);
 }
 
-/* Copia un archivo o una carpeta entera (recursiva). */
+/* ------------------------------------------------------------ copiar y mover con progreso (D467)
+ *
+ * Primero un recorrido rápido que cuenta archivos y bytes («Preparando...»); después la copia va por trozos de
+ * TROZO bytes y entre trozo y trozo la libsagui (transf_*) atiende su ventana de progreso (barra por bytes,
+ * velocidad, tiempo restante, Pausar y Cancelar) y los eventos de esta ventana. La ventana de progreso solo
+ * aparece si la operación tarda más de 0,7 s. Si el destino ya existe: Reemplazar, Omitir o Mantener los dos
+ * (con «Aplicar a todos»). Un error de lectura o escritura (disco lleno...) pregunta Reintentar, Omitir o Cancelar.
+ * Cancelar borra el archivo a medias del destino y no toca el origen. */
+#define TROZO (128 * 1024)
+enum { POL_PREGUNTAR, POL_REEMPLAZAR, POL_OMITIR, POL_MANTENER };
+enum { CP_OK, CP_OMITIDO, CP_ERROR, CP_CANCELA };
 
-static bool copiar_ficheiro(const char *origem, const char *destino)
+static struct {
+    transf_t t;
+    int politica;            /* lo elegido con «Aplicar a todos» */
+    int omitidos, falhas;
+    char *buf;
+    unsigned buf_n;
+    bool fechar_pedido;      /* se pidió cerrar Archivos durante la copia */
+    unsigned lento_ms;       /* depuración: pausa tras cada trozo (la lee de /tmp/.transf_lento; solo para las pruebas) */
+} tr;
+
+/* Entre trozos: atiende esta ventana (cambio de tamaño, tema; lo demás se descarta mientras se copia). */
+static int tr_fuera(void *dato)
+{
+    (void)dato;
+    evento_t e;
+    int cancelar = 0;
+    while (proximo_evento(j->id, &e, false) == 1) {
+        if (e.tipo == EV_FECHAR) { tr.fechar_pedido = true; cancelar = 1; }
+        else if (jan_redimensionar(j, &e)) novo_tamanho();
+        else if (e.tipo == EV_TEMA) repintar_tema();
+    }
+    return cancelar;
+}
+
+/* Cuenta archivos y bytes de un elemento (recursivo). false = cancelado. */
+static bool tr_contar(const char *origem, int nivel, uint32_t *n, uint64_t *bytes)
 {
     info_arquivo_t inf;
-    if (info_arquivo(origem, &inf) < 0) return false;
+    if (info_arquivo(origem, &inf) < 0) return true;
+    if (inf.tipo != TIPO_PASTA) { (*n)++; *bytes += inf.tamanho; return !transf_preparando(&tr.t); }
+    if (nivel > 24) return true;
+    entrada_pasta_t e;
+    for (int i = 0; listar(origem, i, &e) == 1; i++) {
+        char sub[200];
+        caminho_juntar(sub, sizeof sub, origem, e.nome);
+        if (e.tipo != TIPO_PASTA) {
+            (*n)++; *bytes += e.tamanho;
+            if (transf_preparando(&tr.t)) return false;
+        } else if (!tr_contar(sub, nivel + 1, n, bytes)) return false;
+    }
+    return true;
+}
+
+/* «nombre (2).ext» el primero que no exista en la carpeta del destino. */
+static void tr_nome_livre(const char *destino, char *saida, size_t max)
+{
+    char pasta_d[200], base[100], ext[40];
+    copia_texto(pasta_d, destino, sizeof pasta_d);
+    char *barra = pasta_d;
+    for (char *q = pasta_d; *q; q++) if (*q == '/') barra = q;
+    copia_texto(base, nome_base(destino), sizeof base);
+    if (barra == pasta_d) copia_texto(pasta_d, "/", sizeof pasta_d); else *barra = 0;
+    ext[0] = 0;
+    int pt = -1;
+    for (int k = 1; base[k]; k++) if (base[k] == '.') pt = k;
+    if (pt > 0) { copia_texto(ext, base + pt, sizeof ext); base[pt] = 0; }
+    for (int k = 2; k < 1000; k++) {
+        char nome[160];
+        formatar_texto(nome, sizeof nome, "%s (%d)%s", base, k, ext);
+        caminho_juntar(saida, max, pasta_d, nome);
+        info_arquivo_t inf;
+        if (info_arquivo(saida, &inf) < 0) return;
+    }
+}
+
+/* El destino ya existe: qué hacer con él. Devuelve POL_REEMPLAZAR, POL_OMITIR, POL_MANTENER o -1 (cancelar). */
+static int tr_conflito(const char *origem, const char *destino)
+{
+    if (compara_texto(origem, destino) == 0) return POL_MANTENER;   /* pegar en la misma carpeta: una copia con otro nombre */
+    if (tr.politica != POL_PREGUNTAR) return tr.politica;
+    char m[300];
+    formatar_texto(m, sizeof m, _("«%s» ya existe en la carpeta de destino.\n¿Qué quieres hacer?"), nome_base(destino));
+    const char *bs[4] = { N_("Reemplazar"), N_("Omitir"), N_("Mantener los dos"), N_("Cancelar") };
+    bool todos = false;
+    int r = dialogo_opciones(tr.t.verbo, m, bs, 4, N_("Aplicar a todos"), &todos);
+    transf_reloj(&tr.t);
+    if (r < 0 || r == 3) return -1;
+    int pol = r == 0 ? POL_REEMPLAZAR : r == 1 ? POL_OMITIR : POL_MANTENER;
+    registrar("arquivos: conflito %s -> %s%s", nome_base(destino), pol == POL_REEMPLAZAR ? "reemplazar" : pol == POL_OMITIR ? "omitir" : "mantener", todos ? " (todos)" : "");
+    if (todos) tr.politica = pol;
+    return pol;
+}
+
+/* Error de lectura o escritura: 0 = reintentar, 1 = omitir, 2 = cancelar. */
+static int tr_erro(const char *que, const char *arq)
+{
+    char m[300];
+    formatar_texto(m, sizeof m, _("%s:\n%s"), que, nome_base(arq));
+    const char *bs[3] = { N_("Reintentar"), N_("Omitir"), N_("Cancelar") };
+    sonido_evento("error");
+    int r = dialogo_opciones(_("Error"), m, bs, 3, NULL, NULL);
+    transf_reloj(&tr.t);
+    registrar("arquivos: erro de copia %s (%s)", que, r == 0 ? "reintentar" : r == 1 ? "omitir" : "cancelar");
+    return r < 0 ? 2 : r;
+}
+
+/* Copia un archivo por trozos. */
+static int tr_copiar_arquivo(const char *origem, const char *destino, uint32_t tam)
+{
+    char nome[100];
+    copia_texto(nome, nome_base(origem), sizeof nome);
+    transf_archivo(&tr.t, nome);
+    for (;;) {
+        uint64_t antes = tr.t.bytes;
+        const char *falha = NULL;
+        int fo = abrir(origem, ABRIR_LER), fd = -1;
+        if (fo < 0) falha = _("No se puede leer");
+        else {
+            fd = abrir(destino, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+            if (fd < 0) falha = _("No se puede crear el archivo");
+        }
+        int n;
+        while (!falha) {
+            n = ler(fo, tr.buf, tr.buf_n);
+            if (n < 0) { falha = _("Error de lectura"); break; }
+            if (n == 0) break;
+            if (escrever_tudo(fd, tr.buf, (unsigned)n) < 0) { falha = _("No se puede escribir (¿disco lleno?)"); break; }
+            if (tr.lento_ms) dormir(tr.lento_ms);
+            if (transf_avanzar(&tr.t, (uint32_t)n)) {   /* cancelado: fuera el archivo a medias */
+                fechar(fo); fechar(fd);
+                apagar(destino);
+                registrar("arquivos: copia cancelada, apagado %s", destino);
+                return CP_CANCELA;
+            }
+        }
+        if (fo >= 0) fechar(fo);
+        if (fd >= 0) fechar(fd);
+        if (!falha) {
+            (void)tam;
+            conservar_data(origem, destino);
+            transf_listo_archivo(&tr.t);
+            return CP_OK;
+        }
+        if (fd >= 0) apagar(destino);
+        tr.t.bytes = antes;   /* lo copiado de este archivo se vuelve a contar si se reintenta */
+        int a = tr_erro(falha, origem);
+        if (a == 0) continue;
+        if (a == 2) return CP_CANCELA;
+        transf_saltar(&tr.t, tam);
+        tr.t.bytes = antes + tam;
+        tr.falhas++;
+        return CP_ERROR;
+    }
+}
+
+/* Copia un archivo o una carpeta entera (recursiva); si el destino existe, pregunta. */
+static int tr_copiar(const char *origem, const char *destino, int nivel)
+{
+    info_arquivo_t inf, ex;
+    if (info_arquivo(origem, &inf) < 0) { tr.falhas++; return CP_ERROR; }
+    if (tr.t.cancelado) return CP_CANCELA;
+    bool existe = info_arquivo(destino, &ex) == 0;
     if (inf.tipo == TIPO_PASTA) {
-        if (criar_pasta(destino) < 0 && !existe_pasta(destino)) return false;
+        if (nivel > 24) { tr.falhas++; return CP_ERROR; }
+        char dst_efetivo[200];
+        copia_texto(dst_efetivo, destino, sizeof dst_efetivo);
+        if (existe && ex.tipo != TIPO_PASTA) {
+            if (tr_conflito(origem, destino) != POL_MANTENER) { tr.omitidos++; return CP_OMITIDO; }
+            tr_nome_livre(destino, dst_efetivo, sizeof dst_efetivo);
+        } else if (existe && compara_texto(origem, destino) == 0) tr_nome_livre(destino, dst_efetivo, sizeof dst_efetivo);
+        if (criar_pasta(dst_efetivo) < 0 && !existe_pasta(dst_efetivo)) { tr.falhas++; return CP_ERROR; }
+        int resultado = CP_OK;
         entrada_pasta_t e;
         for (int i = 0; listar(origem, i, &e) == 1; i++) {
             char sub[200], dst[200];
             caminho_juntar(sub, sizeof sub, origem, e.nome);
-            caminho_juntar(dst, sizeof dst, destino, e.nome);
-            if (!copiar_ficheiro(sub, dst)) return false;
+            caminho_juntar(dst, sizeof dst, dst_efetivo, e.nome);
+            int r = tr_copiar(sub, dst, nivel + 1);
+            if (r == CP_CANCELA) return CP_CANCELA;
+            if (r != CP_OK) resultado = CP_OMITIDO;
         }
-        conservar_data(origem, destino);
-        return true;
+        conservar_data(origem, dst_efetivo);
+        return resultado;
     }
-    int fo = abrir(origem, ABRIR_LER);
-    if (fo < 0) return false;
-    int fd = abrir(destino, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
-    if (fd < 0) { fechar(fo); return false; }
-    char buf[2048];
-    int n;
-    while ((n = ler(fo, buf, sizeof buf)) > 0)
-        if (escrever_tudo(fd, buf, (unsigned)n) < 0) { fechar(fo); fechar(fd); return false; }
-    fechar(fo);
-    fechar(fd);
-    conservar_data(origem, destino);
-    return true;
+    char dst_efetivo[200];
+    copia_texto(dst_efetivo, destino, sizeof dst_efetivo);
+    if (existe) {
+        int pol = tr_conflito(origem, destino);
+        if (pol < 0) { tr.t.cancelado = true; return CP_CANCELA; }
+        if (pol == POL_OMITIR) { tr.omitidos++; transf_saltar(&tr.t, inf.tamanho); return CP_OMITIDO; }
+        if (pol == POL_MANTENER) tr_nome_livre(destino, dst_efetivo, sizeof dst_efetivo);
+    }
+    return tr_copiar_arquivo(origem, dst_efetivo, inf.tamanho);
+}
+
+/* Borra el origen de lo ya movido. */
+static void tr_apagar_origem(const char *origem)
+{
+    info_arquivo_t inf;
+    if (info_arquivo(origem, &inf) < 0) return;
+    if (inf.tipo == TIPO_PASTA) remover_pasta(origem); else apagar(origem);
+}
+
+/* Copia o mueve los elementos origens[0..n) a la carpeta «dest». Devuelve cuántos elementos se transfirieron
+ * enteros (los omitidos o con error no cuentan; un elemento movido con algo omitido conserva su original). */
+static int transferir(int n, const char *const *origens, const char *dest, bool mover)
+{
+    char de[160], cab[300];
+    copia_texto(de, origens[0], sizeof de);
+    char *barra = de;
+    for (char *q = de; *q; q++) if (*q == '/') barra = q;
+    if (barra == de) copia_texto(de, "/", sizeof de); else *barra = 0;
+    if (n == 1) formatar_texto(cab, sizeof cab, mover ? _("Moviendo «%s» de %s a %s") : _("Copiando «%s» de %s a %s"), nome_base(origens[0]), de, dest);
+    else formatar_texto(cab, sizeof cab, mover ? _("Moviendo %d elementos de %s a %s") : _("Copiando %d elementos de %s a %s"), n, de, dest);
+    memset(&tr, 0, sizeof tr);
+    transf_iniciar(&tr.t, mover ? N_("Moviendo") : N_("Copiando"), cab, tr_fuera, NULL);
+    tr.buf_n = TROZO;
+    tr.buf = aloca(tr.buf_n);
+    if (!tr.buf) { tr.buf_n = 2048; tr.buf = aloca(tr.buf_n); }
+    if (!tr.buf) return 0;
+    int fl = abrir("/tmp/.transf_lento", ABRIR_LER);   /* depuración: milisegundos de pausa por trozo */
+    if (fl >= 0) {
+        char nb[12];
+        int ln = ler(fl, nb, sizeof nb - 1);
+        fechar(fl);
+        for (int k = 0; k < ln && nb[k] >= '0' && nb[k] <= '9'; k++) tr.lento_ms = tr.lento_ms * 10 + (unsigned)(nb[k] - '0');
+    }
+    uint32_t t_ini = tempo_ms(), elementos = 0;
+    uint64_t bytes = 0;
+    for (int i = 0; i < n; i++) if (!tr_contar(origens[i], 0, &elementos, &bytes)) break;
+    transf_total(&tr.t, elementos, bytes);
+    int hechos = 0;
+    for (int i = 0; i < n && !tr.t.cancelado; i++) {
+        char destino[200];
+        caminho_juntar(destino, sizeof destino, dest, nome_base(origens[i]));
+        int faltas_antes = tr.falhas, omit_antes = tr.omitidos;
+        if (mover && compara_texto(origens[i], destino) == 0) continue;   /* mover a su propia carpeta: nada */
+        /* una carpeta dentro de sí misma no se puede copiar */
+        size_t ol = tam_texto(origens[i]);
+        info_arquivo_t inf;
+        if (info_arquivo(origens[i], &inf) == 0 && inf.tipo == TIPO_PASTA && compara_texto_n(dest, origens[i], ol) == 0 && (dest[ol] == '/' || dest[ol] == 0)) {
+            tr.falhas++;
+            continue;
+        }
+        int r = tr_copiar(origens[i], destino, 0);
+        if (r == CP_CANCELA) break;
+        if (r == CP_OK && tr.falhas == faltas_antes && tr.omitidos == omit_antes) {
+            hechos++;
+            if (mover && compara_texto(origens[i], destino) != 0) tr_apagar_origem(origens[i]);
+        }
+    }
+    bool cancelado = tr.t.cancelado;
+    transf_cerrar(&tr.t);
+    uint32_t ms = tempo_ms() - t_ini;
+    uint32_t kb = (uint32_t)(tr.t.bytes >> 10);
+    registrar("arquivos: transferencia %s %d itens %u KB em %u ms (%u KB/s) omitidos=%d falhas=%d%s", mover ? "mover" : "copiar", n, kb, ms,
+              ms ? (kb < 4000000u ? kb * 1000u / ms : (kb / ms) * 1000u) : 0, tr.omitidos, tr.falhas, cancelado ? " cancelada" : "");
+    libera(tr.buf);
+    tr.buf = NULL;
+    if (tr.fechar_pedido) { jan_fechar(j); sair(0); }
+    return hechos;
 }
 
 /* Copia (Ctrl+C) o corta (Ctrl+X) los elementos marcados. */
@@ -2628,27 +2863,11 @@ static void colar_area(void)
         return;
     }
     bool mover = area_mover;
-    int copiados = 0;
-    for (int i = 0; i < area_n; i++) {
-        char nome[80], destino[200];
-        copia_texto(nome, nome_base(area_caminhos[i]), sizeof nome);
-        caminho_juntar(destino, sizeof destino, pasta, nome);
-        info_arquivo_t inf;
-        if (info_arquivo(destino, &inf) == 0) {
-            char m[200];
-            formatar_texto(m, sizeof m, _("%s ya existe.\n¿Reemplazarlo?"), nome);
-            if (!confirmar(_("Pegar"), m)) continue;
-        }
-        desenhar_rodape(_("Copiando..."));
-        if (!copiar_ficheiro(area_caminhos[i], destino)) continue;
-        copiados++;
-        if (mover) {   /* el corte borra el original */
-            if (info_arquivo(area_caminhos[i], &inf) == 0) {
-                if (inf.tipo == TIPO_PASTA) remover_pasta(area_caminhos[i]);
-                else apagar(area_caminhos[i]);
-            }
-        }
-    }
+    const char *origens[MAX_AREA];
+    for (int i = 0; i < area_n; i++) origens[i] = area_caminhos[i];
+    char destino_dir[200];
+    copia_texto(destino_dir, pasta, sizeof destino_dir);
+    int copiados = transferir(area_n, origens, destino_dir, mover);
     if (mover) { area_n = 0; area_mover = false; guardar_area(); }
     char msg[120];
     formatar_texto(msg, sizeof msg, _("%d %s pegados"), copiados, mover ? _("movidos") : _("copiados"));
@@ -3817,26 +4036,23 @@ static void soltar_em(const char *dest, bool mover)
     int n = 0, falhas = 0;
     char origem_dir[160];
     copia_texto(origem_dir, pasta, sizeof origem_dir);
-    for (int i = 0; i < lista.qtd; i++) {
+    static char orig_tab[MAX_ITENS][200];
+    const char *origens[MAX_ITENS];
+    int total = 0;
+    for (int i = 0; i < lista.qtd && total < MAX_ITENS; i++) {
         if (!marcados[i] || tipos[i] == TIPO_GRUPO) continue;
-        char orig[200], destino[200];
-        caminho_de(i, orig, sizeof orig);
+        char destino[200];
+        caminho_de(i, orig_tab[total], sizeof orig_tab[0]);
         caminho_juntar(destino, sizeof destino, dest, nomes[i]);
-        if (compara_texto(orig, destino) == 0) continue;
-        size_t ol = tam_texto(orig);
-        if (tipos[i] == TIPO_PASTA && compara_texto_n(dest, orig, ol) == 0 && (dest[ol] == '/' || dest[ol] == 0)) { falhas++; continue; }
-        info_arquivo_t inf;
-        if (info_arquivo(destino, &inf) == 0) {
-            char m[200];
-            formatar_texto(m, sizeof m, _("%s ya existe.\n¿Reemplazarlo?"), nomes[i]);
-            if (!confirmar(mover ? _("Mover") : _("Copiar"), m)) continue;
-        }
-        desenhar_rodape(mover ? _("Moviendo...") : _("Copiando..."));
-        if (!copiar_ficheiro(orig, destino)) { falhas++; continue; }
-        n++;
-        if (mover) {
-            if (tipos[i] == TIPO_PASTA) remover_pasta(orig); else apagar(orig);
-        }
+        if (compara_texto(orig_tab[total], destino) == 0 && mover) continue;
+        size_t ol = tam_texto(orig_tab[total]);
+        if (tipos[i] == TIPO_PASTA && compara_texto_n(dest, orig_tab[total], ol) == 0 && (dest[ol] == '/' || dest[ol] == 0)) { falhas++; continue; }
+        origens[total] = orig_tab[total];
+        total++;
+    }
+    if (total > 0) {
+        n = transferir(total, origens, dest, mover);
+        falhas += total - n;
     }
     registrar("arquivos: soltados %d itens em %s (%s)", n, dest, mover ? "mover" : "copiar");
     int act = (int)(P - paineis);

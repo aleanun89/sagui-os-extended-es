@@ -375,9 +375,14 @@ static const mp_stream_p_t stream_texto = {
  * (el recolector no mira dentro de ellos y liberaría un buffer asignado con m_new). */
 static uint8_t buf_padrao[6][BUF_LEITURA];
 #define PADRAO(tipo, fd, latin1, i) { { &tipo }, fd, latin1, 0, 0, 0, {0}, 0, 0, 0, buf_padrao[i] }
-arquivo_t mp_sys_stdin_obj = PADRAO(sagui_tipo_texto, 0, 1, 0);
-arquivo_t mp_sys_stdout_obj = PADRAO(sagui_tipo_texto, 1, 1, 1);
-arquivo_t mp_sys_stderr_obj = PADRAO(sagui_tipo_texto, 2, 1, 2);
+#ifdef SAGUI_PORTABLE
+#define TERMINAL_LATIN1 0   /* en el PC (D459) los terminales son UTF-8: la entrada y la salida estandar no se convierten */
+#else
+#define TERMINAL_LATIN1 1
+#endif
+arquivo_t mp_sys_stdin_obj = PADRAO(sagui_tipo_texto, 0, TERMINAL_LATIN1, 0);
+arquivo_t mp_sys_stdout_obj = PADRAO(sagui_tipo_texto, 1, TERMINAL_LATIN1, 1);
+arquivo_t mp_sys_stderr_obj = PADRAO(sagui_tipo_texto, 2, TERMINAL_LATIN1, 2);
 static arquivo_t stdin_buffer = PADRAO(sagui_tipo_binario, 0, 0, 3);
 static arquivo_t stdout_buffer = PADRAO(sagui_tipo_binario, 1, 0, 4);
 static arquivo_t stderr_buffer = PADRAO(sagui_tipo_binario, 2, 0, 5);
@@ -532,7 +537,8 @@ mp_obj_t sagui_arquivo_de_fd(int fd, bool texto)
 void sagui_saida_texto(int fd, const char *s, size_t n)
 {
     arquivo_t *a = fd == 2 ? &mp_sys_stderr_obj : &mp_sys_stdout_obj;
-    escrever_latin1(a, (const uint8_t *)s, n);
+    if (!a->latin1) escrever_tudo(a->fd, s, n);   /* terminal UTF-8 (PC) */
+    else escrever_latin1(a, (const uint8_t *)s, n);
 }
 
 int sagui_entrada_byte(void)

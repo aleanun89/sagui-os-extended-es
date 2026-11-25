@@ -95,6 +95,21 @@ if [ -n "$ENTRADA" ] && [ -d "$ENTRADA/games" ]; then
             echo "copiar_jogos: $ENTRADA/games/CnC (ISO de C&C) -> /jogos/CnC"
             continue
         fi
+        # Tzar (D417) va aparte, más abajo: solo lo que lee el port.
+        if [ "$n" = "TZAR" ] && [ -d "$g/Packs" ]; then
+            continue
+        fi
+        # AoE (D382): si es el CD entero (con GAME/DATA), solo la carpeta GAME sin los vídeos
+        # (AVI, 127 MB): el instalador, DirectX y las demos del CD no los usa AoEN, que
+        # encuentra /jogos/AOE/GAME/DATA solo (userland/juegos/aoen/config.c).
+        if [ "$n" = "AOE" ] && [ -d "$g/GAME/DATA" ]; then
+            mkdir -p "$R/AOE"
+            dest="$(cd "$R/AOE" && pwd)"
+            ( cd "$g" && find GAME -path GAME/AVI -prune -o -type d -exec mkdir -p "$dest/{}" \; && \
+              find GAME -path GAME/AVI -prune -o -type f ! -name '*:Zone.Identifier' -exec cp {} "$dest/{}" \; )
+            echo "copiar_jogos: $ENTRADA/games/AOE (CD de AoE) -> /jogos/AOE/GAME (sin AVI)"
+            continue
+        fi
         # Las imágenes de disco (.iso, .bin, .img) no se copian tal cual: son los discos
         # originales (p. ej. las ISO de C&C, 1,2 GB); de ellas solo se extrae lo que el
         # juego necesita, con su herramienta (D230). Sin herramienta, no entran.
@@ -111,8 +126,15 @@ fi
 # Tzar (D417): la instalación del mantenedor, «INPUT_SHARE/Tzar Anthology», va a /jogos/TZAR con solo lo que
 # lee el port (paquetes, mapas, campañas, la introducción y Tzar.ini); nada del Tzar.exe ni de sus DLL. Solo con
 # INPUT_SHARE (imágenes privadas): las entregas lo dejan vacío. Unos 500 MB: hace falta JOGOS_MB grande.
+# También en INPUT_SHARE/games/TZAR (la otra forma de guardarlo; antes entraba entera por el bucle general,
+# con el .exe y las DLL).
+t=""
 if [ -n "$ENTRADA" ] && [ -d "$ENTRADA/Tzar Anthology/Packs" ]; then
     t="$ENTRADA/Tzar Anthology"
+elif [ -n "$ENTRADA" ] && [ -d "$ENTRADA/games/TZAR/Packs" ]; then
+    t="$ENTRADA/games/TZAR"
+fi
+if [ -n "$t" ]; then
     mkdir -p "$R/TZAR"
     for x in Packs Maps Campaign; do [ -d "$t/$x" ] && cp -r "$t/$x" "$R/TZAR/"; done
     for x in intro.MPG Tzar.ini; do [ -f "$t/$x" ] && cp "$t/$x" "$R/TZAR/"; done

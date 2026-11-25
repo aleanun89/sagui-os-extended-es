@@ -1271,12 +1271,22 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_volume_obj, 0, 1, mod_volume);
  * kernel las tiene; si no, solo dentro de este programa. */
 MP_REGISTER_ROOT_POINTER(mp_obj_t sagui_portapapeis);
 
+#ifdef SAGUI_PORTABLE
+/* En el PC (D459) no hay int 0x80: el portapapeles es el de la capa «libsagui sobre SDL 2». */
+int copiar_texto(const char *t, unsigned n);
+int colar_texto(char *buf, unsigned max);
+static int chamar_portapapeis(unsigned n, void *buf, unsigned tam)
+{
+    return n == SIS_COPIAR_TEXTO_MP ? copiar_texto(buf, tam) : colar_texto(buf, tam);
+}
+#else
 static int chamar_portapapeis(unsigned n, void *buf, unsigned tam)
 {
     int r;
     __asm__ volatile("int $0x80" : "=a"(r) : "a"(n), "b"(buf), "c"(tam), "d"(0) : "memory");
     return r;
 }
+#endif
 
 static mp_obj_t mod_portapapeis(size_t n, const mp_obj_t *a)
 {

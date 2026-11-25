@@ -477,7 +477,7 @@ static void pegada(const TzCatalogo *cat, int classe, int civ, int def, int *w, 
 void tz_aleatorio_padrao(TzAleatorio *o)
 {
 	memset(o, 0, sizeof *o);
-	o->lado = 128; o->jogadores = 2; o->tipo = 0; o->recursos_mapa = 1; o->nivel_recursos = 1; o->guardado = 1; o->animais = 1; o->portas = 1; o->itens = 1;
+	o->lado = 128; o->jogadores = 2; o->tipo = 0; o->recursos_mapa = 1; o->nivel_recursos = 1; o->guardado = 1; o->animais = 1; o->portas = 1; o->itens = 1; o->penhascos = 0;
 	snprintf(o->bioma, sizeof o->bioma, "grass");
 	o->semente = 417;
 }
@@ -488,7 +488,12 @@ int tz_aleatorio_texto(const TzAleatorio *op, char *out, size_t n)
 	                 op->nivel_recursos, op->guardado, op->animais, op->bioma[0] ? op->bioma : "grass", (unsigned long long)op->semente);
 	for (int i = 0; i < 8 && k > 0 && (size_t)k < n; ++i) k += snprintf(out + k, n - (size_t)k, " %d", op->equipe[i]);
 	for (int i = 0; i < 8 && k > 0 && (size_t)k < n; ++i) k += snprintf(out + k, n - (size_t)k, " %d", op->civ[i]);
-	if (k > 0 && (size_t)k < n) k += snprintf(out + k, n - (size_t)k, " %d %d", op->portas != 0, op->itens != 0);
+	if (k > 0 && (size_t)k < n) k += snprintf(out + k, n - (size_t)k, " %d %d %d", op->portas != 0, op->itens != 0, op->penhascos != 0);
+	/* D470: comportamiento de la IA de cada reino y rendición (solo si hay algo) */
+	int ia = op->rendicao != 0;
+	for (int i = 0; i < 8; ++i) ia |= op->ia[i][0] != 0;
+	if (ia && k > 0 && (size_t)k < n) k += snprintf(out + k, n - (size_t)k, " IA %d", op->rendicao != 0);
+	for (int i = 0; ia && i < 8 && k > 0 && (size_t)k < n; ++i) k += snprintf(out + k, n - (size_t)k, " %s", op->ia[i][0] ? op->ia[i] : "-");
 	return k > 0 && (size_t)k < n ? 0 : tz_falha("no cabe el texto del mapa aleatorio");
 }
 
@@ -529,6 +534,20 @@ int tz_aleatorio_de_texto(const char *t, TzAleatorio *op)
 	}
 	/* puertas y objetos: opcionales (valen 1 si faltan) */
 	if (pal_texto(p, w, sizeof w, &p)) { o.portas = atoi(w) != 0; if (pal_texto(p, w, sizeof w, &p)) o.itens = atoi(w) != 0; }
+	/* v8.5.6: «penhascos» (opcional) y luego «IA rendición guion[8]» (D470, opcional) */
+	int tem = pal_texto(p, w, sizeof w, &p);
+	if (tem && strcmp(w, "IA")) { o.penhascos = atoi(w) != 0; tem = pal_texto(p, w, sizeof w, &p); }
+	if (tem && !strcmp(w, "IA")) {
+		if (!pal_texto(p, w, sizeof w, &p)) return tz_falha("texto de mapa aleatorio incompleto");
+		o.rendicao = atoi(w) != 0;
+		for (int i = 0; i < 8; ++i) {
+			if (!pal_texto(p, w, sizeof w, &p)) return tz_falha("texto de mapa aleatorio incompleto");
+			if (strcmp(w, "-")) {
+				if (strchr(w, '/') || strchr(w, '\\') || strstr(w, "..") || strlen(w) > 32) return tz_falha("guion de IA no válido: %s", w);
+				snprintf(o.ia[i], sizeof o.ia[i], "%s", w);
+			}
+		}
+	}
 	int lado_ok = 0;
 	for (int i = 0; i < 7; ++i) if (LADOS[i] == o.lado) lado_ok = 1;
 	if (!lado_ok || o.jogadores < 2 || o.jogadores > 8 || o.humano < 0 || o.humano >= o.jogadores || o.tipo < 0 || o.tipo > 5 || o.recursos_mapa < 0 ||
@@ -577,6 +596,135 @@ static void preencher_item(TzObjeto *o, uint64_t *rng)
 		o->dados[98] = 1; o->dados[99] = 1;
 		palavra_reg(o, 100, (unsigned)entre(rng, 1, 5));
 	} else if (o->classe == TZC_ITEM_MAIS) o->dados[96] = !strncmp(imagem, "item_shield", 11) ? 2 : 1;
+}
+
+/* ------------------------------------------------------------------ montañas (random_map.rs mountains, native_cliffs; 0x4b33b0)
+ * Cadenas de piezas de 2x2 casillas (acantilados) que siguen la pendiente del campo del plasma: el recorrido (cliff_path 0x4b3090),
+ * el giro o remate de cada pieza (cliff_turn, cliff_cap) y su cuadro del atlas (tablas 0x58e7fc y 0x58e814, en losetas de 32 px). Solo
+ * sobre tierra firme sin la forma de inicio de ningún reino. Una casilla de acantilado lleva 0x400 | terreno << 7 | columna << 4 | fila. */
+static void caminho_penhasco(const uint8_t *campo, int lado, int comp, uint64_t *rng, int pt[][2], int *npt)
+{
+	int coluna = (int)abaixo(rng, (size_t)(lado - comp + 1)), fila = 10 + (int)abaixo(rng, (size_t)(lado - 19));
+	int n = 1, progresso = 0;
+	pt[0][0] = 0; pt[0][1] = 0;
+	while (n < comp) {
+		int delta = 0;
+		if (n > 2) { int d = (int)campo[fila * lado + coluna + 1] - (int)campo[fila * lado + coluna]; delta = d > 0 ? 1 : d < 0 ? -1 : 0; }
+		coluna++; progresso++;
+		if (delta) { pt[n][0] = progresso - 1; pt[n][1] = pt[n - 1][1] + delta; n++; }
+		pt[n][0] = progresso; pt[n][1] = pt[n - 1][1]; n++;
+	}
+	*npt = comp;
+}
+
+static int giro_penhasco(int a[2], int b[2], int c[2], int anterior, int *lado)
+{
+	int kind;
+	if (a[0] == b[0] && b[0] == c[0]) kind = 0;
+	else if (a[1] == b[1] && b[1] == c[1]) kind = 1;
+	else if (a[0] < c[0]) kind = a[0] == b[0] ? 2 + (a[1] <= c[1]) : 4 + (a[1] > c[1]);
+	else kind = a[0] == b[0] ? 4 + (a[1] <= c[1]) : 2 + (a[1] > c[1]);
+	int vira = 0;
+	switch (anterior) {
+	case 0: vira = *lado ? !(kind == 0 || kind == 2 || kind == 3) : !(kind == 0 || kind == 4 || kind == 5); break;
+	case 1: vira = !(kind == 1 || kind == 2 || kind == 4); break;
+	case 2: vira = kind == 0 || kind == 5; break;
+	case 3: vira = kind == 0 || kind == 1 || kind == 4; break;
+	case 4: vira = kind == 3; break;
+	case 5: vira = kind == 1 || kind == 2; break;
+	default: break;
+	}
+	if (vira) *lado = !*lado;
+	return kind;
+}
+
+static int remate_penhasco(int a[2], int b[2], int inicio, int anterior, int *lado, int *reverso)
+{
+	int kind = a[1] == b[1] ? 1 : 0;
+	int rev = kind == 1 ? b[0] < a[0] : b[1] < a[1];
+	if (!inicio) {
+		rev = !rev;
+		if ((anterior == 2 && kind == 0 && rev) || anterior == 3 || (anterior == 5 && kind == 1 && rev)) *lado = !*lado;
+	}
+	*reverso = rev;
+	return kind;
+}
+
+static const uint8_t GIROS_PENHASCO[12][2] = { { 4, 2 }, { 0, 2 }, { 2, 0 }, { 2, 4 }, { 0, 0 }, { 0, 6 }, { 0, 4 }, { 0, 8 }, { 4, 0 }, { 2, 6 }, { 4, 4 }, { 2, 8 } };
+static const uint8_t REMATES_PENHASCO[8][2] = { { 4, 6 }, { 4, 8 }, { 4, 10 }, { 4, 12 }, { 0, 10 }, { 2, 10 }, { 0, 12 }, { 2, 12 } };
+
+typedef struct { int cel[2]; int atlas[2]; } PecaPenhasco;
+
+static int pecas_penhasco(int pt[][2], int npt, int origem[2], int *lado, PecaPenhasco *out)
+{
+	int anterior = 255, cel[2] = { origem[0], origem[1] }, orient = 0, n = 0;
+	for (int i = 0; i < npt - 1; ++i) {
+		int cap = i == 0 || i == npt - 2, kind;
+		if (cap) kind = remate_penhasco(pt[i], pt[i + 1], i == 0, anterior, lado, &orient);
+		else kind = giro_penhasco(pt[i], pt[i + 1], pt[i + 2], anterior, lado);
+		anterior = kind;
+		const uint8_t *at = cap ? REMATES_PENHASCO[orient + 2 * (*lado + 2 * kind)] : GIROS_PENHASCO[kind * 2 + *lado];
+		out[n].cel[0] = cel[0]; out[n].cel[1] = cel[1]; out[n].atlas[0] = at[0]; out[n].atlas[1] = at[1]; n++;
+		switch (kind) {
+		case 0: cel[1] += orient ? -2 : 2; break;
+		case 1: cel[0] += orient ? -2 : 2; break;
+		case 2: if (pt[i][0] < pt[i + 2][0]) cel[0] += 2; if (pt[i][1] < pt[i + 2][1]) cel[1] += 2; break;
+		case 3: if (pt[i][0] < pt[i + 2][0]) cel[0] += 2; if (pt[i][1] >= pt[i + 2][1]) cel[1] -= 2; break;
+		case 4: if (pt[i][0] >= pt[i + 2][0]) cel[0] -= 2; if (pt[i][1] < pt[i + 2][1]) cel[1] += 2; break;
+		case 5: if (pt[i][0] >= pt[i + 2][0]) cel[0] -= 2; if (pt[i][1] >= pt[i + 2][1]) cel[1] -= 2; break;
+		}
+	}
+	return n;
+}
+
+static void montanhas(uint16_t *cel, int lado, uint64_t semente, const uint8_t params[4], const Forma *formas, int jog)
+{
+	uint8_t *campo = plasma512(semente, params[2], params[3]);
+	if (!campo) return;
+	uint8_t *alturas = malloc((size_t)lado * (size_t)lado);
+	if (!alturas) { free(campo); return; }
+	for (int y = 0; y < lado; ++y) for (int x = 0; x < lado; ++x) alturas[y * lado + x] = amostra(campo, lado, x, y);
+	free(campo);
+	int terra = 0;
+	for (int i = 0; i < lado * lado; ++i) if (((cel[i] >> 7) & 7) != 0 && ((cel[i] >> 4) & 7) != 0) terra++;
+	int raiz = 0;
+	while ((raiz + 1) * (raiz + 1) <= terra) raiz++;   /* raíz entera: (count as f64).sqrt() as usize */
+	int quantas = raiz / 16;
+	uint64_t rng = semente ^ 0x434c49464653ull;
+	int min = 13 - (512 - lado) * 10 / 512, max = 21 - (512 - lado) * 18 / 512, postas = 0;
+	for (int tent = 0; tent < 500 && postas < quantas; ++tent) {
+		int origem[2] = { (int)((24 + abaixo(&rng, (size_t)(lado - 58))) & ~1u), (int)((24 + abaixo(&rng, (size_t)(lado - 58))) & ~1u) };
+		int comp = min + (int)abaixo(&rng, (size_t)(max - min + 1));
+		int pt[64][2], npt;
+		caminho_penhasco(alturas, lado, comp, &rng, pt, &npt);
+		int face = abaixo(&rng, 2) != 0;
+		PecaPenhasco pc[64];
+		int np = pecas_penhasco(pt, npt, origem, &face, pc), bom = 1;
+		for (int q = 0; q < np && bom; ++q) {
+			int x = pc[q].cel[0], y = pc[q].cel[1];
+			if (x < 1 || y < 1 || x + 2 >= lado || y + 2 >= lado) { bom = 0; break; }
+			for (int yy = y; yy < y + 2 && bom; ++yy)
+				for (int xx = x; xx < x + 2; ++xx) {
+					uint16_t c = cel[yy * lado + xx];
+					if ((c & 0xfc00) != 0 || ((c >> 7) & 7) == 0 || ((c >> 7) & 7) != ((c >> 4) & 7)) { bom = 0; break; }
+					for (int p = 0; p < jog; ++p)
+						if (xx >= formas[p].x && yy >= formas[p].y && xx < formas[p].x + formas[p].w && yy < formas[p].y + formas[p].h) { bom = 0; break; }
+					if (!bom) break;
+				}
+		}
+		if (!bom) continue;
+		/* la segunda pasada parte de la cara en que acabó la de comprobar */
+		np = pecas_penhasco(pt, npt, origem, &face, pc);
+		for (int q = 0; q < np; ++q)
+			for (int dy = 0; dy < 2; ++dy)
+				for (int dx = 0; dx < 2; ++dx) {
+					int i = (pc[q].cel[1] + dy) * lado + pc[q].cel[0] + dx;
+					int terreno = (cel[i] >> 7) & 7;
+					cel[i] = (uint16_t)(0x400 | (terreno << 7) | ((pc[q].atlas[0] + dx) << 4) | (pc[q].atlas[1] + dy));
+				}
+		postas++;
+	}
+	free(alturas);
 }
 
 int tz_mapa_aleatorio(TzMapa *out, TzRecursos *r, const TzCatalogo *cat, const TzAleatorio *op)
@@ -670,6 +818,7 @@ int tz_mapa_aleatorio(TzMapa *out, TzRecursos *r, const TzCatalogo *cat, const T
 				uint8_t q = formas[p].px[y * formas[p].w + x];
 				reservado[(formas[p].y + y) * lado + formas[p].x + x] = q == SHAPE_VERDE || q == SHAPE_PRETO;
 			}
+	if (op->penhascos) montanhas(out->casillas, lado, semente, params, formas, jog);
 	natureza(out->casillas, lado, &ini, reservado, semente);
 
 	/* los reinos */
@@ -693,6 +842,7 @@ int tz_mapa_aleatorio(TzMapa *out, TzRecursos *r, const TzCatalogo *cat, const T
 		if (i < jog && op->civ[i] >= 1 && op->civ[i] <= 3) k->civ = op->civ[i];
 		civs[i] = (uint8_t)k->civ;
 		for (int j = 0; j < 4; ++j) k->recursos[j] = (uint32_t)recursos[j];
+		snprintf(k->ia_guiao, sizeof k->ia_guiao, "%s", i < jog ? op->ia[i] : "");   /* D470: el comportamiento elegido */
 	}
 
 	/* los objetos, en el orden del original */

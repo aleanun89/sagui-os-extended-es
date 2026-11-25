@@ -743,6 +743,20 @@ static void prueba_som(const char *raiz)
 		VER(tz_som_ativas(s2) == 2, "sonido: la orden del propio reino sí (voz de la unidad)");
 		tz_som_eventos(s2, m);
 		VER(tz_som_ativas(s2) == 2, "sonido: cada evento suena una sola vez (cursor propio)");
+		/* v8.5.6: el golpe de trabajo suena (talar, minar, cavar y construir); sin ver el punto, no */
+		{
+			tz_som_parar_todos(s2);
+			memset(&e, 0, sizeof e);
+			e.tipo = TZ_EV_TRABALHO; e.reino = 1; e.obj = 3; e.x = 21; e.y = 20; e.valor = TZ_TRAB_CORTAR;
+			tz_mundo_evento(m, &e);
+			tz_som_eventos(s2, m);
+			int talar = tz_som_ativas(s2);
+			e.valor = TZ_TRAB_MINAR; tz_mundo_evento(m, &e); tz_som_eventos(s2, m);
+			e.valor = TZ_TRAB_CONSTRUIR; tz_mundo_evento(m, &e); tz_som_eventos(s2, m);
+			e.valor = TZ_TRAB_NADA; tz_mundo_evento(m, &e); tz_som_eventos(s2, m);
+			VER(talar == 1 && tz_som_ativas(s2) == 3, "sonido: los golpes de talar, minar y construir suenan, y sin trabajo no suena nada (%d, %d)", talar, tz_som_ativas(s2));
+			tz_som_parar_todos(s2);
+		}
 		/* la voz sigue al objeto: si anda hacia la derecha de la vista, suena más por la derecha */
 		{
 			int16_t mb[2048 * 2];
@@ -905,6 +919,23 @@ static void prueba_aleatorio(const char *raiz, int verboso)
 		ok = !e1 && !tz_mapa_aleatorio(&m2, &r, NULL, &a2) && suma_mapa(&m1) == suma_mapa(&m2) && m1.nobj == m2.nobj;
 		VER(ok, "aleatorio: el mapa regenerado desde el texto es el mismo (%d objetos)", ok ? m1.nobj : -1);
 		if (ok) { tz_mapa_liberar(&m1); tz_mapa_liberar(&m2); }
+		/* D470: el comportamiento de la IA de cada reino y la rendición van en la línea y llegan a los reinos del mapa */
+		{
+			TzAleatorio a4 = a1, a5;
+			snprintf(a4.ia[2], sizeof a4.ia[2], "War.ais"); a4.rendicao = 1;
+			char t4[640];
+			int ok4 = !tz_aleatorio_texto(&a4, t4, sizeof t4) && strstr(t4, " IA 1 - - War.ais") && !tz_aleatorio_de_texto(t4, &a5) && !memcmp(&a4, &a5, sizeof a4);
+			TzMapa m4;
+			ok4 = ok4 && !tz_mapa_aleatorio(&m4, &r, NULL, &a4);
+			if (ok4) { ok4 = !strcmp(m4.reinos[2].ia_guiao, "War.ais") && !m4.reinos[1].ia_guiao[0]; tz_mapa_liberar(&m4); }
+			ok4 = ok4 && tz_aleatorio_de_texto("ALEAT 96 5 3 2 2 0 0 0 grass 5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 IA 0 - ../x - - - - - -", &a5) != 0;
+			VER(ok4, "aleatorio: la IA de cada reino y la rendición van en el texto y al mapa; un guion con carpeta se rechaza");
+			/* v8.5.6: las montañas (D471) y la IA (D470) juntas en la misma línea, y cada una sin la otra */
+			a4.penhascos = 1;
+			int ok5 = !tz_aleatorio_texto(&a4, t4, sizeof t4) && strstr(t4, " 1 IA 1 - - War.ais") && !tz_aleatorio_de_texto(t4, &a5) && !memcmp(&a4, &a5, sizeof a4);
+			ok5 = ok5 && !tz_aleatorio_de_texto("ALEAT 96 5 3 2 2 0 0 0 grass 5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1", &a5) && a5.penhascos == 1 && !a5.rendicao;
+			VER(ok5, "aleatorio: montañas e IA juntas en el texto van y vuelven iguales; montañas sin IA también");
+		}
 		/* puertas mágicas y objetos al azar (v8.5.5.2) */
 		{
 			TzAleatorio a3;
@@ -935,6 +966,31 @@ static void prueba_aleatorio(const char *raiz, int verboso)
 			int sin = 0;
 			if (!tz_mapa_aleatorio(&mm, &r, NULL, &a3)) { for (int i = 0; i < mm.nobj; ++i) sin += mm.obj[i].classe == 72 || mm.obj[i].classe == TZC_LIVRO || mm.obj[i].classe == TZC_POCAO || mm.obj[i].classe == TZC_ITEM_MAIS; tz_mapa_liberar(&mm); }
 			VER(sin == 0, "aleatorio: sin las opciones no hay puertas ni objetos al azar");
+		}
+		/* v8.5.6: montañas (cliffs): cadenas de piezas 2x2 sobre tierra; sin la opción no hay ninguna; el mismo mapa con la misma semilla */
+		{
+			TzAleatorio ap;
+			tz_aleatorio_padrao(&ap);
+			ap.lado = 256; ap.jogadores = 2; ap.tipo = 3; ap.semente = 99;
+			TzMapa p0, p1, p2;
+			int c0 = -1, c1 = -1, c2 = -1;
+			ap.penhascos = 0;
+			if (!tz_mapa_aleatorio(&p0, &r, NULL, &ap)) { c0 = 0; for (int i = 0; i < p0.lado * p0.lado; ++i) c0 += (p0.casillas[i] & 0x400) != 0; }
+			ap.penhascos = 1;
+			if (!tz_mapa_aleatorio(&p1, &r, NULL, &ap)) { c1 = 0; for (int i = 0; i < p1.lado * p1.lado; ++i) c1 += (p1.casillas[i] & 0x400) != 0; }
+			int igual = 0;
+			if (!tz_mapa_aleatorio(&p2, &r, NULL, &ap)) { c2 = 0; for (int i = 0; i < p2.lado * p2.lado; ++i) c2 += (p2.casillas[i] & 0x400) != 0; igual = !memcmp(p1.casillas, p2.casillas, (size_t)p1.lado * p1.lado * sizeof *p1.casillas); }
+			VER(c0 == 0 && c1 > 0 && c1 % 4 == 0 && c1 == c2 && igual, "aleatorio: las montañas (%d casillas de acantilado, en piezas de 2x2) salen solo con la opción y siempre iguales", c1);
+			int en_agua = 0;
+			for (int i = 0; i < p1.lado * p1.lado && c1 > 0; ++i) if ((p1.casillas[i] & 0x400) && (((p1.casillas[i] >> 7) & 7) == 0)) en_agua++;
+			VER(en_agua == 0, "aleatorio: ninguna montaña sobre el agua");
+			char tx[300];
+			TzAleatorio ab;
+			int rt = !tz_aleatorio_texto(&ap, tx, sizeof tx) && !tz_aleatorio_de_texto(tx, &ab) && ab.penhascos == 1;
+			VER(rt, "aleatorio: la opción de montañas se guarda en el texto del mapa");
+			if (c0 >= 0) tz_mapa_liberar(&p0);
+			if (c1 >= 0) tz_mapa_liberar(&p1);
+			if (c2 >= 0) tz_mapa_liberar(&p2);
 		}
 		const char *malos[] = { "", "ALEAT", "ALEAT 96 5 3 2 2 0 0 0 grass 5", "ALEAT 100 5 3 2 2 0 0 0 grass 5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0",
 		                        "ALEAT 96 1 0 2 2 0 0 0 grass 5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0", "ALEAT 96 5 7 2 2 0 0 0 snow 5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0",
@@ -1285,7 +1341,7 @@ static int real_aleatorios(TzRecursos *rec)
 		for (int jog = 2; jog <= 8; jog += (jog == 2 ? 2 : 3)) {
 			TzAleatorio op;
 			tz_aleatorio_padrao(&op);
-			op.lado = jog == 2 ? 128 : 256; op.jogadores = jog; op.humano = 0; op.tipo = (b + jog) % 6; op.semente = 1000u + (unsigned)(b * 10 + jog);
+			op.lado = jog == 2 ? 128 : 256; op.jogadores = jog; op.humano = 0; op.tipo = (b + jog) % 6; op.semente = 1000u + (unsigned)(b * 10 + jog); op.penhascos = (b + jog) & 1;   /* con montañas la mitad de los mapas */
 			snprintf(op.bioma, sizeof op.bioma, "%s", biomas[b]);
 			TzBiblioteca bib;
 			TzCatalogo cat;

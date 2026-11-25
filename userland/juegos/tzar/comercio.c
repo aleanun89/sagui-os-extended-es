@@ -16,7 +16,7 @@
  *  - economy() (cruzadas, 0x439640, 0x439760, 0x439d50, 0x422ca0): la catedral suma cruzados hasta el techo (16, +4 por
  *    cruzada completa, 36 como mucho) y la cruzada los llama uno cada 500 ms en casillas libres alrededor del ancla;
  *  - convert (become_priest, become_jihad_warrior).
- * Diferencias: los precios no llevan las rebajas de investigaciones; los héroes no reciben nombre de HEROES.INI.
+ * v8.5.6: los precios llevan las rebajas de las investigaciones y los héroes reciben nombre de HEROES.INI.
  */
 #include "mundo_int.h"
 #include <stdlib.h>
@@ -221,14 +221,21 @@ void tz_vender_tic(TzMundo *m, TzId i)
 /* ------------------------------------------------------------------ taberna: ofertas */
 /* hire_price (0x4d23b0): coste de la clase por cantidad por 1,6, más 30 de oro por nivel y 15 por nivel de los demás recursos
  * que cueste la clase */
-void tz_mundo_preco_oferta(const TzMundo *m, const struct TzOferta *of, uint32_t preco[TZ_NREC])
+void tz_mundo_preco_oferta_reino(const TzMundo *m, int k, const struct TzOferta *of, uint32_t preco[TZ_NREC])
 {
-	const TzAtributos *at = tz_catalogo_at(m->cat, of->classe, of->civ);
+	uint32_t custo[TZ_NREC];
+	tz_mundo_custo_classe_civ(m, k, of->classe, of->civ, custo, NULL);   /* con las rebajas de las investigaciones del reino */
 	for (int r = 0; r < TZ_NREC; ++r) {
-		uint32_t base = (uint32_t)((uint64_t)at->custo[r] * of->quantidade * 160 / 100);
+		uint32_t base = (uint32_t)((uint64_t)custo[r] * of->quantidade * 160 / 100);
 		preco[r] = 0;
 		if (r == 0 || base) preco[r] = base + (r == 0 ? 30u : 15u) * of->nivel;
 	}
+}
+
+/* sin reino: precio de lista (sin rebajas) */
+void tz_mundo_preco_oferta(const TzMundo *m, const struct TzOferta *of, uint32_t preco[TZ_NREC])
+{
+	tz_mundo_preco_oferta_reino(m, 0, of, preco);
 }
 
 int tz_mundo_ofertas(const TzMundo *m, TzId t, int lista, struct TzOferta *out, int max)
@@ -279,7 +286,7 @@ static void contratar(TzMundo *m, const TzComando *c)
 	if (rk->populacao >= rk->populacao_max) { tz_ev(m, TZ_EV_SEM_POPULACAO, t->dono, c->ids[0], TZ_NENHUM, t->cx, t->cy, 0, 0); return; }
 	struct TzOferta of = a->oferta[lista][idx];
 	uint32_t preco[TZ_NREC];
-	tz_mundo_preco_oferta(m, &of, preco);
+	tz_mundo_preco_oferta_reino(m, t->dono, &of, preco);
 	if (tz_pagar(m, t->dono, preco)) return;
 	int r[4];
 	tz_obj_ret(m, t, r);
@@ -298,7 +305,7 @@ static void contratar(TzMundo *m, const TzComando *c)
 		t = &m->obj[c->ids[0]]; a = t->ator;
 		TzObj *n = &m->obj[u];
 		n->nivel = (uint8_t)(of.nivel > 255 ? 255 : of.nivel);
-		if (lista == 1) n->flags |= TZ_F_HEROI;
+		if (lista == 1) tz_heroi_promover(m, u);
 		tz_recalcular(m, u);
 		m->reino[t->dono].criadas++;
 		tz_ev(m, TZ_EV_CRIADO, t->dono, u, c->ids[0], px, py, of.classe, 0);
@@ -501,6 +508,39 @@ int tz_negocio_comando(TzMundo *m, const TzComando *c)
 		x->entregue = 0; x->proximo = m->tic + 6;
 		return 1;
 	}
+	case TZ_C_TRIBUTO: {
+		/* gameplay.rs transfer (0x447c49): la cantidad se recorta a lo que el emisor puede gastar; el otro reino la recibe */
+		int para = c->arg, rec = c->x;
+		if (!reino_ok(para) || para == k || !m->reino[para].ativo || rec < 0 || rec >= TZ_NREC || c->valor <= 0) return 1;
+		int32_t q = c->valor < r->recursos[rec] ? c->valor : r->recursos[rec];
+		if (q <= 0) return 1;
+		r->recursos[rec] -= q;
+		m->reino[para].recursos[rec] += q;
+		tz_ev(m, TZ_EV_TRIBUTO, k, TZ_NENHUM, TZ_NENHUM, para, 0, rec, q);
+		return 1;
+	}
+	case TZ_C_ALMA: tz_alma_comando(m, c); return 1;
+	case TZ_C_FABRICAR: case TZ_C_COMPRAR: tz_fabrica_comando(m, c); return 1;
+	case TZ_C_APOSTAR: {
+		/* D_GAMBLE (0x4a3fee): una tirada de 1 a 100 gana con 50, 33, 20 o 10 y paga la puesta 1, 2, 5 o 10 veces; si no, la puesta
+		 * se pierde. No se cobra antes de tirar. */
+		TzObj *t = taberna(m, c);
+		if (!t) return 1;
+		int rec = c->arg & 3, prop = (c->arg >> 2) & 3;
+		int32_t puesta = c->valor;
+		if (puesta < 50 || puesta % 50) { tz_falha("elige una puesta de al menos 50"); return 1; }
+		if (r->recursos[rec] < puesta) { tz_falha("recursos insuficientes para la puesta"); return 1; }
+		static const int chance[4] = { 50, 33, 20, 10 }, paga[4] = { 1, 2, 5, 10 };
+		int tirada = tz_rng_entre(&m->rng, 1, 100);
+		if (tirada <= chance[prop]) {
+			r->recursos[rec] += puesta * paga[prop];
+			tz_ev(m, TZ_EV_APOSTA, k, c->ids[0], TZ_NENHUM, t->cx, t->cy, rec, puesta * paga[prop]);
+		} else {
+			r->recursos[rec] -= puesta;
+			tz_ev(m, TZ_EV_APOSTA, k, c->ids[0], TZ_NENHUM, t->cx, t->cy, rec, -puesta);
+		}
+		return 1;
+	}
 	case TZ_C_CONTRATAR: if (taberna(m, c)) contratar(m, c); return 1;
 	case TZ_C_CRUZADA: lanzar_cruzada(m, c); return 1;
 	case TZ_C_CONVERTIR: convertir(m, c); return 1;
@@ -523,6 +563,7 @@ void tz_negocio_tic(TzMundo *m)
 		if (!r->ativo) continue;
 		if (r->emp_aumenta_tic && m->tic >= r->emp_aumenta_tic) { r->emp_quantia = r->emp_aumenta_quantia; r->emp_aumenta_tic = 0; }
 		if (r->cruz_ancla >= 0) cruzada_tic(m, k);
+		tz_joias_tic(m, k);
 	}
 	int n = m->nobj;
 	for (int i = 0; i < n; ++i) {

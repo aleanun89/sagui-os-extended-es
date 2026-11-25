@@ -49,7 +49,9 @@ def janela(m, titulo, desde=0, tempo=40):
 def esperar(m, texto, desde=0, tempo=40):
     fim = time.time() + tempo
     while time.time() < fim:
-        if texto in m.serial()[desde:]:
+        # el kernel puede escribir su «[SAGUI] processo N terminou» en mitad de una línea del programa
+        s = m.serial()[desde:]
+        if texto in s or texto in re.sub(r"\[SAGUI\][^\n]*\n", "", s):
             return True
         time.sleep(0.3)
     print(m.serial()[desde:][-1800:])

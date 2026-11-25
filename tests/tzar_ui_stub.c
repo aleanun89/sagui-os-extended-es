@@ -316,3 +316,21 @@ int tz_desenhar_mundo(TzMundo *m, TzEscena *e, TzLienzo *l, int camx, int camy, 
 	(void)m; (void)e; (void)l; (void)camx; (void)camy; (void)ms;
 	return 0;
 }
+
+/* v8.5.6: lo que las ventanas de negocio (ui_negocio.c) piden al mundo; en esta prueba el mundo es falso y no hay nada de eso */
+int tz_catalogo_custo_ini(const TzCatalogo *c, int classe, int civ, uint32_t custo[TZ_NREC]) { (void)c; (void)classe; (void)civ; memset(custo, 0, sizeof(uint32_t) * TZ_NREC); return 0; }
+const char *tz_feitico_chave(int idx) { (void)idx; return NULL; }
+const char *tz_heroi_nome(const TzMundo *m, const TzObj *o) { (void)m; (void)o; return NULL; }
+uint32_t tz_mundo_capacidade_comercio(const TzMundo *m, TzId i) { (void)m; (void)i; return 0; }
+int tz_mundo_capacidade_itens(const TzMundo *m, TzId i) { (void)m; (void)i; return 0; }
+int tz_mundo_fabrica_ocupada(const TzMundo *m, int k) { (void)m; (void)k; return 0; }
+int tz_mundo_itens(const TzMundo *m, TzId i, TzId *out, int max) { (void)m; (void)i; (void)out; (void)max; return 0; }
+int tz_mundo_joias(const TzMundo *m, int k, struct TzJoia *out, int max) { (void)m; (void)k; (void)out; (void)max; return 0; }
+uint32_t tz_mundo_livro_minimo(const TzMundo *m, int f) { (void)m; (void)f; return 20; }
+uint32_t tz_mundo_lucro_rota(const TzMundo *m, int k, TzId a, TzId b, uint32_t carga) { (void)m; (void)k; (void)a; (void)b; (void)carga; return 0; }
+int tz_mundo_ofertas(const TzMundo *m, TzId t, int lista, struct TzOferta *out, int max) { (void)m; (void)t; (void)lista; (void)out; (void)max; return 0; }
+uint32_t tz_mundo_preco_joia(const TzMundo *m, const struct TzJoia *j) { (void)m; (void)j; return 0; }
+void tz_mundo_preco_oferta_reino(const TzMundo *m, int k, const struct TzOferta *o, uint32_t preco[TZ_NREC]) { (void)m; (void)k; (void)o; memset(preco, 0, sizeof(uint32_t) * TZ_NREC); }
+void tz_mundo_recursos_compartidos(const TzMundo *m, int k, int32_t out[TZ_NREC]) { for (int r = 0; r < TZ_NREC; ++r) out[r] = m->reino[k].recursos[r]; }
+uint32_t tz_mundo_valor_item(const TzMundo *m, TzId j) { (void)m; (void)j; return 0; }
+int tz_obj_item(const TzObj *o) { (void)o; return 0; }

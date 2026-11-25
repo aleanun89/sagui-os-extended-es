@@ -83,7 +83,11 @@ mkdir -p "$TMP/x/translations"
 HCC="${HOSTCC:-cc}"
 mkdir "$TMP/tolua"
 echo '#define HAVE_GMTIME_R 1' > "$TMP/tolua/liblua_config.h"
-( cd "$TMP/x/dependencies" && env -u CPATH -u C_INCLUDE_PATH $HCC -O1 -w -I"$TMP/tolua" -Ilua-5.4/src -Itolua-5.2/include -DLUA_USE_POSIX \
+# Sin CPATH si el PC tiene su glibc en /usr/include; si no (WSL sin libc6-dev, con las cabeceras en
+# ~/.local/saguitools por CPATH, D191), se deja: es la del anfitrión, no la de SaguiOS.
+SIN_CPATH="-u CPATH"
+[ -f /usr/include/stdlib.h ] || SIN_CPATH=""
+( cd "$TMP/x/dependencies" && env $SIN_CPATH -u C_INCLUDE_PATH $HCC -O1 -w -I"$TMP/tolua" -Ilua-5.4/src -Itolua-5.2/include -DLUA_USE_POSIX \
     $(ls lua-5.4/src/*.c | grep -v '/lua\.c$\|/luac\.c$') tolua-5.2/src/lib/*.c tolua-5.2/src/bin/tolua.c tolua-5.2/src/bin/toluabind.c \
     -lm -o "$TMP/tolua/tolua" )
 gerar_tolua() {   # carpeta nombre pkg

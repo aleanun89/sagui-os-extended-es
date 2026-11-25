@@ -56,6 +56,9 @@ METODOS = {
 METODOS.update(vps._datos.METODOS)      # mejora 127: ConectorBD y RejillaDatos
 METODOS.update(vps._selectores.METODOS)  # v8.4.3: selectores de archivos y carpetas
 METODOS.update(vps._fechas.METODOS)
+METODOS.update(vps._arbol.METODOS)       # v8.5.6, D466
+METODOS.update(vps._notificar.METODOS)
+METODOS.update(vps._grafico.METODOS)    # v8.5.6, D469
 
 FUNCIONES = [
     ("ejecutar", "ejecutar(ns=None)", "Muestra el primer formulario y no vuelve hasta cerrarlo"),
@@ -67,6 +70,10 @@ FUNCIONES = [
     ("dialogo_carpeta", "dialogo_carpeta(titulo, carpeta)", "Diálogo de elegir carpeta"),
     ("pausa", "pausa(ms)", "Espera sin congelar la ventana"),
     ("evento", "evento(control, nombre)", "Decorador: conecta la función a un evento del control"),
+    ("notificar", "notificar(texto, tipo=\"info\", duracion=3000, titulo=\"\")",
+     "Aviso no modal en una esquina (tipo: info, exito, aviso o error; duracion 0 = hasta cerrarlo)"),
+    ("notificaciones", "notificaciones(formulario=None)", "Las notificaciones que se ven ahora"),
+    ("cerrar_notificaciones", "cerrar_notificaciones(formulario=None)", "Cierra todas las notificaciones"),
     ("depurar", "depurar(variables=None)", "Para el programa y enseña las variables en la ventana del depurador"),
 ]
 
@@ -96,6 +103,12 @@ AYUDA_PROP = {
     "intervalo": "Milisegundos entre dos «tic»", "raton_x": "X del ratón en el último evento de ratón",
     "raton_y": "Y del ratón en el último evento de ratón", "editable": "Si se pueden editar las celdas",
     "ordenable": "Si un clic en la cabecera ordena por esa columna",
+    "tipo": "Tipo de aviso: info, exito, aviso o error", "duracion": "Milisegundos que se ve el aviso (0 = hasta que se cierre)",
+    "posicion": "Esquina del formulario: abajo_derecha, arriba_derecha, abajo_centro o arriba_centro",
+    "accion": "Texto del botón del aviso (p. ej. Deshacer); su evento es «accion»",
+    "nodos": "Los nodos del árbol: una línea por nodo, dos espacios de sangría por nivel, «texto|clave»",
+    "expandido": "Si los nodos nuevos empiezan abiertos", "clave": "La clave del nodo elegido",
+    "nodo": "La clave del nodo que se abrió o se cerró en el último evento", "motivo": "Por qué se cerró el aviso: tiempo, click, boton, accion o api",
 }
 
 PALABRAS = [("False", "Falso"), ("None", "Nada: la ausencia de valor"), ("True", "Verdadero"),
@@ -321,6 +334,9 @@ def analizar_codigo(texto, omitir=None):
 EXTRA_PROPS = {
     "Tabla": ["columna", "valor"], "Lista": ["valor"], "Pestanas": ["valor"], "Lienzo": ["raton_x", "raton_y"],
     "CuadroTexto": ["tecla", "caracter"], "Formulario": ["tecla", "caracter"],
+    "Arbol": ["clave", "valor", "nodo"], "Notificacion": ["motivo"],
+    "Grafico": ["serie", "indice", "valor", "categoria", "nombre_serie", "oculta"],
+    "Calendario": ["fecha", "anio", "mes", "dia"],
     "Reloj": ["anio", "mes", "dia", "hora", "minuto", "segundo", "dia_semana", "fecha", "hora_texto",
               "nombre_dia", "nombre_mes"],
 }

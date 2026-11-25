@@ -67,6 +67,7 @@ typedef struct disco {
     struct cd_toc *toc;           /* la tabla de contenido y el CD-TEXT (del lector) */
     int    (*ler_audio)(struct disco *d, uint32_t lba, uint32_t n, void *buf);   /* n sectores de 2352 */
     bool     ram;                 /* D379: disco en RAM (toram): sin caché de bloques */
+    uint32_t trozo;               /* D468: sectores por orden que prefiere el driver (pendrives); 0 = 128 KB */
 } disco_t;
 
 disco_t *disco_registrar(const char *prefixo, const char *fabricante, const char *produto, uint32_t setores,

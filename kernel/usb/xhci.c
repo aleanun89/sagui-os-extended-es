@@ -21,10 +21,15 @@
  *
  * Diseño, como el del EHCI (D095), simple y previsible:
  *   - una transferencia por vez en todo el sistema (un cerrojo), con un buffer
- *     de 128 KB en memoria física contigua por el que pasan los datos;
- *   - cada TD (transferencia) es de un solo TRB "Normal" (los de bulk se
- *     parten en trozos que no cruzan una frontera de 64 KB y se mandan uno
- *     detrás de otro) o, en las de control, Setup + Data + Status;
+ *     de 1 MB (128 KB con poca memoria, D468) en memoria física contigua por el que
+ *     pasan los datos; D468: si el búfer de quien llama es memoria baja del kernel
+ *     (1:1, contigua), el DMA va directo a él, y lo pequeño (CBW, CSW) va por una
+ *     página aparte;
+ *   - cada TD de bulk es una cadena de TRB "Normal" que no cruzan una frontera de
+ *     64 KB (D468; antes, un TD por trozo de 64 KB, esperando a cada uno); las de
+ *     control, Setup + Data + Status. D468: varias transferencias seguidas del mismo
+ *     endpoint (CBW + datos, datos + CSW) van al anillo, un TD cada una, antes de un
+ *     solo timbre, y se espera solo a la última;
  *   - el evento de fin se reconoce por la dirección del TRB: si cae dentro del
  *     TD en curso es suyo; si no, es viejo y se ignora;
  *   - la espera mira el anillo de eventos con un plazo medido por el TSC; con
@@ -156,6 +161,9 @@
 #define NTRB          256u            /* TRB por anillo (una página) */
 #define XHCI_MAX_SLOTS 16
 #define BUFFER_BYTES  131072u
+#define BULK_MAX      (1024u * 1024u)   /* D468: buffer con 64 MB de memoria baja o más */
+#define PEQ_MAX       512u              /* D468: partes que van por la página "pequeno" */
+#define TRBS_PARTE    (BULK_MAX / 0x10000u + 2u)   /* TRB de un TD de bulk como mucho */
 #define CTRL_MAX      4096u
 #define HID_BUF_DESLOC 0xC00u        /* en la página del contexto de entrada, tras los 33 contextos */
 #define HID_BUF_TAM   0x100u
@@ -184,6 +192,12 @@ typedef struct {
     uint32_t int_buf;
     struct xfila *fila;           /* D238: cola de transferencias (NULL = la manera de siempre) */
     struct xiso  *iso;            /* D275: flujo isócrono (NULL = no es de ese tipo) */
+    /* D468: varios TD de bulk en el anillo a la vez (xhci_bulk_cadeia); 0 = un solo TD (td_ini..td_fim). */
+    uint8_t  n_tds;
+    uint32_t tdc_ini[USB_CADEIA_MAX], tdc_fim[USB_CADEIA_MAX];
+    volatile bool     tdc_feito[USB_CADEIA_MAX];
+    volatile uint8_t  tdc_cod[USB_CADEIA_MAX];
+    volatile uint32_t tdc_ptr[USB_CADEIA_MAX], tdc_resto[USB_CADEIA_MAX];
 } xep_t;
 
 typedef struct {
@@ -259,6 +273,8 @@ static xhci_t ctls[XHCI_MAX_CTL];
 static int qtd_ctls;
 static bool assincrono;
 static uint8_t *buffer;
+static uint32_t buffer_bytes = BUFFER_BYTES;   /* D468: 1 MB o 128 KB */
+static uint8_t *pequeno;                       /* D468: una página, 512 bytes por parte pequeña */
 static const void *canal_hid;
 static const void *canal_usb;    /* D227: la tarea de conexión en caliente */
 static const void *canal_fila;   /* D238: la tarea que lee las colas (el Wi-Fi) */
@@ -452,6 +468,22 @@ static void processar(xhci_t *c)
                 iso_evento(ep->iso, ptr, cod, resto);   /* D275 */
             } else if (ep && ep->fila) {
                 if ((ctl & (1u << 2)) || !fila_evento(ep->fila, ptr, cod, resto)) c->soltos++;
+            } else if (ep && ep->pendente && ep->n_tds && !(ctl & (1u << 2))) {
+                /* D468: uno de los TD de una cadena. Un paquete corto termina SU TD (el
+                 * controlador sigue con el siguiente); un error para el endpoint y los de
+                 * detrás no se hacen. Un segundo evento del mismo TD (algunos controladores
+                 * avisan también del último TRB tras uno corto) se ignora. */
+                int k = -1;
+                for (int i = 0; i < ep->n_tds; i++)
+                    if (ptr >= ep->tdc_ini[i] && ptr <= ep->tdc_fim[i]) { k = i; break; }
+                if (k < 0 || ep->tdc_feito[k]) c->soltos++;
+                else {
+                    ep->tdc_cod[k] = (uint8_t)cod;
+                    ep->tdc_ptr[k] = ptr;
+                    ep->tdc_resto[k] = resto;
+                    ep->tdc_feito[k] = true;
+                    if ((cod != CC_OK && cod != CC_CURTO) || k == ep->n_tds - 1) ep->feito = true;
+                }
             } else if (!ep || !ep->pendente || ep->feito || (ctl & (1u << 2)) || ptr < ep->td_ini || ptr > ep->td_fim) {
                 c->soltos++;    /* de un TD viejo (o cancelado) */
             } else if (cod == CC_CURTO && ptr != ep->td_fim) {
@@ -884,40 +916,168 @@ int xhci_controle(usb_disp_t *d, const uint8_t setup[8], void *dados, uint16_t t
     return r;
 }
 
-int xhci_bulk(usb_disp_t *d, bool entrada, void *dados, uint32_t tam)
+/* D468: ver dma_direto en ehci.c: memoria baja del kernel (1:1), fuera del primer MB, una página o más. */
+static bool dma_direto(const void *p, uint32_t tam)
 {
-    if (tam > BUFFER_BYTES) return USB_ERRO;
+    uint32_t a = (uint32_t)p;
+    return tam >= PAGINA && a >= 0x100000u && a + tam > a && a + tam <= MEMFIS_LIMITE;
+}
+
+uint32_t xhci_bulk_max(void) { return buffer ? buffer_bytes : BUFFER_BYTES; }
+
+/* Los TRB de un TD de bulk de "tam" bytes desde "end": trozos que no cruzan 64 KB, encadenados
+ * (CH) menos el último, que pide el evento (IOC); todos avisan de un paquete corto (ISP). TD Size
+ * (bits 17-21): paquetes que quedan tras este TRB (xHCI 1.0) o KB que quedan (0.96). */
+static uint32_t trbs_bulk(xhci_t *c, uint32_t end, uint32_t tam, uint16_t mps, trb_t *v)
+{
+    uint32_t n = 0, feito = 0;
+    do {
+        uint32_t parte = tam - feito, ate64k = 0x10000u - ((end + feito) & 0xFFFFu);
+        if (parte > ate64k) parte = ate64k;
+        uint32_t resta = tam - feito - parte, tds;
+        if (c->versao >= 0x100) tds = (resta + mps - 1) / mps;
+        else tds = resta >> 10;
+        if (tds > 31) tds = 31;
+        bool ultimo = resta == 0;
+        v[n].p0 = end + feito;
+        v[n].p1 = 0;
+        v[n].status = parte | (tds << 17);
+        v[n].controle = (TRB_NORMAL << 10) | TRB_ISP | (ultimo ? TRB_IOC : TRB_CH);
+        n++;
+        feito += parte;
+    } while (feito < tam && n < TRBS_PARTE);
+    return feito < tam ? 0 : n;
+}
+
+int xhci_bulk_cadeia(usb_disp_t *d, bool entrada, usb_parte_t *p, int n)
+{
+    if (n < 1 || n > USB_CADEIA_MAX) return USB_ERRO;
+    int grandes = 0;
+    uint32_t total = 0;
+    for (int k = 0; k < n; k++) {
+        p[k].r = USB_NAO_FEITA;
+        if (p[k].tam > PEQ_MAX) grandes++;
+        if (p[k].tam > xhci_bulk_max()) return USB_ERRO;
+        total += p[k].tam;
+    }
+    if (grandes > 1 || !buffer || !pequeno) return USB_ERRO;
     trava_pegar(&trava_xhci);
     bool i0 = int_salva_desliga();
     int r = USB_ERRO;
     xslot_t *s = slot_de(d);
     uint8_t ep = entrada ? d->ep_entrada : d->ep_saida;
-    if (s && ep) {
-        uint32_t dci = ep * 2u + (entrada ? 1 : 0);
-        if (!entrada) memcpy(buffer, dados, tam);
-        uint32_t feito = 0;
-        r = 0;
-        do {
-            uint32_t end = (uint32_t)buffer + feito;
-            uint32_t parte = tam - feito, ate64k = 0x10000u - (end & 0xFFFFu);
-            if (parte > ate64k) parte = ate64k;
-            trb_t v = { end, 0, parte, (TRB_NORMAL << 10) | TRB_IOC | TRB_ISP };
-            r = td_executar(d->xctl, s, dci, &v, 1, 5000);
-            if (r < 0) break;
-            xep_t *e = &s->ep[dci];
-            uint32_t resto = e->curto ? e->resto_dados : e->resto;
-            uint32_t veio = resto > parte ? 0 : parte - resto;
-            feito += veio;
-            if (veio < parte) break;   /* paquete corto: la transferencia termina aquí */
-        } while (feito < tam);
-        if (r == 0) {
-            if (entrada && feito) memcpy(dados, buffer, feito);
-            r = (int)feito;
+    xhci_t *c = d->xctl;
+    uint32_t dci = ep * 2u + (entrada ? 1 : 0);
+    if (s && ep && s->ep[dci].ativo && !c->morto) {
+        xep_t *e = &s->ep[dci];
+        uint16_t mps = entrada ? d->mps_entrada : d->mps_saida;
+        if (!mps) mps = 512;
+        uint32_t fis[USB_CADEIA_MAX];
+        for (int k = 0; k < n; k++) {
+            if (p[k].tam <= PEQ_MAX) fis[k] = (uint32_t)pequeno + (uint32_t)k * PEQ_MAX;
+            else if (dma_direto(p[k].dados, p[k].tam)) fis[k] = (uint32_t)p[k].dados;
+            else fis[k] = (uint32_t)buffer;
+            if (!entrada && p[k].tam && fis[k] != (uint32_t)p[k].dados) memcpy((void *)fis[k], p[k].dados, p[k].tam);
+        }
+        e->feito = false;
+        e->curto = false;
+        e->resto = e->resto_dados = 0;
+        e->codigo = 0;
+        for (int k = 0; k < n; k++) { e->tdc_feito[k] = false; e->tdc_cod[k] = 0; e->tdc_ptr[k] = 0; e->tdc_resto[k] = 0; }
+        /* Primero se arman todos los TD y solo si caben todos se ponen en el anillo: un TD puesto
+         * y no esperado se haría con el timbre siguiente. (Estático: con el cerrojo tomado.) */
+        static trb_t v[USB_CADEIA_MAX][TRBS_PARTE];
+        uint32_t nt[USB_CADEIA_MAX];
+        bool ok = true;
+        for (int k = 0; k < n && ok; k++) {
+            nt[k] = trbs_bulk(c, fis[k], p[k].tam, mps, v[k]);
+            if (!nt[k]) ok = false;
+        }
+        if (ok)
+            for (int k = 0; k < n; k++) anel_td(&e->anel, v[k], nt[k], TRB_NOOP_TR, &e->tdc_ini[k], &e->tdc_fim[k]);
+        if (ok) {
+            e->n_tds = (uint8_t)n;
+            e->td_ini = e->tdc_ini[0];
+            e->td_fim = e->tdc_fim[n - 1];
+            e->pendente = true;
+            barreira();
+            c->db[s->id] = dci;                         /* un solo timbre para toda la cadena */
+            c->transferencias++;
+            bool chegou = esperar(c, &e->feito, 5000u + total / 256u);
+            e->pendente = false;
+            bool recuperar = false;
+            if (!chegou && !c->morto) { cancelar_ep(c, s, dci); }
+            for (int k = 0; k < n; k++) {
+                if (!e->tdc_feito[k]) {
+                    p[k].r = chegou ? USB_ERRO : USB_ERRO_TEMPO;
+                    klog("[XHCI] cadena de %d partes: la %d (%u bytes) sin evento (%s; td %x-%x)\n", n, k, p[k].tam,
+                         chegou ? "las demas si" : "plazo", e->tdc_ini[k], e->tdc_fim[k]);
+                    break;
+                }
+                uint32_t cod = e->tdc_cod[k];
+                if (cod != CC_OK && cod != CC_CURTO) {
+                    c->erros++;
+                    if (cod != CC_STALL) klog("[XHCI] ranura %u endpoint %u: %s (%u)\n", s->id, dci, nome_codigo(cod), cod);
+                    p[k].r = cod == CC_STALL ? USB_ERRO_PAROU : USB_ERRO;
+                    recuperar = true;
+                    break;
+                }
+                /* Bytes hechos: hasta el TRB del evento (su dirección de datos dice dónde
+                 * empieza) más lo que ese TRB llevó. */
+                volatile trb_t *t = (volatile trb_t *)e->tdc_ptr[k];
+                uint32_t len = t->status & 0x1FFFFu, resto = e->tdc_resto[k];
+                uint32_t veio = (t->p0 - fis[k]) + (resto > len ? 0 : len - resto);
+                if (veio > p[k].tam) veio = p[k].tam;
+                p[k].r = (int)veio;
+                if (entrada && veio && fis[k] != (uint32_t)p[k].dados) memcpy(p[k].dados, (void *)fis[k], veio);
+            }
+            e->n_tds = 0;
+            if (recuperar) recuperar_ep(c, s, dci);
+            r = 0;
         }
     }
     int_restaura(i0);
     trava_soltar(&trava_xhci);
     return r;
+}
+
+/* D468: Reset Endpoint solo pone a cero la alternancia de un endpoint "halted". Para uno que se paró
+ * por un plazo, la manera de la especificación es Configure Endpoint con Drop y Add del mismo. */
+void xhci_reiniciar_ep(usb_disp_t *d, bool entrada)
+{
+    if (!d || d->tipo_ctl != USB_XHCI) return;
+    trava_pegar(&trava_xhci);
+    bool i0 = int_salva_desliga();
+    xslot_t *s = slot_de(d);
+    uint8_t ep = entrada ? d->ep_entrada : d->ep_saida;
+    uint32_t dci = ep * 2u + (entrada ? 1 : 0);
+    if (s && ep && s->ep[dci].ativo && !d->xctl->morto) {
+        xhci_t *c = d->xctl;
+        xep_t *e = &s->ep[dci];
+        cancelar_ep(c, s, dci);                         /* que quede quieto y sin TD pendientes */
+        entrada_limpar(c, s);
+        ctx_entrada(c, s, 0)[0] = 1u << dci;            /* D: lo que había */
+        ctx_entrada(c, s, 0)[1] = 1u << dci | 1u;       /* A: el mismo, y la ranura */
+        volatile uint32_t *sl = ctx_entrada(c, s, 1), *so = ctx_saida(c, s, 0);
+        volatile uint32_t *x = ctx_entrada(c, s, 1 + dci), *xo = ctx_saida(c, s, dci);
+        for (int i = 0; i < 3; i++) sl[i] = so[i];
+        x[0] = xo[0] & ~7u;                             /* sin el estado */
+        x[1] = xo[1];
+        x[2] = (e->anel.fis + e->anel.enq * 16u) | e->anel.ciclo;
+        x[3] = 0;
+        x[4] = xo[4];
+        if (comando(c, s->entrada, (TRB_CONF_EP << 10) | ((uint32_t)s->id << 24), 2000) < 0)
+            klog("[XHCI] ranura %u endpoint %u: no se ha podido reiniciar\n", s->id, dci);
+    }
+    int_restaura(i0);
+    trava_soltar(&trava_xhci);
+}
+
+int xhci_bulk(usb_disp_t *d, bool entrada, void *dados, uint32_t tam)
+{
+    usb_parte_t p = { dados, tam, USB_NAO_FEITA };
+    int r = xhci_bulk_cadeia(d, entrada, &p, 1);
+    return r < 0 ? r : p.r;
 }
 
 /* Lectura de interrupción armada: queda en el anillo hasta que el dispositivo
@@ -1950,9 +2110,17 @@ int xhci_iniciar_todos(void)
     for (int i = 0; i < n; i++) if (achados[i].interface == 0x30) algum = true;
     if (!algum) return 0;
     if (!buffer) {
-        uint32_t b = memfisica_alocar_seguidas(BUFFER_BYTES / PAGINA);
+        uint32_t b = 0;
+        if (memfisica_geridas() >= 16384u) {             /* D468: 64 MB de memoria baja o más */
+            b = memfisica_alocar_seguidas(BULK_MAX / PAGINA);
+            if (b) buffer_bytes = BULK_MAX;
+        }
+        if (!b) { b = memfisica_alocar_seguidas(BUFFER_BYTES / PAGINA); buffer_bytes = BUFFER_BYTES; }
         if (!b) { klog("[XHCI] falta memoria para el buffer\n"); return 0; }
+        pequeno = (uint8_t *)memfisica_alocar();
+        if (!pequeno) { klog("[XHCI] falta memoria para el buffer\n"); return 0; }
         buffer = (uint8_t *)b;
+        klog("[XHCI] buffer de datos de %u KB\n", buffer_bytes / 1024);
     }
     bool i0 = int_salva_desliga();
     for (int i = 0; i < n && qtd_ctls < XHCI_MAX_CTL; i++) {

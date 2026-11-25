@@ -38,3 +38,15 @@ mantenedor pidió ese estilo, con Python y más sencillo que el VB.
   en el `Text` de `tkinter`.
 - Pendiente: deshacer, `fuente` real (hoy una sola fuente 8x16), icono de las aplicaciones en el escritorio, refactorizar el código al
   renombrar un control, ayuda contextual, y arrastrar con previsualización desde la caja.
+
+## Ampliación v8.5.6 (D466): notificaciones toast, `Arbol` y `Calendario` ampliado
+
+- **Notificaciones**: `notificar(texto, tipo, duracion, titulo)` y el control sin ventana `Notificacion` (texto, tipo, duracion, posicion,
+  titulo, accion; `mostrar()`; eventos `click`, `accion`, `cerrado`). Avisos no modales en una esquina del formulario, apilados, con «x» y clic
+  para cerrarlos, sin robar el foco. Se dibujan en Python (`vps/_notificar.py`) con el aspecto del toast de la libsagui, porque el módulo
+  `sagui` no lo exporta y D034 impide añadir nombres sin regenerar los qstr.
+- **`Arbol`**: vista en árbol (`agregar`, `quitar`, `limpiar`, `expandir`, `contraer`, `seleccion`/`valor`/`clave`; eventos `seleccion`,
+  `doble_click`, `expandir`, `contraer`), dibujada en `vps/_widgets.py` (`_ArbolW`).
+- **`Calendario`**: `minimo`, `maximo`, flechas de año, `doble_click` y teclado.
+- Ejemplos `notificaciones` y `agenda-carpetas`; prueba `tests/h466_vps_toast.py`; decisión D466.
+- Quedan fuera de «Límites actuales» `Calendario` y `Arbol`.

@@ -14,6 +14,7 @@
 
 TzRect tz_ui_janela_rect(const TzUi *u)
 {
+	if (u->janela >= TZ_UJ_TABERNA) return tz_ui_neg_rect(u);
 	int w = 500, h = u->janela == TZ_UJ_DIPLOMACIA ? 420 : 143 + 6 * 16;
 	if (w > u->w) w = u->w;
 	int y = (u->h - h) / 2;
@@ -49,6 +50,8 @@ static int reinos_dipl(const TzUi *u, int *ks)
 static TzRect r_fila(TzRect j, int i) { return (TzRect){ j.x + 20, j.y + 70 + i * 36, j.w - 40, 30 }; }
 static TzRect r_postura(TzRect j, int i) { TzRect f = r_fila(j, i); return (TzRect){ f.x + 230, f.y + 2, 110, 26 }; }
 static TzRect r_fechar(TzRect j) { return (TzRect){ j.x + (j.w - 140) / 2, j.y + j.h - 40, 140, 27 }; }
+static TzRect r_tributo(TzRect j) { return (TzRect){ j.x + 20, j.y + j.h - 40, 150, 27 }; }
+static TzRect r_rendir(TzRect j) { return (TzRect){ j.x + j.w - 170, j.y + j.h - 40, 150, 27 }; }
 
 static void diplomacia_desenhar(TzUi *u, TzTela *t, TzRect j)
 {
@@ -74,6 +77,8 @@ static void diplomacia_desenhar(TzUi *u, TzTela *t, TzRect j)
 	}
 	if (!n) tz_ui_fonte_caixa(t, &s->f12b, (TzRect){ j.x, j.y + 100, j.w, 20 }, "No hay otros reinos.", COR_TEXTO, 1);
 	botao(t, s, r_fechar(j), tz_ui_txt(s, "general", "close", "Cerrar"), tz_rect_dentro(r_fechar(j), u->mx, u->my));
+	botao(t, s, r_tributo(j), tz_ui_txt(s, "diplomacy", "tribute", "TRIBUTOS"), tz_rect_dentro(r_tributo(j), u->mx, u->my));
+	botao(t, s, r_rendir(j), tz_ui_txt(s, "menu", "surr", "RENDIRSE"), tz_rect_dentro(r_rendir(j), u->mx, u->my));
 }
 
 static void diplomacia_mudar(TzUi *u, int k)
@@ -157,11 +162,13 @@ void tz_ui_janela_desenhar(TzUi *u, TzTela *t)
 	TzRect j = tz_ui_janela_rect(u);
 	caixa(t, j);
 	if (u->janela == TZ_UJ_DIPLOMACIA) diplomacia_desenhar(u, t, j);
+	else if (u->janela >= TZ_UJ_TABERNA) tz_ui_neg_desenhar(u, t, j);
 	else chat_desenhar(u, t, j);
 }
 
 int tz_ui_janela_entrada(TzUi *u, const TzUiEntrada *e)
 {
+	if (u->janela >= TZ_UJ_TABERNA) return tz_ui_neg_entrada(u, e);
 	TzRect j = tz_ui_janela_rect(u);
 	if (e->tipo == TZ_IN_MOVER) { u->mx = e->x; u->my = e->y; return 1; }
 	if (e->tipo == TZ_IN_TECLA) {
@@ -183,6 +190,8 @@ int tz_ui_janela_entrada(TzUi *u, const TzUiEntrada *e)
 		if (!tz_rect_dentro(j, e->x, e->y)) { u->janela = 0; return 1; }   /* un clic fuera la cierra */
 		if (u->janela == TZ_UJ_DIPLOMACIA) {
 			if (tz_rect_dentro(r_fechar(j), e->x, e->y)) { u->janela = 0; return 1; }
+			if (tz_rect_dentro(r_tributo(j), e->x, e->y)) { tz_ui_janela_abrir(u, TZ_UJ_TRIBUTO, TZ_NENHUM); return 1; }
+			if (tz_rect_dentro(r_rendir(j), e->x, e->y)) { tz_ui_janela_abrir(u, TZ_UJ_RENDICION, TZ_NENHUM); return 1; }
 			int ks[8], n = reinos_dipl(u, ks);
 			for (int i = 0; i < n; ++i) if (tz_rect_dentro(r_postura(j, i), e->x, e->y)) { diplomacia_mudar(u, ks[i]); break; }
 		} else {

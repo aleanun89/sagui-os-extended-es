@@ -1,0 +1,52 @@
+# VisualPythonS 1
+formulario Formulario
+  texto = 'Notificaciones'
+  ancho = 384
+  alto = 280
+control Etiqueta Etiqueta1
+  x = 12
+  y = 12
+  ancho = 60
+  texto = 'Nota:'
+control CuadroTexto CuadroTexto1
+  x = 76
+  y = 8
+  ancho = 292
+  texto = 'Comprar pan'
+control Boton Boton1
+  x = 12
+  y = 44
+  ancho = 110
+  alto = 28
+  texto = 'Guardar'
+control Boton Boton2
+  x = 130
+  y = 44
+  ancho = 110
+  alto = 28
+  texto = 'Guardar mal'
+control Boton Boton3
+  x = 12
+  y = 80
+  ancho = 110
+  alto = 28
+  texto = 'Aviso'
+control Boton Boton4
+  x = 130
+  y = 80
+  ancho = 110
+  alto = 28
+  texto = 'Informar'
+control Etiqueta Etiqueta2
+  x = 12
+  y = 124
+  ancho = 356
+  texto = 'Último aviso cerrado: ninguno'
+control Notificacion Notificacion1
+  x = 340
+  y = 76
+  texto = 'Nota guardada'
+  tipo = 'exito'
+  duracion = 8000
+  titulo = 'Guardado'
+  accion = 'Deshacer'

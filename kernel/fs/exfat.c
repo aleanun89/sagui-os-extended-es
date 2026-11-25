@@ -81,7 +81,7 @@ typedef struct {
 } volume_t;
 #define JANELA_SETORES 256
 #define DIRETO_SETORES 64
-#define RACHA_MAX      (128u * 1024u)
+#define RACHA_MAX      (1024u * 1024u)   /* D468: como en fat32.c */
 #define BLOCO_ZEROS    65536u
 
 static volume_t *vp;

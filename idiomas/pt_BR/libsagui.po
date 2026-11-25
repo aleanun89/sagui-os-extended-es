@@ -253,6 +253,104 @@ msgstr "Escolher cor"
 msgid "Elegir archivo"
 msgstr "Escolher arquivo"
 
+#: userland/libsagui/gui_progreso.c:36 userland/libsagui/gui_progreso.c:45
+msgid "Calculando..."
+msgstr "Calculando..."
+
+#: userland/libsagui/gui_progreso.c:48
+#, c-format
+msgid "Unos %u segundo"
+msgstr "Cerca de %u segundo"
+
+#: userland/libsagui/gui_progreso.c:48
+#, c-format
+msgid "Unos %u segundos"
+msgstr "Cerca de %u segundos"
+
+#: userland/libsagui/gui_progreso.c:49
+#, c-format
+msgid "Unos %u minuto"
+msgstr "Cerca de %u minuto"
+
+#: userland/libsagui/gui_progreso.c:49
+#, c-format
+msgid "Unos %u minutos"
+msgstr "Cerca de %u minutos"
+
+#: userland/libsagui/gui_progreso.c:50
+#, c-format
+msgid "%u h %u min"
+msgstr "%u h %u min"
+
+#: userland/libsagui/gui_progreso.c:71
+msgid "Menos detalles"
+msgstr "Menos detalhes"
+
+#: userland/libsagui/gui_progreso.c:71
+msgid "Más detalles"
+msgstr "Mais detalhes"
+
+#: userland/libsagui/gui_progreso.c:74
+msgid "Reanudar"
+msgstr "Retomar"
+
+#: userland/libsagui/gui_progreso.c:74
+msgid "Pausar"
+msgstr "Pausar"
+
+#: userland/libsagui/gui_progreso.c:95
+#, c-format
+msgid "Velocidad: %s"
+msgstr "Velocidade: %s"
+
+#: userland/libsagui/gui_progreso.c:128
+msgid "Preparando..."
+msgstr "Preparando..."
+
+#: userland/libsagui/gui_progreso.c:129
+#, c-format
+msgid "%u%% completado (en pausa)"
+msgstr "%u%% concluído (em pausa)"
+
+#: userland/libsagui/gui_progreso.c:129
+#, c-format
+msgid "%u%% completado"
+msgstr "%u%% concluído"
+
+#: userland/libsagui/gui_progreso.c:135
+msgid "Nombre:"
+msgstr "Nome:"
+
+#: userland/libsagui/gui_progreso.c:136
+#, c-format
+msgid "%u de %u"
+msgstr "%u de %u"
+
+#: userland/libsagui/gui_progreso.c:137
+msgid "Elementos:"
+msgstr "Itens:"
+
+#: userland/libsagui/gui_progreso.c:140
+#, c-format
+msgid "%s de %s"
+msgstr "%s de %s"
+
+#: userland/libsagui/gui_progreso.c:141
+msgid "Transferido:"
+msgstr "Transferido:"
+
+#: userland/libsagui/gui_progreso.c:144
+msgid "Velocidad:"
+msgstr "Velocidade:"
+
+#: userland/libsagui/gui_progreso.c:144
+msgid "En pausa"
+msgstr "Em pausa"
+
+#: userland/libsagui/gui_progreso.c:148
+msgid "Tiempo restante:"
+msgstr "Tempo restante:"
+
 #: userland/libsagui/opcoes_kernel.c:11
 msgid "Paginación PAE (más de 4 GB)"
 msgstr "Paginação PAE (mais de 4 GB)"

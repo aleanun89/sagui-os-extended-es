@@ -303,13 +303,11 @@ de campaña; capturas privadas `saguios-*.png` y cuadros por segundo).
 
 ### Lo que falta o difiere
 
-- Simulación (tras la v8.5.5.2, ver «Simulación completa»): las piedras del alma y los objetos de la fábrica mágica y las joyas del mercado asiático,
-  los pergaminos no abren historia, los héroes de la taberna no reciben nombre de HEROES.INI, los precios de la taberna no llevan las rebajas de
-  investigaciones, la elección de blanco no cuenta los atacantes que ya tiene cada candidato, y el juego de dados («gamble») no está.
+- Simulación: al día tras la v8.5.6 (ver «Objetos, ventanas y detalles»); lo que no está es lo que dice esa sección en «Queda».
 - Juego: la escaramuza y las campañas de un jugador (sin red).
-- Interfaz: la diplomacia no tiene tributos ni rendición; el chat solo sirve para la orden «ai ...» de la IA y para leer
-  lo que dice; los cursores no se animan (primer cuadro de cada forma); la taberna, el comercio, los objetos, los préstamos,
-  el intercambio y la cruzada de la simulación completa aún no tienen ventanas propias (se mandan por las órdenes del menú).
+- Interfaz: el chat solo sirve para la orden «ai ...» de la IA y para leer lo que dice; las ventanas de negocio de la v8.5.6 están
+  hechas con el marco de piedra dibujado y las fuentes y textos del juego, no con los diálogos exactos del original (`D_GAMBLE`,
+  `D_TRADE`...), aunque los dados usan su arte (`zarove`, `winlose`) cuando existe.
 
 ## Simulación completa (v8.5.5.2, rama `v8.5.5.2-tzar-sim`, D430)
 
@@ -335,6 +333,57 @@ regras_xp/experiencia/pode_resgatar`, `tz_feitico_ordem`, `tz_catalogo_custo_ini
 revelarse el espía: `TZ_C_CONVERTIR` con `arg = TZC_SPY` sobre el anfitrión. **Unidades grandes** (mercader, catapultas, ballesta, barcos,
 dragón): la casilla `cx,cy` y `px,py` son la de arriba a la izquierda y ocupan 2x2; la escena no cambia.
 
+## Objetos, ventanas y detalles (v8.5.6, rama `v8.5.6-tzar-objetos`, D471)
+
+Todo traducido de ReTzar (`gameplay.rs`, `combat.rs`, `dialogs.rs`, `hud.rs`, `random_map.rs`; cada fichero lo cita). Pruebas: h417 `extras`
+(153 comprobaciones), `negocio` (53, las ventanas con la simulación real), `janelas_saguios` (las once ventanas dentro de SaguiOS en QEMU), `ui`, `campanhas`; y h471 (MPEG-PS).
+
+**Simulación** (`comercio.c`, `itens.c`, `magia.c`, `acoes.c`, `mundo.c`; `TZSV` pasa a la versión 6)
+
+| Qué | Cómo |
+|---|---|
+| Nombres de héroe | `HEROES.INI` (`[euro]`, `[asia]`, `[arab]`, `[comm]` en ese orden); `tz_heroi_promover` da el primer nombre libre de su civilización al ascender a nivel 12 o contratarse en la taberna; no se repiten en la partida (`TzObj.heroi_nome`, `TzMundo.herois_usados`) y salen en la vista de selección |
+| Precios de la taberna | `tz_mundo_preco_oferta_reino`: coste de la clase con las rebajas de las investigaciones del reino (Feudalism, Slavery, Horsemanship, Meditation) |
+| Dados (`gamble`) | `TZ_C_APOSTAR`: tirada de 1 a 100, gana con 50, 33, 20 o 10 y paga la puesta x1, x2, x5 o x10; evento `TZ_EV_APOSTA` |
+| Piedras del alma | `spell_soulbind` deja una `item_soul` en el inventario del mago, ligada a la unidad (`TzItem.ligado`); `TZ_C_ALMA` mata (`item_kill`) o enfurece (`item_berserk`) a la unidad ligada; las piedras desaparecen con ella |
+| Fábrica mágica (`build_item`) | `TZ_C_FABRICAR` (libro, poción o poder; oro pagado al empezar, un objeto a la vez por reino; oro x 250 ms, libros x 500 ms); `tz_fabrica_pronta` crea el objeto junto al edificio con las cifras de `create_item` y cobra otra vez lo mismo si el reino puede, como el original |
+| Joyas del mercado asiático | con Jewelry el mercado ofrece un libro, un equipo o una poción al azar cada minuto (hasta ocho, la más vieja sale primero); `TZ_C_COMPRAR` cobra cuatro veces su valor |
+| Pergaminos | al recogerlos y al usarlos emiten `TZ_EV_PERGAMINHO`; el programa abre la historia con el texto, retrato, voz y música del registro (`tz_mundo_pergaminho`, `tz_guiao_historia_texto`) |
+| Elección de blanco | `melhor_alvo` cuenta cuántos atacan a cada candidato y cuántos del reino golpean ya un edificio (combat.rs `Hooks`): un edificio ya golpeado no es candidato, la IA reparte a sus luchadores y entre dos unidades parejas gana la que más se acerca a tener dos atacantes |
+| Tributos | `TZ_C_TRIBUTO`: pasa una cantidad de un recurso (recortada a lo que hay) a otro reino; `TZ_EV_TRIBUTO` |
+| Rendición | `TZ_C_RENDIR` ya existía; ahora tiene ventana de confirmación |
+
+**Ventanas** (`ui_negocio.c`, el mismo marco, fuentes y textos de STRINGS.INI que `ui_janelas.c`): taberna (mercenarios y héroes con su
+precio y botón «Contratar»), dados (recurso, puesta de 50 en 50 o de 200 en 200 con Mayús, las cuatro probabilidades, `zarove` de 15 cuadros
+cada 70 ms y la cara `winlose`), préstamos (pedir cada recurso y devolver), intercambio (de 500 a 20 000 de 500 en 500), comercio (ruta de
+mercaderes: origen y destino elegidos con el ratón en el mapa, recursos, carga y ganancia estimada), objetos (el inventario de la unidad:
+usar, soltar, dar, matar o enfurecer con la piedra del alma, recoger del suelo; se abre con Ctrl+I o pulsando el retrato de la unidad), cruzada
+(cruzados reunidos, coste del estandarte, destino en el mapa, «Seleccionar Cruzada»), fábrica mágica y mercado (joyas y venta de objetos).
+La diplomacia gana «Tributos» (enviar recursos) y «Rendirse». Los botones del menú de órdenes (`tavern_merc`, `tavern_hero`, `loan`,
+`loan_return`, `trade1`, `gamble`, `trade`, `build_item`, `market_items`, `market_sell`, `preach_crusade`, `select_crusaders`) abren su ventana
+(`tz_ui_neg_acao`); las demás órdenes siguen como antes.
+
+**Detalles**
+
+- *Cursores y avisos animados* (`ui_cursor.c`): las formas con `rows`/`cols`/`fps` en `IMAGES.INI` guardan todos sus cuadros y se animan (la
+  instalación de la edición FX trae todas las formas `cs_*` de un solo cuadro); además, los indicadores de órdenes de `orders.rs`: la cruz
+  `cursor` (diez cuadros en 600 ms) y la bandera `wp_flag` sobre el punto de la última orden, y la bandera `gath_flag` (en bucle, con el color
+  del reino) en el punto de reunión de los edificios elegidos.
+- *Sonido del trabajo* (`som.c`): cada `TZ_EV_TRABALHO` visible suena con un clip de `SOUND/WORK` (`CHOP 1..11`, `MINE 1..3`, `DIG 1..3`,
+  `HIT 1..7` al construir y reparar). ReTzar no nombra estos clips: se reparten por el número del evento.
+- *Montañas del mapa aleatorio*: **sí se pueden generar**: ReTzar las traduce de `Tzar.exe` (`random_map.rs`, 0x4b33b0) aunque su menú las dejara
+  apagadas; la casilla de la pantalla ya funciona, la opción va en la línea `ALEAT` y en `tzar.cfg` (campo final, opcional al leer).
+- *Introducción `intro.MPG`*: no se pudo probar con el fichero real (no está en `input_share`), pero el lector `mpeg1.c` tenía tres fallos de
+  MPEG-PS que explican «no es un vídeo que se lea» y los cuadros perdidos, los tres arreglados y vigilados por `h471`: (1) la cabecera de
+  paquete de MPEG-2 (14 bytes) se leía hasta el primer byte distinto de 0xFF y se comía el primer 0x00 del código siguiente, perdiendo casi
+  todos los paquetes de vídeo (9 de 50 cuadros); (2) un código de cuadro o la cabecera de secuencia partidos entre dos paquetes PES se perdían
+  (cuenta de cuadros errónea y, si era la primera cabecera, vídeo sin tamaño: el error del título); (3) un archivo que empieza en un paquete de
+  vídeo y no en la cabecera `0xBA` no se reconocía. Los vídeos sin cabeceras de grupo (GOP) ya se leían bien.
+
+**Queda:** objetos que ReTzar no tiene (la edición FX no trae dibujos de parches y objetos de suelo del mapa aleatorio); las ventanas no
+copian el arte de cada diálogo original (`D_TRADE`, `D_build`...), solo el de los dados; los sonidos de la naturaleza; la intro con el
+fichero real y en QEMU (falta `intro.MPG` en la instalación de pruebas); voces de las órdenes de las ventanas.
+
 ## Pantalla del mapa aleatorio (v8.5.5.2, rama `v8.5.5.2-tzar-aleat`, D435)
 
 Inicio > Un solo jugador > Mapa aleatorio abre `TZ_MN_ALEAT` (`ui_menu.c`), la `S_SINGLERND` del original, con el mismo arte y rectángulos que
@@ -347,10 +396,11 @@ Inicio > Un solo jugador > Mapa aleatorio abre `TZ_MN_ALEAT` (`ui_menu.c`), la `
 | Terreno (al azar, hierba, verano, nieve, desierto) | sí; «al azar» sale de la semilla |
 | Recursos del mapa (pocos, normales, muchos) | sí (cantidad de las minas) |
 | Torres de guardia, animales, objetos mágicos, puertas mágicas | sí |
-| Montañas | **apagada** (la casilla sale en gris): ReTzar no las genera y falta la traducción |
+| Montañas | sí desde la v8.5.6 (`montanhas` en `aleatorio.c`, traducido de `mountains`/`native_cliffs` de ReTzar: cadenas de piezas de 2x2 sobre tierra, fuera de las formas de inicio) |
 | Número de reinos (2 a 8), civilización y equipo de cada uno | sí; los del mismo equipo son aliados (nuevo) |
 | Tipo de partida, victoria, población, dificultad, recursos iniciales (bajo, medio, alto), sin niebla, explorar | sí |
-| Comportamiento de la IA de cada reino, rendición de la IA, límite de la victoria por tiempo o puntos | no (la IA usa su guion estándar; el límite queda en 30) |
+| Comportamiento de la IA de cada reino, rendición de la IA (D470) | sí: el icono de la IA de cada fila abre «COMPORTAMIENTO IA» con los guiones de `DATA/AI/AI.INI` (`[scripts]`); la bandera de rendición sale si los datos traen `IMAGES/AIRESIGN.BMP` y `DATA/AI/RESIGN.AI`. Van en `tzar.cfg` y en la línea `ALEAT` de la partida guardada (cola `IA rendición guion[8]`, opcional) |
+| Límite de la victoria por tiempo o puntos | no (queda en 30) |
 | Jugador humano en otra fila, unidades iniciales, edad de inicio | el original no deja elegirlas (el humano es el reino 1; castillo y tres peones) |
 | Semilla | sí, «Otro mapa» la cambia y se ve bajo la vista previa |
 
@@ -365,7 +415,7 @@ Variables de prueba: `TZAR_MENU=13` abre la pantalla, `TZAR_ALEAT='ALEAT2 ...'` 
 `TZAR_AUTO=aleatorio` juega con ellas y `TZAR_PRUEBA_GUARDAR=1` guarda, carga y compara. Pruebas: h417 `campanhas`, `ui` y `pc`; a mano,
 `h417_tzar.py privado_aleat` (SaguiOS con los datos reales; capturas privadas `aleat-*.png`, nunca en git).
 
-**Mapas aleatorios aún sin traducir:** montañas (opción apagada en ReTzar), ruinas del rey de la colina (solo en ese modo) y parches/objetos de
+**Mapas aleatorios aún sin traducir:** ruinas del rey de la colina (solo en ese modo) y parches/objetos de
 suelo (la edición FX no trae dibujos `gp_`/`go_`). **Guiones:** recursos compartidos, «explorar» temporal, rescate del reino 9 y
 `@kingdomcanrescue` ya funcionan; `@build` termina la obra como cualquiera (ya lo hacía).
 
@@ -503,9 +553,9 @@ nivel, maná, bloqueo, «dios»): están en `guiao.c` (`gm_*` y los `case`), par
 ### Qué falta o difiere de ReTzar
 
 - Guiones y mapa aleatorio: resuelto en la v8.5.5.2 salvo lo que dice «Simulación completa».
-- Sonido: el trabajo (talar, minar, construir) suena mirando el estado de los objetos (el mundo ya emite `TZ_EV_TRABALHO` por golpe:
-  pendiente usarlo); sin sonidos de la naturaleza por hábitat y hora (`audio/ambience.rs`). Las voces que siguen a un objeto, los
-  sonidos del mapa (`.sounds`) y la lluvia están desde la v8.5.5.2.
+- Sonido: el trabajo (talar, minar, cavar el campo, construir y reparar) suena con `TZ_EV_TRABALHO` (v8.5.6, `som.c`); sin sonidos de
+  la naturaleza por hábitat y hora (`audio/ambience.rs`). Las voces que siguen a un objeto, los sonidos del mapa (`.sounds`) y la lluvia
+  están desde la v8.5.5.2.
 
 ### Resultado (2026-11-20)
 
@@ -535,6 +585,9 @@ Traducción a C de la IA original de ReTzar (`src/gameplay/ai.rs` y `src/gamepla
 | `ia_obras.c` | árbol de la civilización (quién produce, qué está), dónde poner un edificio, quién lo construye | `tree.rs`, `build.rs` |
 | `ia_economia.c` | recolectores queridos por recurso, minas, campos, vacas, bosque, almacenes, campesino ocioso | `harvest.rs`, `idle.rs` |
 | `ia_guerra.c` | lugares y su registro (prioridad, mínimo, fuerza querida), grupos, milicia, torres y defensas, unidades ociosas, exploración | `places.rs`, `records.rs`, `war.rs`, `defence.rs`, `idle.rs` |
+| `ia_agua.c` (D470) | regiones de agua, por dónde se llega (tierra, mar, no), el barco que lleva, la flota (barcos, pesqueros, puertos), el sitio del puerto y el transporte por el agua | `reach.rs`, `navy.rs`, `transport.rs` |
+| `ia_magia.c` (D470) | hechizos antes de atacar, huida de la propia lluvia de fuego y del hielo, el sacerdote ocioso, el ninja que se esconde; metas con rutina propia: invocaciones del mago, cruzada, yihad, cambio de comida en la taberna (`CONVERT`) | `spells.rs`, `goals.rs`, `rules.rs` |
+| `ia_brecha.c` (D470) | brechas en los muros enemigos | `breach.rs` |
 
 **Cómo corre.** `tz_ia_criar` (o `tz_ia_criar_todas`, uno por reino con `TzReinoEstado.ia`) compila el guion del reino
 (`random.ais` si no tiene) y registra un `TzGancho` por reino. El gancho corre cada tic: lee los eventos (pérdidas y
@@ -558,9 +611,34 @@ de piedra más allá de fácil, puestos y talleres en difícil, y las unidades o
 - Los grupos van con «mover» al punto del lugar (la simulación los hace pelear con lo que ven) en vez de Approach.
 - La busca de un sitio mira hasta 4096 casillas en la misma mirada (el original, 512 y luego 200 cada 100 ms); la obra
   lejana la pone la simulación al aplicar el comando (no hay «sitio virtual»).
-- Sin hacer: flota y transporte (`navy.rs`, `transport.rs`, `reach.rs`), hechizos (`spells.rs`), brechas en muros
-  (`breach.rs`), invocaciones del mago, yihad y cruzada (`goals.rs`), `CONVERT` (la taberna; no hay comando),
-  `RESIGN` (las reglas de la partida no dejan rendirse a la IA) y captura con campesinos.
+- **Flota y transporte (D470):** las regiones de agua las hace la IA con el bit de agua de las casillas (la simulación
+  solo tiene islas de tierra, que ya juntan tierra y puentes, así que la busca del original por regiones de tierra es aquí
+  una comparación de islas). El transporte no es un programa de la simulación sino del jugador: cada mirada manda subir a
+  los pasajeros (`TZ_O_ENTRAR`, desde dos casillas del barco: entre la tierra y el agua hay una de costa), acerca el barco
+  al primero que falta y, con todos a bordo, lo manda a descargar junto al punto (`TZ_O_DESCARREGAR`); al bajar siguen
+  andando. Se espera a cada pasajero 30 miradas (ReTzar, 60 esperas; el original, siempre). El sitio del puerto se busca
+  en las posiciones de su huella a 64 casillas de la casa (el original recorre la costa de la isla). Los barcos de la
+  flota los paga la simulación al producirlos (la IA no los descuenta, como el original).
+- **Exploración por mar (D470, nuestro):** si en su isla no queda nada sin ver, el explorador cruza en barco al sector sin
+  ver más cercano; y un sector cuyo centro está en el agua se explora desde la casilla de la isla más cercana a ese centro
+  (si no, la costa no se veía nunca y no había sitio para el puerto).
+- **Hechizos (D470):** el original decide el hechizo dentro del combate de la simulación, antes de cada golpe; aquí la IA
+  lo decide en cada mirada para sus unidades que están atacando y vuelve a encolar el ataque tras él. La huida del área
+  de la propia lluvia de fuego y del hielo se manda al pedir el hechizo. Los sorteos del sacerdote usan el generador de
+  la IA (el original, el de la partida, que la IA no toca).
+- **Brechas (D470):** sin gancho en la busca de caminos de la simulación: cuando un grupo no llega a su lugar ni por
+  tierra ni por mar, la IA mira si llegaría quitando los muros de los reinos con los que está en guerra (islas «sin
+  muros», una vez por mirada) y manda a la unidad contra el muro enemigo que toca su isla más cerca del destino (o uno ya
+  marcado a 12 casillas), y marca ese y sus vecinos; al caer un muro marcado se quitan las marcas a 16. El original abre
+  brecha también cuando el camino existe pero es más del doble de la distancia; aquí no.
+- **Metas propias (D470):** invocaciones del mago, cruzada (catedral, ancla y cruzados reunidos), yihad (el campesino de
+  más puntos se hace guerrero, `TZ_C_CONVERTIR`), `CONVERT` (la taberna cambia comida por oro o piedra con `TZ_C_TROCAR`,
+  en múltiplos de 500 entre 500 y 20 000, lo que acepta el comando) y `RESIGN` (con `TzRegras.ia_rendicao`, la «rendición
+  de la IA» de la pantalla del mapa aleatorio, el reino manda `TZ_C_RENDIR`; como en ReTzar, las reglas del grupo que lo
+  pide se leen otra vez en cada fase de construir).
+- **Captura con campesinos (D470):** un edificio enemigo nuevo que se puede capturar (no muros, puertas, campos, portales,
+  minas ni el muñeco; las torres de cualquiera no aliado) llama a la milicia: el lugar de su sector con más campesinos
+  del reino manda los más cercanos a capturarlo, resistencia/15 + 1 y luego resistencia/10 + 1 (war.rs militia).
 - La casa no se pone en puentes, muros, puertas ni campos con dueño (en MP1 hay puentes del reino 1 lejos de todo).
 - `EXTERN`: un evaluador propio pequeño (números, `$aik`, `@gold..@wood(k)` del propio reino, aritmética, comparaciones,
   `&&`, `||`, `!`); los guiones de misión (fase 7) pueden poner el suyo en `tz_ia_externo`.
@@ -569,6 +647,11 @@ de piedra más allá de fácil, puestos y talleres en difícil, y las unidades o
 
 **Visor.** `/apps/bin/tzar` crea la IA para los reinos del ordenador al empezar una partida (`TZAR_SEM_IA=1` la quita;
 con `TZAR_DEMO=1` sigue el jugador de prueba `demo.c`).
+
+**Pruebas de la D470.** `tests/tzar_ia_casos.c` (en h417 `ia`): casos sintéticos sobre el mapa `IA2` de
+`tools/tzar_ia_sintetico.py` (dos islas separadas por un canal; la instalación sintética trae ahora magos, sacerdotes,
+galeones, pesqueros, puertos y muros, y el guion `rendir.ais`), y una partida IA contra IA en ese mapa en la que las dos
+hacen puerto y barcos, cruzan y pelean.
 
 **Pruebas.** `tests/h417_tzar.py ia` (batería, sin datos reales): `tests/tzar_ia_prova.c` (99 comprobaciones del
 compilador, casos de `script_tests.rs`) y `tests/tzar_ia_partida.c` sobre la instalación sintética jugable de
@@ -669,6 +752,5 @@ el ratón, hace clics, lleva la vista a los bordes y pulsa teclas al azar): camp
 completa (1024x768, entero) y escaramuza con 768 MB, unos 10 minutos cada una: sin cuelgues ni avisos del vigilante, 50 cuadros por
 segundo (el tope del bucle). Capturas privadas `repro-*.png` y `v8552-menu-*.png` en `/home/aanun/SO/private/tzar/capturas/`.
 
-Visto de paso: `intro.MPG` de la edición FX no la abre el lector de vídeo de la libsagui («no es un vídeo que se lea»): la
-introducción se salta (ahora lo dice el registro). Pendiente: las ventanas de la taberna, el comercio, los objetos, los préstamos, el
-intercambio y la cruzada de la simulación completa (D430), y usar `TZ_EV_TRABALHO` para el sonido del trabajo.
+Visto de paso: `intro.MPG` de la edición FX no la abría el lector de vídeo de la libsagui («no es un vídeo que se lea»): arreglado en la
+v8.5.6 (ver «Objetos, ventanas y detalles», punto de la introducción).

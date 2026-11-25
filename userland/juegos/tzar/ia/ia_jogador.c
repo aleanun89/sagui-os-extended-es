@@ -155,7 +155,7 @@ static void marcar(TzIa *ia, TzId i)
 	if (i >= 0 && i < ia->cappeao) ia->ocioso[i] = 0;
 }
 
-static int enviar(TzIa *ia, TzComando *c)
+int ia_enviar(TzIa *ia, TzComando *c)
 {
 	c->reino = (uint8_t)ia->k;
 	if (tz_mundo_comando(ia->m, c)) return -1;
@@ -177,7 +177,7 @@ int ia_ordem_grupo(TzIa *ia, const TzId *ids, int n, int tipo, TzId alvo, int x,
 		c.ordem.y = (int16_t)y;
 		c.nids = n - j < TZ_CMD_IDS ? n - j : TZ_CMD_IDS;
 		memcpy(c.ids, ids + j, (size_t)c.nids * sizeof *ids);
-		if (enviar(ia, &c)) r = -1;
+		if (ia_enviar(ia, &c)) r = -1;
 	}
 	return r;
 }
@@ -200,7 +200,7 @@ int ia_construir(TzIa *ia, TzId peao, int classe, int x, int y)
 	c.y = (int16_t)y;
 	c.nids = 1;
 	c.ids[0] = peao;
-	if (enviar(ia, &c)) return -1;
+	if (ia_enviar(ia, &c)) return -1;
 	ia->contas.construidos++;
 	/* el constructor va a una obra que aún no existe: cuenta como constructor de esa casilla */
 	ia_reclassificar(ia, peao, TZ_O_CONSTRUIR, TZ_NENHUM, x, y);
@@ -215,7 +215,7 @@ int ia_produzir(TzIa *ia, TzId edif, int classe)
 	c.arg = (int16_t)classe;
 	c.nids = 1;
 	c.ids[0] = edif;
-	if (enviar(ia, &c)) return -1;
+	if (ia_enviar(ia, &c)) return -1;
 	ia->contas.treinados++;
 	return 0;
 }
@@ -228,7 +228,7 @@ int ia_pesquisar(TzIa *ia, TzId edif, int tec)
 	c.arg = (int16_t)tec;
 	c.nids = 1;
 	c.ids[0] = edif;
-	if (enviar(ia, &c)) return -1;
+	if (ia_enviar(ia, &c)) return -1;
 	ia->contas.pesquisas++;
 	return 0;
 }
@@ -565,6 +565,11 @@ static void eventos(TzIa *ia)
 				int ja = 0;
 				for (int a = 0; a < ia->nameacas; ++a) if (ia->ameaca[a] == e->obj) ja = 1;
 				if (!ja && ia->nameacas < 8) ia->ameaca[ia->nameacas++] = e->obj;
+			} else if (e->tipo == TZ_EV_CRIADO && o && o->dono != ia->k && tz_classe_e_edificio(o->classe) && o->classe != TZC_FIELD) {
+				/* D470 (think.rs added, 0x4086ce): un edificio nuevo que el reino podría capturar llama a la milicia */
+				int ja = 0;
+				for (int a = 0; a < ia->nameacas; ++a) if (ia->ameaca[a] == e->obj) ja = 1;
+				if (!ja && ia->nameacas < 8 && ia_capturavel(ia, e->obj)) ia->ameaca[ia->nameacas++] = e->obj;
 			}
 		}
 		if (n < 64) break;
@@ -608,8 +613,10 @@ static void ociosas(TzIa *ia)
 		if (o->ator->ordem.tipo != TZ_O_NADA || o->ator->nfila || ia->mandado[i] == ia->m->tic + 1) { ia->ocioso[i] = 0; continue; }
 		if (!ia->ocioso[i]) ia->ocioso[i] = agora + 1;
 		uint32_t ms = agora + 1 - ia->ocioso[i];
-		if (i == ia->explorador) continue;
+		if (i == ia->explorador || ia_em_transporte(ia, i) || (o->flags & TZ_F_DENTRO)) continue;
 		if (o->classe == TZC_PEON) { if (ia->modo & 1) ia_ocioso_campones(ia, i, ms); }
+		else if (o->classe == TZC_FISHING_BOAT) ia_ocioso_pesqueiro(ia, i);   /* D470: navy.rs idle_fishing */
+		else if (o->classe == TZC_PRIEST && ia_ocioso_sacerdote(ia, i)) continue;   /* D470: spells.rs idle_priest */
 		else ia_ocioso_unidade(ia, i, ms);
 	}
 }
@@ -624,7 +631,10 @@ static void olhar(TzIa *ia)
 	listas(ia);
 	recontar(ia);
 	if (primeira) tomar_conta(ia);
+	ia_agua_olhar(ia);   /* D470 */
 	ia_lugares(ia);
+	ia_brechas_olhar(ia);
+	ia_transportes(ia);
 	/* las amenazas de los eventos llaman a la milicia (0x413a99) */
 	for (int a = 0; a < ia->nameacas; ++a) {
 		const TzObj *o = ia_obj(ia, ia->ameaca[a]);
@@ -639,8 +649,23 @@ static void olhar(TzIa *ia)
 		       ia->nlugares, ia->baldes[B_GUIAO][0], ia->baldes[B_GUIAO][1], ia->baldes[B_GUIAO][2], ia->baldes[B_GUIAO][3],
 		       ia->baldes[B_TRABALHADORES][0], ia->baldes[B_TRABALHADORES][1], ia->baldes[B_TRABALHADORES][2], ia->baldes[B_TRABALHADORES][3]);
 	pensar(ia);
+	ia_magias(ia);   /* D470: spells.rs, antes de cada ataque */
 	if (ia->fase != 0) ia_explorar(ia);   /* la fase especial (que acaba de pasar a 0) ya exploró */
 	ociosas(ia);
+}
+
+/* para las pruebas (tests/tzar_ia_casos.c): lo que la mirada sabe, sin decidir nada */
+void ia_preparar(TzIa *ia)
+{
+	ia->contas.olhares++;
+	if (crescer(ia)) return;
+	if (!ia->tem_casa || ia->sem_casa) achar_casa(ia);
+	if (!ia->tem_casa) return;
+	listas(ia);
+	recontar(ia);
+	ia_agua_olhar(ia);
+	ia_lugares(ia);
+	ia_brechas_olhar(ia);
 }
 
 static void gancho_tic(TzMundo *m, void *dados)
@@ -659,7 +684,7 @@ static void gancho_tic(TzMundo *m, void *dados)
 /* ------------------------------------------------------------------ guardar y cargar */
 #define ESC(v) do { if (fwrite(&(v), sizeof(v), 1, f) != 1) return -1; } while (0)
 #define LER(v) do { if (lidos + sizeof(v) > tam || fread(&(v), sizeof(v), 1, f) != 1) return -1; lidos += sizeof(v); } while (0)
-#define IA_VERSAO 2u
+#define IA_VERSAO 3u          /* 3: D470 (rendición, flota, transportes, brechas); se cargan también las de la 2 */
 
 static int gravar(TzMundo *m, void *dados, FILE *f)
 {
@@ -692,7 +717,9 @@ static int gravar(TzMundo *m, void *dados, FILE *f)
 	for (int j = 0; j < ia->nus.n; ++j) ESC(ia->nus.v[j]);
 	n = (uint32_t)ia->cappeao; ESC(n);
 	for (int j = 0; j < ia->cappeao; ++j) { ESC(ia->ocioso[j]); ESC(ia->mandado[j]); }
-	return 0;
+	/* versión 3 (D470) */
+	ESC(ia->rendicao); ESC(ia->rendeu);
+	return ia_d470_gravar(ia, f);
 }
 
 static int carregar(TzMundo *m, void *dados, FILE *f, uint32_t tam)
@@ -700,7 +727,7 @@ static int carregar(TzMundo *m, void *dados, FILE *f, uint32_t tam)
 	TzIa *ia = dados;
 	uint32_t lidos = 0, v, n;
 	LER(v);
-	if (v != IA_VERSAO) return -1;
+	if (v != IA_VERSAO && v != 2u) return -1;
 	LER(ia->modo); LER(ia->rng.s); LER(ia->paz_ate); LER(ia->proximo_olhar); LER(ia->fase); LER(ia->tem_casa);
 	LER(ia->sem_casa); LER(ia->casa); LER(ia->ilha); LER(ia->tope); LER(ia->disponivel); LER(ia->comprometido);
 	LER(ia->baldes); LER(ia->trancado); LER(ia->ordem); LER(ia->quer); LER(ia->bloqueado);
@@ -738,6 +765,12 @@ static int carregar(TzMundo *m, void *dados, FILE *f, uint32_t tam)
 	if (n > (1u << 24)) return -1;
 	if (crescer_ate(ia, (int)n)) return -1;
 	for (uint32_t j = 0; j < n; ++j) { LER(ia->ocioso[j]); LER(ia->mandado[j]); }
+	if (v >= 3u) {
+		LER(ia->rendicao); LER(ia->rendeu);
+		int32_t r = ia_d470_ler(ia, f, tam - lidos);
+		if (r < 0) return -1;
+		lidos += (uint32_t)r;
+	}
 	ia->cursor_ev = m->ev_seq;   /* la cola de eventos empieza de nuevo al cargar */
 	return lidos == tam ? 0 : -1;
 }
@@ -759,6 +792,7 @@ TzIa *tz_ia_criar(TzMundo *m, const TzIaBiblioteca *b, int k, int modo, const ch
 	if (tz_ia_compilar(b, ia->guiao, &ia->prog, e)) { free(ia); return NULL; }
 	ia->rng.s = m->semente ^ (0x9e3779b9u * (uint32_t)k);
 	ia->paz_ate = m->regras.dificuldade == 0 ? IA_PAZ_FACIL_MS : 0;
+	ia->rendicao = m->regras.ia_rendicao != 0;
 	ia->ordem[0] = 0; ia->ordem[1] = 1; ia->ordem[2] = 2; ia->ordem[3] = 3;
 	ia->explorador = TZ_NENHUM;
 	ia->sorteio = calloc((size_t)ia->prog.nconds + 1, 1);
@@ -813,6 +847,8 @@ void tz_ia_liberar(TzIa *ia)
 	for (unsigned j = 0; j < sizeof ls / sizeof *ls; ++j) free(ls[j]->v);
 	for (int g = 0; g < G_N; ++g) free(ia->grupo[g].v);
 	free(ia->peao); free(ia->ocioso); free(ia->mandado); free(ia->lugar); free(ia->presente); free(ia->produtor);
+	ia_agua_liberar(ia);
+	free(ia->sem_muros);
 	free(ia);
 }
 
@@ -839,6 +875,7 @@ const char *tz_ia_fala(const TzIa *ia, uint32_t *cursor)
 
 const TzIaPrograma *tz_ia_programa(const TzIa *ia) { return &ia->prog; }
 TzIaContas tz_ia_contas(const TzIa *ia) { return ia->contas; }
+TzIaContasD470 tz_ia_contas_d470(const TzIa *ia) { return ia->contas_d470; }
 
 static uint32_t fnv(uint32_t h, const void *p, size_t n)
 {
@@ -857,6 +894,9 @@ uint32_t tz_ia_suma(const TzIa *ia)
 	for (int j = 0; j < ia->prog.nregras; ++j) h = fnv(h, &ia->prog.regra[j].flags, 4);
 	for (int j = 0; j < ia->prog.ngat; ++j) h = fnv(h, &ia->prog.gat[j].ligado, 1);
 	h = fnv(h, &ia->contas, sizeof ia->contas);
+	h = fnv(h, &ia->contas_d470, sizeof ia->contas_d470); h = fnv(h, &ia->ntr, sizeof ia->ntr);
+	for (int j = 0; j < ia->ntr; ++j) h = fnv(h, &ia->tr[j], sizeof ia->tr[j]);
+	h = fnv(h, &ia->nbrechas, sizeof ia->nbrechas); h = fnv(h, &ia->rendeu, 1);
 	return h;
 }
 

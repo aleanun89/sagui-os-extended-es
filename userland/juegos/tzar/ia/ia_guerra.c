@@ -10,8 +10,9 @@
  * defensas 0x410b60, 0x4104f0), build.rs (seguridad 0x411a30, 0x411dd0) e idle.rs (unidades ociosas 0x4140b0).
  * Diferencias: los lugares se rehacen en cada mirada con lo que el reino VE (el gestor del original lo sabe todo y los
  * lleva al día con ganchos); de los enemigos no se sabe adónde van; los grupos van con «mover» al punto del lugar (la
- * simulación los hace pelear con lo que encuentran) en vez del programa Approach; sin flota ni hechizos; y la
- * exploración es nuestra (el original no la necesita porque ve todo el mapa).
+ * simulación los hace pelear con lo que encuentran) en vez del programa Approach; y la exploración es nuestra (el
+ * original no la necesita porque ve todo el mapa; D470: también cruza en barco). La flota, el transporte, los hechizos y
+ * las brechas están en ia_agua.c, ia_magia.c e ia_brecha.c (D470).
  */
 #include "ia_int.h"
 
@@ -315,6 +316,7 @@ static int candidato(TzIa *ia, TzId i, const TzIaLugar *l)
 {
 	const TzObj *o = &ia->m->obj[i];
 	if (!ia_contado(o) || (o->flags & (TZ_F_HISTORIA | TZ_F_MORRENDO | TZ_F_DENTRO)) || !o->ator) return 0;
+	if (ia_em_transporte(ia, i) || ia_brecha_de(ia, i)) return 0;
 	const TzOrdem *d = &o->ator->ordem;
 	if (i < ia->cappeao && ia->mandado[i] == ia->m->tic + 1) return 0;
 	switch (d->tipo) {
@@ -331,7 +333,9 @@ static int candidato(TzIa *ia, TzId i, const TzIaLugar *l)
 		int r[4];
 		if (l->ancora != TZ_NENHUM) { ia_rect(ia, l->ancora, r); r[0]--; r[1]--; r[2]++; r[3]++; }
 		else { r[0] = l->arect[0]; r[1] = l->arect[1]; r[2] = l->arect[2]; r[3] = l->arect[3]; }
-		if (!ia_alcanca(ia, o->cx, o->cy, r)) return 0;
+		/* 0x417640: por tierra, por mar con un barco del reino (D470) o abriendo brecha en un muro enemigo */
+		if (!ia_alcanca(ia, o->cx, o->cy, r) && ia_via_ponto(ia, o->cx, o->cy, r) != IA_VIA_MAR &&
+		    !ia_brecha_alcanca(ia, o->cx, o->cy, r)) return 0;
 	}
 	int dx, dy;
 	if (!destino(ia, i, &dx, &dy)) return 1;
@@ -393,6 +397,7 @@ static int mandar(TzIa *ia, int at)
 		if (p == at || !sobrepoe(q->rect, l->rect)) continue;
 		if (q->prioridade > l->prioridade && forca(&q->hostil, M_MILITAR | M_TORRES)) return 0;
 	}
+	if (tz_ia_depurar) printf("[DBG]     mandar ia%d: exército %d paz %u\n", ia->k, ia->exercito.n, ia->paz_ate);
 	if (!ia->exercito.n) return 0;
 	/* 0x4111b0: los candidatos y su fuerza cerca y lejos */
 	int n = ia->exercito.n;
@@ -411,6 +416,11 @@ static int mandar(TzIa *ia, int at)
 		else longe += ia_forca(o);
 	}
 	int modo = 0, r = 0;
+	if (tz_ia_depurar) {
+		int nc = 0;
+		for (int j = 0; j < n; ++j) nc += pt[j] != 0;
+		printf("[DBG]     mandar ia%d: exército %d candidatos %d perto %u longe %u\n", ia->k, n, nc, perto, longe);
+	}
 	if (perto || longe) {
 		if (basta(ia, l, perto)) modo = 1;
 		else if (basta(ia, l, perto + longe)) modo = 2;
@@ -450,7 +460,19 @@ static int mandar(TzIa *ia, int at)
 				py = ia_rng(ia, l->rect[1], l->rect[3]);
 				if (ia_ilha(ia, px, py) == ilha) break;
 			}
-			ia_ordem_grupo(ia, membros, nm, TZ_O_MOVER, TZ_NENHUM, px, py);
+			/* los que no llegan por tierra cruzan el agua o abren brecha (D470: transport.rs organise, breach.rs) */
+			int nt = 0;
+			int alvo_r[4] = { px, py, px, py };
+			for (int j = 0; j < nm; ++j) {
+				const TzObj *o = &ia->m->obj[membros[j]];
+				const TzAtributos *at = ia->m->cat ? tz_obj_at(ia->m, o) : NULL;
+				if ((at && at->voa) || ia_alcanca(ia, o->cx, o->cy, alvo_r)) { membros[nt++] = membros[j]; continue; }
+				if (ia_transportar(ia, membros[j], px, py, 1) == 1) continue;
+				if (ia_brecha_mandar(ia, membros[j], px, py)) continue;
+				membros[nt++] = membros[j];
+			}
+			nt = ia_avancar(ia, membros, nt, px, py);
+			if (nt) ia_ordem_grupo(ia, membros, nt, TZ_O_MOVER, TZ_NENHUM, px, py);
 			ia->contas.grupos++;
 			if (casa_outro && ia->paz_ate && !(ia->modo & 0x80)) ia->paz_ate = agora + IA_PAUSA_CASA_MS;
 			r = 1;
@@ -467,15 +489,41 @@ void ia_fase_guerra(TzIa *ia)
 	for (int at = 0; at < ia->nlugares; ++at) {
 		const TzIaLugar *l = &ia->lugar[at];
 		uint32_t amigos = forca(&l->amigo_vindo, M_MILITAR) + forca(&l->amigo, M_MILITAR);
-		if (amigos < l->minimo && mandar(ia, at)) break;
+		if (amigos < l->minimo) {
+			int r = mandar(ia, at);
+			if (tz_ia_depurar) printf("[DBG]   guerra ia%d: lugar %d tipo %d reino %u mínimo %u amigos %u: %s\n", ia->k, at, l->tipo, l->param,
+			                           l->minimo, amigos, r ? "grupo" : "nada");
+			if (r) break;
+		}
 	}
 }
 
 /* ------------------------------------------------------------------ la milicia (0x4120d0) */
+/* war.rs uncaptured (0x271e): lo que un campesino no captura: muros y puertas, el campo, el portal mágico, las minas y el
+ * muñeco */
+static int sem_captura(int c)
+{
+	return c == TZC_WALL_STONE || c == TZC_WALL_WOOD || c == TZC_FIELD || c == TZC_GATE_WOOD || c == TZC_GATE_STONE || c == IC_MAGICGATEWAY ||
+	       c == TZC_RES_GOLD || c == TZC_RES_STONE || c == TZC_DUMMY;
+}
+
+/* gameplay.rs capturable (D470): un edificio terminado que se captura, enemigo (las torres, de cualquiera no aliado) */
+int ia_capturavel(const TzIa *ia, TzId i)
+{
+	const TzObj *o = ia_obj(ia, i);
+	if (!o || !ia_contado(o) || !tz_classe_e_edificio(o->classe) || ia_obra(o) || sem_captura(o->classe)) return 0;
+	if (o->dono < 1 || o->dono > TZ_REINOS || o->dono == ia->k) return 0;
+	int rel = tz_mundo_relacao(ia->m, ia->k, o->dono);
+	if (o->classe >= 39 && o->classe <= 42) return rel <= 0;
+	return rel < 0;
+}
+
 void ia_milicia(TzIa *ia, TzId ameaca)
 {
 	const TzObj *t = ia_obj(ia, ameaca);
 	if (!t || !ia_contado(t)) return;
+	/* D470: lo que se puede capturar lo toma el lugar del sector con más campesinos del reino (war.rs militia) */
+	int cap = ia_capturavel(ia, ameaca);
 	int sx = t->cx / 8, sy = t->cy / 8, casa = 0;
 	const TzIaLugar *melhor = NULL;
 	for (int p = 0; p < ia->nlugares; ++p) {
@@ -483,6 +531,7 @@ void ia_milicia(TzIa *ia, TzId ameaca)
 		if (!setor_dentro(l->rect, sx, sy)) continue;
 		if (l->tipo == L_CASA && l->param == (uint32_t)ia->k) casa = 1;
 		if (!conta(&l->meu, M_CIVIL)) continue;
+		if (cap) { if (!melhor || conta(&melhor->meu, M_CIVIL) < conta(&l->meu, M_CIVIL)) melhor = l; continue; }
 		uint32_t hostil = forca(&l->hostil, M_MILITAR | M_TORRES) * 3, amigo = forca(&l->amigo, M_MILITAR);
 		if (amigo > hostil >> 1) return;
 		if (amigo + forca(&l->meu, M_CIVIL) >= hostil) { melhor = l; break; }
@@ -510,15 +559,18 @@ void ia_milicia(TzIa *ia, TzId ameaca)
 		v[b] = i; d[b] = dd;
 	}
 	uint32_t s = ia_forca(t), soma = 0;
+	/* para capturar cuenta cada campesino uno, y se buscan resistencia/15 + 1 y luego resistencia/10 + 1 */
+	uint32_t n1 = cap ? (uint32_t)t->resistencia / 15 + 1 : s * 3 / 2, n2 = cap ? (uint32_t)t->resistencia / 10 + 1 : s * 2;
 	for (int j = 0; j < nv; ++j) {
-		soma += ia_forca(&ia->m->obj[v[j]]);
-		if (soma >= s * 3 / 2) break;
+		soma += cap ? 1 : ia_forca(&ia->m->obj[v[j]]);
+		if (soma >= n1) break;
 	}
 	for (int j = 0; j < nv; ++j) {
-		ia_ordem(ia, v[j], TZ_O_ATACAR, ameaca, t->cx, t->cy);
-		soma += ia_forca(&ia->m->obj[v[j]]);
-		if (soma >= s * 2) break;
+		ia_ordem(ia, v[j], cap ? TZ_O_CAPTURAR : TZ_O_ATACAR, ameaca, t->cx, t->cy);
+		soma += cap ? 1 : ia_forca(&ia->m->obj[v[j]]);
+		if (soma >= n2) break;
 	}
+	if (cap) ia->contas_d470.capturas++;
 	free(v);
 	free(d);
 }
@@ -701,12 +753,42 @@ void ia_explorar(TzIa *ia)
 			if (cy >= m->lado) cy = m->lado - 1;
 			if (tz_mundo_nevoa(m, ia->k, cx, cy) != 0) continue;
 			int r[4] = { cx, cy, cx, cy };
-			if (!ia_alcanca(ia, e->cx, e->cy, r)) continue;
+			if (!ia_alcanca(ia, e->cx, e->cy, r)) {
+				/* D470: el centro está en el agua o tras un acantilado: vale una casilla del sector en la isla del explorador
+				 * (sin esto la costa no se explora nunca y no hay sitio para un puerto) */
+				/* (la más cercana al centro, para que este quede a la vista) */
+				int ilha = ia_ilha_perto(ia, e->cx, e->cy, 1), achou = 0, ox = cx, oy = cy;
+				uint32_t dc = 0;
+				for (int yy = sy * 8; ilha && yy < sy * 8 + 8 && yy < m->lado; ++yy)
+					for (int xx = sx * 8; xx < sx * 8 + 8 && xx < m->lado; ++xx) {
+						if (ia_ilha(ia, xx, yy) != ilha) continue;
+						uint32_t d = (uint32_t)((xx - ox) * (xx - ox) + (yy - oy) * (yy - oy));
+						if (!achou || d < dc) { cx = xx; cy = yy; dc = d; achou = 1; }
+					}
+				if (!achou) continue;
+			}
 			int dx = cx - e->cx, dy = cy - e->cy;
 			uint32_t d = (uint32_t)(dx * dx + dy * dy);
 			if (bx < 0 || d < dm) { bx = cx; by = cy; dm = d; }
 		}
-	if (bx >= 0) ia_ordem(ia, ia->explorador, TZ_O_MOVER, TZ_NENHUM, bx, by);
+	if (tz_ia_depurar) printf("[DBG]   explorar ia%d: #%d %s en %d,%d -> %d,%d\n", ia->k, ia->explorador, tz_classes[e->classe], e->cx, e->cy, bx, by);
+	if (bx >= 0) { ia_ordem(ia, ia->explorador, TZ_O_MOVER, TZ_NENHUM, bx, by); return; }
+	/* D470: nada por explorar en su isla: el sector sin ver más cercano al que se llega en barco (transport.rs) */
+	if (ia->nagua <= 0 || ia_em_transporte(ia, ia->explorador) || e->ator->ordem.tipo != TZ_O_NADA) return;
+	for (int sy = 0; sy < n; ++sy)
+		for (int sx = 0; sx < n; ++sx) {
+			int cx = sx * 8 + 4, cy = sy * 8 + 4;
+			if (cx >= m->lado) cx = m->lado - 1;
+			if (cy >= m->lado) cy = m->lado - 1;
+			if (tz_mundo_nevoa(m, ia->k, cx, cy) != 0 || !ia_ilha(ia, cx, cy)) continue;
+			int dx = cx - e->cx, dy = cy - e->cy;
+			uint32_t d = (uint32_t)(dx * dx + dy * dy);
+			if (bx >= 0 && d >= dm) continue;
+			int r[4] = { cx, cy, cx, cy };
+			if (ia_via_ponto(ia, e->cx, e->cy, r) != IA_VIA_MAR) continue;
+			bx = cx; by = cy; dm = d;
+		}
+	if (bx >= 0) ia_transportar(ia, ia->explorador, bx, by, 1);
 }
 
 /* 0x409220: la fase especial */
@@ -714,6 +796,7 @@ void ia_fase_especial(TzIa *ia)
 {
 	ia_gastavel(ia, ia->disponivel);
 	memset(ia->baldes[B_NAVAL], 0, sizeof ia->baldes[0]);
+	ia_frota(ia);   /* D470: navy.rs */
 	if (ia->modo & 2) {
 		memset(ia->baldes[B_DEFESA], 0, sizeof ia->baldes[0]);
 		torres(ia);

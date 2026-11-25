@@ -30,6 +30,13 @@ int esperar(int pid, int *codigo) { (void)pid; (void)codigo; return ERRO_SEM_PRO
 int recolher(int *codigo) { (void)codigo; return 0; }
 int esperar_pid(int pid, int *estado, int opcoes) { (void)pid; (void)estado; (void)opcoes; return ERRO_SEM_PROCESSO; }
 int matar(int pid) { (void)pid; return ERRO_SEM_PROCESSO; }
+/* D419: fork/exec, señales y operaciones sobre descriptores (os, subprocess, signal de Python) */
+int bifurcar(void) { return ERRO_NAO_SUPORTADO; }
+int substituir(const char *c, char *const argv[], char *const envp[]) { (void)c; (void)argv; (void)envp; return ERRO_NAO_SUPORTADO; }
+int sinal_op(int op, unsigned a, unsigned b, unsigned c) { (void)op; (void)a; (void)b; (void)c; return ERRO_NAO_SUPORTADO; }
+int descritor_op(int fd, int op, unsigned arg) { (void)fd; (void)op; (void)arg; return ERRO_NAO_SUPORTADO; }
+/* sin poll: rede_sagui.c vuelve a mirar disponivel(), como antes de la D401 */
+int sondar(sondagem_t *v, unsigned n, int ms) { (void)v; (void)n; (void)ms; return ERRO_NAO_SUPORTADO; }
 int futex_esperar(volatile uint32_t *p, uint32_t v, unsigned ms) { (void)p; (void)v; (void)ms; return 1; }
 int futex_acordar(volatile uint32_t *p, int q) { (void)p; (void)q; return 0; }
 
@@ -37,6 +44,9 @@ int futex_acordar(volatile uint32_t *p, int q) { (void)p; (void)q; return 0; }
 int audio_abrir(int taxa, int canais, int bits) { (void)taxa; (void)canais; (void)bits; return ERRO_NAO_EXISTE; }
 int audio_controle(int fd, int op, int valor) { (void)fd; (void)op; (void)valor; return ERRO_NAO_EXISTE; }
 int audio_escrever_sem_bloquear(int fd, const void *b, unsigned n) { (void)fd; (void)b; (void)n; return ERRO_NAO_EXISTE; }
+int audio_escrever(int fd, const void *b, unsigned n) { (void)fd; (void)b; (void)n; return ERRO_NAO_EXISTE; }
+int audio_fechar(int fd, int esperar) { (void)fd; (void)esperar; return 0; }
+int teclas_seguradas(unsigned char mapa[32]) { (void)mapa; return ERRO_NAO_SUPORTADO; }
 int tocar(const nota_t *notas, int n, int modo) { (void)notas; (void)n; (void)modo; return 0; }
 void silenciar(void) {}
 

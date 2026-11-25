@@ -29,7 +29,9 @@ NOMBRES = {"Hola mundo": "hola-mundo", "Calculadora sencilla": "calculadora", "L
            "Lienzo": "lienzo", "Enlace": "enlace", "Barra de estado": "barra-estado",
            "Selector de color": "selector-color", "Reloj": "reloj", "Archivo": "archivo",
            "Guardar al cerrar": "guardar-al-cerrar", "Botón y ratón": "boton-raton",
-           "Validar al perder el foco": "validar-foco", "Editor de notas": "editor-notas", "Fecha y fuente": "fecha-fuente"}
+           "Validar al perder el foco": "validar-foco", "Editor de notas": "editor-notas", "Fecha y fuente": "fecha-fuente",
+           "Notificaciones": "notificaciones", "Agenda por carpetas": "agenda-carpetas",
+           "Gráficos": "graficos"}
 
 
 def main():

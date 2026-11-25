@@ -266,7 +266,7 @@ char **sagui_ambiente(void)
     size_t k = 0;
     for (size_t i = 0; i < m->alloc; i++) {
         if (!mp_map_slot_is_filled(m, i)) continue;
-        char nome[128], valor[512];
+        char nome[128], valor[4096];   /* en el PC (D459) las variables pueden ser largas (PATH, LS_COLORS) */
         size_t a = sagui_str_para_latin1(mp_obj_str_make_new(&mp_type_str, 1, 0, &m->table[i].key), nome, sizeof nome);
         size_t b = sagui_str_para_latin1(mp_obj_str_make_new(&mp_type_str, 1, 0, &m->table[i].value), valor, sizeof valor);
         char *s = m_new(char, a + b + 2);

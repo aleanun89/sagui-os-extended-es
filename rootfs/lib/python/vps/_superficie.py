@@ -15,7 +15,7 @@ HERRAMIENTAS = ["Puntero", "Etiqueta", "Boton", "CuadroTexto", "Casilla", "Opcio
                 "Imagen", "Marco", "Deslizador", "BarraProgreso", "Temporizador", "Menu",
                 "Pestanas", "Tabla", "Numerico", "Lienzo", "Enlace", "BarraEstado", "SelectorColor",
                 "Reloj", "Archivo", "ConectorBD", "RejillaDatos", "SelectorDeArchivos", "SelectorDeCarpetas",
-                "CampoArchivo", "CampoCarpeta", "SelectorDeColor", "SelectorDeFuente", "ComboFuentes", "Calendario", "SelectorFecha"]
+                "CampoArchivo", "CampoCarpeta", "SelectorDeColor", "SelectorDeFuente", "ComboFuentes", "Calendario", "SelectorFecha", "Arbol", "Notificacion", "Grafico"]
 NOMBRES_HERR = {"Puntero": "Puntero (seleccionar)"}
 
 # geometría de la superficie: el formulario se dibuja en (OX, OY); su cliente en (FX, FY)
@@ -170,6 +170,27 @@ def icono(v, tipo, x, y):
         for fila in range(3):
             for col in range(4):
                 v.rect(x + 5 + col * 4, y + 10 + fila * 3, 2, 1, NEGRO)
+    elif tipo == "Arbol":
+        hundido(v, x + 2, y + 3, 20, 18, BLANCO)
+        v.rect(x + 4, y + 5, 5, 5, BLANCO)
+        v.rect(x + 4, y + 5, 5, 5, NEGRO, relleno=False)
+        v.rect(x + 11, y + 7, 8, 1, NEGRO)
+        v.linea(x + 6, y + 10, x + 6, y + 17, SOMBRA)
+        v.linea(x + 6, y + 14, x + 10, y + 14, SOMBRA)
+        v.linea(x + 6, y + 17, x + 10, y + 17, SOMBRA)
+        v.rect(x + 12, y + 13, 7, 1, NEGRO)
+        v.rect(x + 12, y + 16, 7, 1, NEGRO)
+    elif tipo == "Grafico":
+        hundido(v, x + 1, y + 2, 22, 20, BLANCO)
+        v.linea(x + 4, y + 19, x + 21, y + 19, NEGRO)
+        for i, (a, c) in enumerate(((8, 0x2A6FD8), (6, 0xE5832B), (11, 0x1E9E6B), (4, 0xC8453C))):
+            v.rect(x + 5 + i * 4, y + 19 - a, 3, a, c)
+    elif tipo == "Notificacion":
+        v.rect(x + 2, y + 7, 20, 11, 0x263238)
+        v.rect(x + 2, y + 7, 20, 11, NEGRO, relleno=False)
+        v.elipse(x + 4, y + 10, 5, 5, 0x3DD17F)
+        v.rect(x + 11, y + 11, 8, 1, BLANCO)
+        v.rect(x + 11, y + 14, 6, 1, BLANCO)
     elif tipo == "SelectorFecha":
         hundido(v, x + 1, y + 6, 22, 13, BLANCO)
         v.rect(x + 3, y + 11, 6, 1, SOMBRA)
@@ -259,6 +280,49 @@ def icono(v, tipo, x, y):
 
 # ------------------------------------------------------------ pintar un control del formulario
 
+def pintar_grafico(v, c, x, y, w, h):
+    """Vista previa del gráfico en el diseñador: ejes y unas barras, líneas o una tarta (no es el dibujo real)."""
+    tipo = str(M.val(c, "tipo") or "barras")
+    v.rect(x, y, w, h, BLANCO)
+    v.rect(x, y, w, h, SOMBRA, relleno=False)
+    titulo = str(M.val(c, "titulo") or "")
+    if titulo:
+        v.texto(x + max(2, (w - len(titulo) * 8) // 2), y + 3, titulo[:max(1, (w - 4) // 8)], NEGRO)
+    ay = y + (22 if titulo else 8)
+    ah = h - (ay - y) - 10
+    if ah < 16 or w < 40:
+        return
+    cols = (0x2A6FD8, 0xE5832B, 0x1E9E6B, 0xC8453C)
+    if tipo in ("tarta", "anillo"):
+        d = min(w - 20, ah)
+        cx, cy = x + w // 2 - d // 2, ay + (ah - d) // 2
+        v.elipse(cx, cy, d, d, cols[0])
+        v.poligono([(cx + d // 2, cy + d // 2), (cx + d, cy + d // 2), (cx + d // 2 + d // 3, cy + d // 2 + d // 3), (cx + d // 2, cy + d)], cols[1])
+        v.poligono([(cx + d // 2, cy + d // 2), (cx + d // 2, cy + d), (cx, cy + d // 2)], cols[2])
+        if tipo == "anillo":
+            v.elipse(cx + d // 4, cy + d // 4, d // 2, d // 2, BLANCO)
+        return
+    v.linea(x + 8, ay, x + 8, ay + ah, SOMBRA)
+    v.linea(x + 8, ay + ah, x + w - 8, ay + ah, SOMBRA)
+    n = 5
+    paso = max(4, (w - 24) // n)
+    alturas = (0.45, 0.8, 0.6, 0.95, 0.7)
+    if tipo in ("lineas", "area", "dispersion", "velas"):
+        pts = [(x + 14 + i * paso, ay + ah - int(ah * alturas[i])) for i in range(n)]
+        for i in range(n - 1):
+            v.linea(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], cols[0], 2)
+        for px, py in pts:
+            v.elipse(px - 2, py - 2, 5, 5, cols[0])
+    elif tipo == "barras_h":
+        for i in range(4):
+            v.rect(x + 9, ay + 4 + i * (ah // 4), int((w - 30) * alturas[i]), max(3, ah // 4 - 5), cols[i % 4])
+    else:
+        bw = max(3, paso - 6)
+        for i in range(n):
+            hh = int(ah * alturas[i])
+            v.rect(x + 12 + i * paso, ay + ah - hh, bw, hh, cols[i % 4])
+
+
 def pintar_control(v, c, x, y, w, h, form):
     """Dibuja un control como lo verá el programa (aproximado), con su rincón en (x, y)."""
     tipo = c["tipo"]
@@ -335,6 +399,8 @@ def pintar_control(v, c, x, y, w, h, form):
         n = n * max(0, min(int(M.val(c, "valor") or 0), mx)) // mx
         for i in range(n):
             v.rect(x + 3 + i * 9, y + 3, 7, h - 6, AZUL)
+    elif tipo == "Grafico":
+        pintar_grafico(v, c, x, y, w, h)
     elif tipo not in M.SIN_VENTANA:
         hundido(v, x, y, w, h, 0xF4F4F0)
         v.texto(x + 4, y + 2, tipo, NEGRO)
