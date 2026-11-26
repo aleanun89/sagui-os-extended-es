@@ -1980,7 +1980,42 @@ static void medir_cuadro(void)
     ciclos_paleta = ciclos_escala = ciclos_apres = 0;
 }
 
+/* D476: limitador de FPS general. SDL_SAGUI_FPS_MAX (pista o variable de entorno; la pista manda): 0 o ausente = ilimitado,
+ * si no, cuadros por segundo (los juegos ofrecen 30, 60 o ilimitado). Se llama al final de SDL_RenderPresent y de
+ * SDL_GL_SwapWindow y DUERME lo que falte (SDL_Delay: no gasta CPU y sigue bombeando el audio, así que el sonido no se
+ * corta). El plazo de cada cuadro se acumula (base + n * 1000 / fps) para que el ritmo medio sea exacto aunque el
+ * milisegundo no divida a 1000; si el programa va tarde más de 100 ms, se reinicia la cuenta en vez de correr para alcanzar. */
+void sagui_sdl_fps_limitar(void)
+{
+    static int env_leido, env_fps;
+    static unsigned base, n;
+    static int fps_ant;
+    const char *h = SDL_GetHint(SDL_HINT_SAGUI_FPS_MAX);
+    int fps;
+    if (h && *h) fps = atoi(h);
+    else {
+        if (!env_leido) { const char *e = getenv(SDL_HINT_SAGUI_FPS_MAX); env_fps = e && *e ? atoi(e) : 0; env_leido = 1; }
+        fps = env_fps;
+    }
+    if (fps <= 0) { fps_ant = 0; return; }
+    if (fps > 1000) fps = 1000;
+    unsigned ahora = tempo_ms();
+    if (fps != fps_ant || (int)(ahora - (base + n * 1000u / (unsigned)fps)) > 100) { fps_ant = fps; base = ahora; n = 0; return; }
+    n++;
+    unsigned plazo = base + n * 1000u / (unsigned)fps;
+    int falta = (int)(plazo - ahora);
+    if (falta > 0) SDL_Delay((Uint32)falta);
+    if (n >= 100000u) { base = tempo_ms(); n = 0; }
+}
+
+static void presentar_sin_limite(SDL_Renderer *r);
 void SDL_RenderPresent(SDL_Renderer *r)
+{
+    presentar_sin_limite(r);
+    if (r && r->w) sagui_sdl_fps_limitar();
+}
+
+static void presentar_sin_limite(SDL_Renderer *r)
 {
     if (!r || !r->w) return;
     bombear_audio();

@@ -42,6 +42,7 @@
 #include "sistema.h"
 #include "texto.h"
 #include "vfs.h"
+#include "virgl.h"
 
 static const gpu3d_driver_t *drv;
 static pci_disp_t disp;
@@ -542,6 +543,14 @@ void gpu3d_iniciar(void)
         snformatar(placa_nome, sizeof placa_nome, "simulada (pruebas)");
         estado = GPU3D_SIN_PROBAR;
         snformatar(motivo, sizeof motivo, "driver simulado por la CPU (--gpu3d=simulado): se prueba con el primer uso");
+    } else if (virgl_disponible()) {
+        /* D474: la virtio-gpu con VIRGL negociado (D472, D473). Es una GPU virtual: encenderla no toca hardware
+         * (un fallo solo deja el contexto del anfitrión), así que se prueba sola con el primer uso. */
+        drv = &gpu3d_virgl;
+        memset(&disp, 0, sizeof disp); memset(&tela, 0, sizeof tela);
+        snformatar(placa_nome, sizeof placa_nome, "virtio-gpu VirGL");
+        estado = GPU3D_SIN_PROBAR;
+        snformatar(motivo, sizeof motivo, "%s: 3D por la GPU del anfitrion sin probar todavia (se prueba con el primer uso)", placa_nome);
     } else {
         const acel_driver_t *d2 = NULL;
         bool suspeito = false;

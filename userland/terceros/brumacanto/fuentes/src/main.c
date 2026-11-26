@@ -71,6 +71,7 @@ static void set_size(App *a,WorldSize size)
 /* Ajustes que se guardan junto a las partidas, en ajustes.txt (D444, D451): la distancia de dibujo (F3) y, en SaguiOS, la escala
  * de dibujo (F4). pref_view es la que se guarda (la de F3, la guardada o la elegida la primera vez); --view manda solo para esa vez. */
 static int pref_view=AJUSTE_VISTA_DEFECTO;
+static int fps_max=60;   /* D476: tope de cuadros por segundo: 30, 60 o 0 (ilimitado); F6 lo cambia y lo guarda (clave "fps") */
 static int probe;   /* SaguiOS: la primera vez, con gpu3d v3, se mide un rato si la vista de 104 va sobrada */
 #ifdef SAGUI_BRUMACANTO
 /* Escala de dibujo (SaguiOS, D451): 100, 75 o 50 % del tamaño de la ventana; SaguiGL lo amplía al presentar.
@@ -92,14 +93,14 @@ static bool option_text(const App *a,const char *name,char *data,size_t capacity
 
 static void options_save(const App *a)
 {
-    char path[1024],text[64];
+    char path[1024],text[80];
     if (!a->save_dir || snprintf(path,sizeof(path),"%sajustes.txt",a->save_dir)>=(int)sizeof(path)) return;
 #ifdef SAGUI_BRUMACANTO
     const int scale=render_scale;
 #else
     const int scale=0;
 #endif
-    const int n=ajuste_formatear(text,sizeof(text),pref_view,scale);
+    const int n=ajuste_formatear_fps(text,sizeof(text),pref_view,scale,fps_max);
     SDL_RWops *file=n>0?SDL_RWFromFile(path,"wb"):NULL;
     if (file) { SDL_RWwrite(file,text,1,(size_t)n); SDL_RWclose(file); }
 }
@@ -437,6 +438,16 @@ static void key_event(App *a,SDL_Keycode key)
             notify(g,text);
         }
 #endif
+        else if (key==SDLK_F6) {
+            /* limitador de FPS (D476): 60, 30 o ilimitado */
+            fps_max=ajuste_fps_siguiente(fps_max);
+            options_save(a);
+            SDL_Log("BRUMA_FPS %d (F6, guardado)",fps_max);
+            char text[64];
+            if (fps_max) snprintf(text,sizeof(text),"Limite de FPS: %d",fps_max);
+            else snprintf(text,sizeof(text),"Limite de FPS: ilimitado");
+            notify(g,text);
+        }
         else if (key==SDLK_F2) {
             g->creative=!g->creative;
             notify(g,g->creative?"Modo creativo":"Modo supervivencia");
@@ -680,6 +691,9 @@ int main(int argc,char **argv)
         char text[96]={0};
         const bool have=option_text(&a,"ajustes.txt",text,sizeof(text));
         int saved=have && !force_auto ? ajuste_leer(text,"vista") : -1;
+        fps_max=ajuste_fps_valido(have ? ajuste_leer(text,"fps") : -1);   /* D476 */
+        if (getenv("BRUMA_FPS")) fps_max=ajuste_fps_valido(atoi(getenv("BRUMA_FPS")));   /* solo para esa vez (pruebas) */
+        SDL_Log("BRUMA_FPS %d",fps_max);
 #ifdef SAGUI_BRUMACANTO
         int scale_saved=have ? ajuste_leer(text,"escala") : -1;
         if (!have && option_text(&a,"escala.txt",text,sizeof(text))) scale_saved=atoi(text);   /* el fichero de antes (D451) */
@@ -796,7 +810,17 @@ int main(int argc,char **argv)
                 }
             }
         }
-        if (used<.015f && bench_frames<=0) SDL_Delay((Uint32)((.015f-used)*1000));
+        /* D476: tope de cuadros (60 = 15 ms de antes; 30; o ilimitado); la espera duerme */
+        if (fps_max>0 && bench_frames<=0) {
+            /* plazo acumulado: SDL_Delay redondea al tic del sistema y asi el ritmo medio sale exacto */
+            static Uint32 base; static unsigned nc; static int fps_ant;
+            const Uint32 ahora=SDL_GetTicks();
+            if (fps_ant!=fps_max || (int)(ahora-(base+nc*1000u/(unsigned)fps_max))>100) { fps_ant=fps_max; base=ahora; nc=0; }
+            else {
+                const int falta=(int)(base+(++nc)*1000u/(unsigned)fps_max-ahora);
+                if (falta>0) SDL_Delay((Uint32)falta);
+            }
+        }
     }
     status=0;
 done:

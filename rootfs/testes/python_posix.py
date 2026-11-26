@@ -389,7 +389,12 @@ def os_exec_dup2():
         os.execv("/bin/echo", ["echo", "exec", "bien"])
         os._exit(99)
     os.close(w)
-    d = os.read(r, 100)
+    d = b""
+    while True:   # echo puede escribir en varios trozos: leer hasta el final
+        t = os.read(r, 100)
+        if not t:
+            break
+        d += t
     os.close(r)
     p, st = os.waitpid(pid, 0)
     comprobar(d == b"exec bien\n" and st == 0, "fork + dup2 + execv", repr((d, st)))

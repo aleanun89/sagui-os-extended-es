@@ -98,7 +98,7 @@ Quién la usa:
 | --- | --- |
 | SaguiGL (`userland/libsgl/sgl.c`) | `INFO_GPU3D_OP` (abrir, limpiar, textura, estado, triángulos, leer, cerrar) |
 | `gpu3d`, `infopc`, `sgldemo -g` | `INFO_GPU3D`, `INFO_GPU3D_PROVA`, `INFO_GPU3D_CTL` |
-| Drivers (`gpu3d_intel.c`, `gpu3d_sim.c`; después R6xx/R7xx y R5xx) | `gpu3d_driver_t` y las piezas `g3d_*` de `kernel/inc/gpu3d.h` |
+| Drivers (`gpu3d_intel.c`, `gpu3d_sim.c`; después R6xx/R7xx, R5xx y VirGL, D474) | `gpu3d_driver_t` y las piezas `g3d_*` de `kernel/inc/gpu3d.h` |
 | Más adelante: renderizador de la SDL 2 por GPU | las mismas llamadas (rectángulos con textura = dos triángulos) |
 
 Lo que es estable (contrato):
@@ -713,6 +713,7 @@ Dos que escriben a la vez en la pantalla se pisan, así que **solo presenta quie
 | **R6xx/R7xx** (`gpu3d_r600.c`, HD 4500 del dv7) | `base.mc_tela` (32 bits) | valla → `r63d_alvo_modo` (color = pantalla con el `ARRAY_MODE` de `D1GRPH_CONTROL`, sin Z) → sombreadores de v1, `r63d_textura`, `r63d_estado` → valla con `SURFACE_SYNC` sobre la pantalla → `r63d_alvo` del programa. Exige el paso de la pantalla alineado al grupo de la tarjeta (D402) y fuente de hasta 1024x1024 | **sin probar en hardware** (el dv7 estaba apagado) |
 | **Evergreen/NI** (`gpu3d_evergreen.c`, HD 7600M del Toshiba) | `mc_tela` de **40 bits** (D408: `f:00000000`); `CB_COLOR0_BASE` lleva los bits 39:8 | como las R7xx con `eg3d_alvo_modo` (modo de `GRPH_CONTROL`; el VBE del Toshiba deja lineal alineada). La **prioridad de la pantalla** (D424) la pone y mantiene el 2D (`acel_r600.c`); presentar no la toca y el log dice cómo está | **sin probar en hardware** (el Toshiba estaba apagado) |
 | **Simulado** (`gpu3d_sim.c`, QEMU) | el framebuffer de la tarjeta (`video_placa`) | la CPU escala y escribe ahí (no en el búfer del compositor): una captura del QEMU lo ve. `inicio 1008 1` en `gpu3d-simulado.conf`: «no puedo» | probado (h432) |
+| **VirGL** (`gpu3d_virgl.c`, QEMU/Proxmox con `virtio-vga-gl`, D474) | el respaldo del escritorio de la virtio-gpu (`video_placa`) | el cuadro vuelve del anfitrión (`TRANSFER_FROM_HOST_3D` con valla), la CPU lo escala al respaldo y `vg_atualizar`/`vg_descargar` lo llevan al scanout | probado en QEMU con WSLg (h474) |
 | Intel Gen3 | — | sin la operación: sigue como hasta ahora | — |
 
 **Probado en el Amilo (X1400 `1002:7145`, pantalla de 1024x768, 2026-11-20; kernel de prueba con `arranque probar`, sin

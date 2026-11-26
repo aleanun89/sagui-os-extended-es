@@ -14,7 +14,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import Maquina, verificar, imagem_console, criar_pendrive, pendrive_qemu, cor_do_pixel, RAIZ  # noqa: E402
+from qemu import Maquina, verificar, imagem_console, criar_pendrive, pendrive_qemu, cor_do_pixel, imagem_de_teste, RAIZ  # noqa: E402
 
 NOTA = "Nota salva no pendrive pelo SaguiOS. Ação!"
 
@@ -76,7 +76,14 @@ def main():
         m.esperar_serial("editor: fechado", 10)
         time.sleep(0.5)
 
-        m.clique(arq["x"] + 8 + 62, arq["y"] + 148 + 22)             # "Remover com segurança"
+        # La barra lateral de Archivos se desplaza (D423) y «Retirar» queda al final de la lista de unidades:
+        # se baja con la rueda hasta el tope y se pulsa la última fila de la barra.
+        m.mouse_para(arq["x"] + 60, arq["y"] + 250)
+        for _ in range(6):
+            m.monitor("mouse_move 0 0 1")
+            time.sleep(0.1)
+        time.sleep(0.5)
+        m.clique(arq["x"] + 8 + 40, arq["y"] + 396)                  # «Retirar» (pendrive montado)
         m.esperar_serial("notificacao: Ya puedes retirar el pendrive.", 15)
         time.sleep(0.5)
         m.captura("H34-4-pode-remover")
@@ -128,7 +135,9 @@ def main():
     # Como ficou o pendrive do Eli no G470 (erro 18): o saguios.img gravado no
     # começo (partição 0xDA) e uma partição FAT32 criada no espaço livre.
     unico = os.path.join(os.path.dirname(pen), "h34-unico.img")
-    img = os.path.join(RAIZ, "build", "saguios.img")
+    # La imagen de prueba normal (la de Maquina), sin la pantalla de la primera contraseña de root (D371):
+    # build/saguios.img es la de serie y pide la contraseña, así que el terminal serie no llega a salir.
+    img = imagem_de_teste("", ["--vesa"])
     subprocess.run(["cp", img, unico], check=True)
     # La FAT32 empieza en el primer MB entero tras la imagen y tras la última
     # partición de su tabla (la imagen ya trae una extendida con las de juegos y

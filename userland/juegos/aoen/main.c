@@ -237,6 +237,9 @@ static void escena_audio(void) {
 	audio_shutdown();
 }
 
+/* D476: 30 y 60 valen; cualquier otra cosa menor o igual que 0, ilimitado; el resto, 60 */
+static int fps_max_valido(int v) { return v == 30 ? 30 : v <= 0 ? 0 : 60; }
+
 int main(int argc, char **argv) {
 	const char *shot = getenv("AOEN_SHOT");
 	const char *scene = getenv("AOEN_SCENE");
@@ -308,6 +311,8 @@ int main(int argc, char **argv) {
 	app.scroll_speed = CLAMP(cfg_get_int("scroll_speed", 2), 1, 3);
 	app.cursor_propio = getenv("AOEN_CURSOR") ? atoi(getenv("AOEN_CURSOR")) : cfg_get_int("cursor_propio", 1);
 	app.nombres_raton = cfg_get_int("nombres_raton", 1);
+	app.fps_max = fps_max_valido(getenv("AOEN_FPS_MAX") ? atoi(getenv("AOEN_FPS_MAX")) : cfg_get_int("fps_max", 60));   /* D476 */
+	AOEN_LOG("[AOEN] límite de FPS: %d", app.fps_max);
 	app.escala_dibujo = getenv("AOEN_DIBUJO") ? atoi(getenv("AOEN_DIBUJO")) : cfg_get_int("escala_dibujo", 100);
 	{
 		int hd = cfg_get_int("hd_terrain", 1);
@@ -862,6 +867,9 @@ int main(int argc, char **argv) {
 				free(g);
 			}
 		}
+		/* D476, para las pruebas: ritmo de cuadros entre el 20 y el de la captura (con el tope de FPS puesto) */
+		{ static Uint32 t20; if (shot && frame == 20) t20 = SDL_GetTicks();
+		  if (shot && frame == shot_frame && shot_frame > 20) AOEN_LOG("[AOEN] ritmo: %d cuadros en %u ms", shot_frame - 20, (unsigned)(SDL_GetTicks() - t20)); }
 		if (shot && frame == shot_frame) {
 			if (getenv("AOEN_STATS")) {
 				for (int p = 0; p < MAX_PLAYERS; ++p) {
@@ -895,8 +903,17 @@ int main(int argc, char **argv) {
 			}
 			continue;
 		}
-		Uint32 spent = SDL_GetTicks() - now;
-		if (spent < 16) SDL_Delay(16 - spent);
+		/* D476: tope de cuadros (30, 60 o ilimitado); la espera duerme (SDL_Delay), no gasta CPU */
+		if (app.fps_max > 0) {
+			/* plazo acumulado: SDL_Delay redondea al tic del sistema y así el ritmo medio sale exacto (30 y 60, no 25 y 50) */
+			static Uint32 base; static unsigned nc; static int fps_ant;
+			Uint32 ahora = SDL_GetTicks();
+			if (fps_ant != app.fps_max || (int)(ahora - (base + nc * 1000u / (unsigned)app.fps_max)) > 100) { fps_ant = app.fps_max; base = ahora; nc = 0; }
+			else {
+				int falta = (int)(base + ++nc * 1000u / (unsigned)app.fps_max - ahora);
+				if (falta > 0) SDL_Delay((Uint32)falta);
+			}
+		}
 		cuadro_lento();
 	}
 

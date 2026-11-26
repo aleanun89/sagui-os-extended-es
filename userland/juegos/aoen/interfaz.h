@@ -24,6 +24,7 @@ typedef struct {
 	Uint32 t_pantalla;      /* SDL_GetTicks() al entrar en la pantalla actual (animaciones y fundido de entrada) */
 	int cursor_propio;      /* 1: el juego dibuja su cursor según lo que hay debajo (y oculta el del sistema) */
 	int nombres_raton;      /* 1: nombre y datos de lo que hay bajo el ratón en el mapa */
+	int fps_max;            /* D476: tope de cuadros por segundo: 30, 60 o 0 (ilimitado); Opciones > Gráficos, clave «fps_max» */
 	int escala_dibujo;      /* % de la resolución del escritorio en pantalla completa (100, 75, 50): el sistema amplía */
 	char data_dir[1100];
 } App;
@@ -165,6 +166,7 @@ int saltar_aviso(void);
 int hud_orden_pos(int k, int *x, int *y);               /* centro del botón k de la rejilla, en píxeles reales (pruebas) */
 void hud_mm_pos(float wx, float wy, int *x, int *y);    /* un punto del mundo en el minimapa, en píxeles reales */
 extern Rect prueba_tributo, prueba_relacion;            /* botones de la diplomacia (pruebas) */
+extern Rect prueba_fps;                                    /* selector «Límite de FPS» de Opciones > Gráficos (pruebas, D476) */
 extern Rect prueba_fuego;                                  /* casilla «Fuego amigo» de la configuración (pruebas) */
 extern Rect prueba_comercio;                            /* casilla «Comercio mejorado» de la configuración (pruebas) */
 void prueba_paso(int frame);                            /* AOEN_PRUEBA: guiones de las pruebas de la interfaz */

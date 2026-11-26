@@ -1,0 +1,4 @@
+Microdot 2.8.0 (https://github.com/miguelgrinberg/microdot, licencia MIT), ficheros src/microdot/ sin cambios:
+__init__, microdot, helpers, cors, multipart, sse y websocket. Tarball v2.8.0, SHA-256
+e332fddf5cec2f9d9ed700d86ff0b799ee4ea783102050c1826924b7f8041a91. D478.
+(Sin jinja, utemplate, session, auth, login ni csrf: piden módulos de CPython o de MicroPython que SaguiOS no trae.)

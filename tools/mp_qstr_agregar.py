@@ -12,8 +12,7 @@ Uso:
   tools/mp_qstr_agregar.py [--comprobar] userland/micropython/grafico_sagui.c [...]
     --comprobar  no escribe: sale con 1 si falta algún qstr (y dice cuáles)
   tools/mp_qstr_agregar.py --autoprueba   comprueba que el hash reproduce el de las entradas ya generadas
-Solo se añaden nombres formados por letras, cifras y «_»; los que llevan símbolos codificados (_space_, _0x0a_...)
-se dejan a la herramienta oficial."""
+Los símbolos codificados (_dot_, _brace_open_...) se decodifican (D479); los _0x0a_ se dejan a la herramienta oficial."""
 import os
 import re
 import sys
@@ -59,11 +58,44 @@ def autoprueba():
     return 1 if mal or not n else 0
 
 
+# Caracteres especiales: makeqstrdata.py escribe cada uno como «_nombre_» (D479: para los de ulab, «ulab.numpy»).
+CODIGOS = {"space": " ", "squot": "'", "comma": ",", "dot": ".", "colon": ":", "semicolon": ";", "slash": "/",
+           "percent": "%", "hash": "#", "paren_open": "(", "paren_close": ")", "bracket_open": "[",
+           "bracket_close": "]", "brace_open": "{", "brace_close": "}", "star": "*", "bang": "!",
+           "backslash": "\\", "plus": "+", "dollar": "$", "equals": "=", "question": "?", "at_sign": "@",
+           "caret": "^", "pipe": "|", "tilde": "~", "hyphen": "-", "lt": "<", "gt": ">", "amp": "&",
+           "quot": '"'}
+
+
+def texto_de(nombre):
+    """Inversa del nombre MP_QSTR_xxx -> texto del qstr (cada carácter especial va como _nombre_)."""
+    sal = []
+    i = 0
+    while i < len(nombre):
+        if nombre[i] == "_":
+            for cod in sorted(CODIGOS, key=len, reverse=True):
+                if nombre.startswith(cod + "_", i + 1):
+                    sal.append(CODIGOS[cod])
+                    i += len(cod) + 2
+                    break
+            else:
+                sal.append("_")
+                i += 1
+                continue
+            continue
+        sal.append(nombre[i])
+        i += 1
+    return "".join(sal)
+
+
 def usados(rutas):
     nombres = set()
     for r in rutas:
         with open(r, encoding="utf-8") as f:
-            nombres.update(re.findall(r"MP_QSTR_(\w+)", f.read()))
+            t = f.read()
+        t = re.sub(r"/\*.*?\*/", "", t, flags=re.S)
+        t = re.sub(r"//[^\n]*", "", t)
+        nombres.update(re.findall(r"MP_QSTR_(\w+)", t))
     return nombres
 
 
@@ -89,11 +121,12 @@ def main(arg):
     ini, fin = idx[0], idx[-1]
     sec = lineas[ini:fin + 1]
     for n in nuevos:
-        nueva = 'QDEF1(MP_QSTR_%s, %d, %d, "%s")' % (n, hash_qstr(n), len(n.encode()), n)
+        t = texto_de(n)
+        nueva = 'QDEF1(MP_QSTR_%s, %d, %d, "%s")' % (n, hash_qstr(t), len(t.encode()), t.replace("\\", "\\\\").replace('"', '\\"'))
         pos = len(sec)
         for i, l in enumerate(sec):
             m = ENT.match(l)
-            if m and m.group(5) > n:
+            if m and m.group(5) > t:
                 pos = i
                 break
         sec.insert(pos, nueva)

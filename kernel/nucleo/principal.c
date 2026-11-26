@@ -11,6 +11,8 @@
 #include "bootinfo.h"
 #include "acel2d.h"
 #include "gpu3d.h"
+#include "virgl.h"
+#include "virtio_gpu.h"
 #include "gpu_energia.h"
 #include "console.h"
 #include "texto.h"
@@ -354,6 +356,8 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
     /* D285: 3D por la GPU: aquí solo se mira si hay driver para la tarjeta; se
      * enciende y se prueba con el primer uso (un fallo no retrasa el arranque). */
     gpu3d_iniciar();
+    /* D473: VirGL (3D de la virtio-gpu): autoprueba del triángulo, solo si el dispositivo lo ofrece. */
+    if (grafico && vg_virgl_ofrecido()) virgl_autoprueba();
     /* D399: energía de la GPU: solo lee las tablas de datos de la BIOS de vídeo (nada se ejecuta ni se
      * cambia en una tarjeta sin confirmar); kconfig gpu_energia lo aplica unos segundos después. */
     gpu_energia_iniciar();

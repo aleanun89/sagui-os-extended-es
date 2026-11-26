@@ -154,7 +154,7 @@ def probar(res):
         fx, fy, fl = int(g[-1][3]), int(g[-1][4]), int(g[-1][1])
         ax, ay = fx + 2, fy + 24
         ini = len(m.serial())
-        m.clique(ax + 146 + 120, ay + 70 + 2 + 8, duplo=True)       # el primero: a.mp4
+        m.clique(ax + 146 + 120, ay + 109, duplo=True)             # el primero: a.mp4 (Archivos D423: la lista empieza bajo la barra de ruta)
         esperar(m, r"reproductor: listo \(/usb/a\.mp4, 320x180, 15 fps", 40, ini)
         verificar(True, f"[{res}] doble clic en un .mp4 de Archivos abre el Reproductor")
         esperar(m, r"reproductor: primer cuadro en la ventana", 30, ini)

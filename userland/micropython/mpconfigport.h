@@ -64,6 +64,9 @@ void sagui_rodar_tratadores(void);
 #define MICROPY_GCREGS_SETJMP                   (0)
 #else
 #define MICROPY_NLR_X86                         (1)
+/* Compiladores de código máquina (D479): @micropython.native y @micropython.viper emiten x86 de 32 bits
+ * (py/emitnx86.c). El código va al montón (MP_PLAT_ALLOC_EXEC por omisión): el SaguiOS no marca páginas NX. */
+#define MICROPY_EMIT_X86                        (1)
 #define MICROPY_GCREGS_SETJMP                   (0)
 #endif
 #define MICROPY_USE_INTERNAL_ERRNO              (1)

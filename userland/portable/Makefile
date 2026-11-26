@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Makefile - las aplicaciones de SaguiOS en Linux con SDL 2 (D459, docs/apps-portables.md).
 #
-#   make            compila mico, pluma, macaco, tucan, paint, planomini y gebramini en build/portable/
+#   make            compila mico, pluma, macaco, tucan, paint, planomini, gebramini y arara en build/portable/
 #   make mico       solo una
 #   make probar     ejecuta las pruebas de humo (SDL_VIDEODRIVER=dummy)
 #
@@ -23,7 +23,7 @@ LDLIBS := $(SDL_LIBS) -lm
 
 # La libsagui: solo lo que usan estas aplicaciones (el archivo .a deja fuera lo que nadie pide).
 LIB_NOMES ?= presentacion presentacion_io presentacion_pptx compressao deflado_continuo difer edicao_rica edicao_rica_dialogos edicao_rica_obj formatacao formatar gui \
-  gui_arquivos gui_arvore gui_barras gui_cinta gui_componentes gui_explorador gui_moderno gui_pestanas gui_revisar \
+  gui_arquivos gui_arvore gui_barras gui_cinta gui_componentes gui_desfazer gui_explorador gui_inspetor gui_moderno gui_pestanas gui_revisar gui_selcor gui_vista \
   hora icones iconos98 idioma imagem imagem_gif imagem_idct imagem_jpeg imagem_png_escribir inflado_continuo \
   pdf_escribir regex rtf texto texto_rico utilitarios wordart entrada zonas sincronia http sonidos conf_maquina contas empacotar dialogos_cf dialogos_objeto \
   gui_grafico grafico_calc
@@ -40,7 +40,7 @@ MICO_OBJ   := $(patsubst $(RAIZ)/userland/programas/mico/%.c,$(B)/programas/mico
 GBM_OBJ    := $(patsubst $(RAIZ)/userland/gebramini/%.c,$(B)/obj/gebramini/%.o,$(wildcard $(RAIZ)/userland/gebramini/*.c))
 PM_OBJ     := $(patsubst $(RAIZ)/userland/planomini/%.c,$(B)/obj/planomini/%.o,$(wildcard $(RAIZ)/userland/planomini/*.c))
 
-APPS ?= mico pluma macaco tucan paint planomini gebramini
+APPS ?= mico pluma macaco tucan paint planomini gebramini arara
 all: $(addprefix $(B)/,$(APPS)) $(B)/datos
 # Un repositorio portable lleva las fuentes del sistema en datos/ (las siete DejaVu); el ejecutable las busca en ./datos.
 $(B)/datos:
@@ -87,7 +87,7 @@ $(B)/fonte8x16.c: $(RAIZ)/tools/fonte/sagui8x16.txt $(RAIZ)/tools/mkfonte.py
 $(B)/fonte8x16.o: $(B)/fonte8x16.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(B)/programas/macaco.o $(B)/programas/pluma.o $(B)/programas/tucan.o: $(wildcard $(RAIZ)/userland/programas/*.h)
+$(B)/programas/macaco.o $(B)/programas/pluma.o $(B)/programas/tucan.o $(B)/programas/arara.o: $(wildcard $(RAIZ)/userland/programas/*.h)
 
 $(B)/mico:   $(MICO_OBJ) $(IA_OBJ) $(B)/libsagui.a
 	$(CC) -o $@ $^ $(LDLIBS)
@@ -102,6 +102,8 @@ $(B)/paint:  $(B)/programas/paint.o $(FONTES_OBJ) $(B)/libsagui.a
 $(B)/planomini: $(B)/programas/planomini.o $(PM_OBJ) $(GBM_OBJ) $(B)/libsagui.a
 	$(CC) -o $@ $^ $(LDLIBS)
 $(B)/gebramini: $(B)/programas/gebramini.o $(GBM_OBJ) $(B)/libsagui.a
+	$(CC) -o $@ $^ $(LDLIBS)
+$(B)/arara: $(B)/programas/arara.o $(B)/libsagui.a
 	$(CC) -o $@ $^ $(LDLIBS)
 
 clean:
@@ -123,7 +125,11 @@ MP_PROPRIOS := mp_sagui mpthreadport_pc arquivos_sagui os_sagui rede_sagui ssl_s
   sinais_pc grafico_sagui
 MP_NUCLEO  := $(wildcard $(MP_EMB)/py/*.c) $(MP_EMB)/shared/runtime/gchelper_generic.c $(wildcard $(MP_EMB)/extmod/*.c) \
               $(MP_EMB)/shared/timeutils/timeutils.c
-MP_OBJ     := $(patsubst $(MP_DIR)/%.c,$(B)/mp/%.o,$(MP_NUCLEO)) $(addprefix $(B)/mp/,$(addsuffix .o,$(MP_PROPRIOS))) $(B)/mp_ponte_sagui.o $(B)/portable/inicio_python.o $(B)/portable/red_sdl.o \
+# ulab (D479, MIT): el «NumPy» de MicroPython, el mismo que en SaguiOS (sin numpy.load/save: no hay VFS).
+ULAB_DIR   := $(RAIZ)/userland/terceros/ulab
+ULAB_SRC   := $(filter-out %/numpy/io/io.c,$(shell find $(ULAB_DIR)/code -name '*.c' | sort))
+ULAB_OBJ   := $(patsubst $(ULAB_DIR)/%.c,$(B)/ulab/%.o,$(ULAB_SRC))
+MP_OBJ     := $(ULAB_OBJ) $(patsubst $(MP_DIR)/%.c,$(B)/mp/%.o,$(MP_NUCLEO)) $(addprefix $(B)/mp/,$(addsuffix .o,$(MP_PROPRIOS))) $(B)/mp_ponte_sagui.o $(B)/portable/inicio_python.o $(B)/portable/red_sdl.o \
               $(B)/mp/sqlite3.o $(B)/libsagui/sqlite_vfs_sagui.o
 TLS_OBJ    := $(patsubst $(RAIZ)/userland/libtls/%.c,$(B)/libtls/%.o,$(filter-out %/conexao.c %/sshcifra.c %/wireguard.c %/hash.c,$(wildcard $(RAIZ)/userland/libtls/*.c)))
 SQLITE_DEFS := -DSQLITE_OS_OTHER=1 -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_OMIT_WAL \
@@ -135,6 +141,9 @@ SQLITE_DEFS := -DSQLITE_OS_OTHER=1 -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_LOAD_EXTE
 $(B)/mp/%.o: $(MP_DIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(MP_CFLAGS) -c -o $@ $<
+$(B)/ulab/%.o: $(ULAB_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(MP_CFLAGS) -DMODULE_ULAB_ENABLED=1 -DULAB_CONFIG_FILE='"ulab_sagui.h"' -c -o $@ $<
 # ponte_sagui.c usa tls.h e la libsagui: se compila como la propia libsagui.
 $(B)/mp_ponte_sagui.o: $(MP_DIR)/ponte_sagui.c
 	@mkdir -p $(dir $@)

@@ -228,6 +228,10 @@ def analizar(ruta):
     # «excepción especial» que permite distribuirla con los términos que se quiera: no cuenta como GPL.
     if gpl and re.search(r"special exception.{0,300}Bison parser skeleton", re.sub(r"[\s*/#]+", " ", " ".join(cabecera(ruta))), re.I):
         gpl = False
+    # Licencia doble «BSD o GPL, a elegir» (p. ej. LZF de Valkey, D477): con la BSD no cuenta como GPL.
+    if gpl and re.search(r"Alternatively, the contents of this file may be used under the terms of the GNU General Public License"
+                         r".{0,1000}either the BSD or the GPL", re.sub(r"[\s*/#]+", " ", " ".join(cabecera(ruta))), re.I):
+        gpl = False
     return spdx, copia, gpl
 
 

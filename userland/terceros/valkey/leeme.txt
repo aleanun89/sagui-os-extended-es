@@ -1,0 +1,28 @@
+Valkey 8.0.2 en SaguiOS (D477)
+==============================
+
+Valkey es la continuación libre de Redis (licencia BSD-3): una base de datos en memoria de clave y valor con cadenas, listas,
+conjuntos, hashes, conjuntos ordenados, flujos, HyperLogLog, mapas de bits, geo, pub/sub, transacciones, scripts en Lua 5.1
+(EVAL) y persistencia (RDB y AOF).
+
+  valkey-server [fichero.conf] [--opcion valor ...]      el servidor (puerto 6379 en 127.0.0.1)
+  valkey-cli [-p puerto] [orden ...]                     el cliente; sin orden, modo interactivo
+
+  /apps/bin/valkey-server y valkey-cli          los programas
+  /apps/valkey/valkey.conf                      la configuración de SaguiOS (datos en /home)
+  /apps/valkey/ejemplos/                        clientes de ejemplo: ejemplo_hiredis.c (C), ejemplo_valkey.py (MicroPython), ejemplo_valkey.lua (Lua)
+  /apps/tcc/lib/libhiredis.a, /apps/tcc/include/hiredis/   el cliente de C:  tcc ejemplo_hiredis.c -lhiredis
+  /apps/valkey/LICENCIA-VALKEY.txt y LICENCIA-HIREDIS.txt
+
+Cómo se ejecuta en SaguiOS
+  - Bucle de eventos con select() (la libc de SaguiOS tiene select sobre poll); sin epoll.
+  - RDB y AOF en segundo plano con fork() (copia al escribir). Los trabajos lentos (cerrar, fsync, liberar) van en hilos de la
+    capa pthread.
+  - Hasta 128 descriptores por proceso: maxclients 90 como mucho. io-threads se queda en 1 (sin almacenamiento local de hilo).
+  - Sin sockets de dominio Unix (unixsocket), sin TLS y sin módulos.
+  - Los números en coma flotante largos (long double) se calculan con la precisión de double.
+
+Desde otros lenguajes
+  C            hiredis (BSD-3): tcc ejemplo_hiredis.c -lhiredis -o ejemplo
+  MicroPython  /lib/python/valkey.py (cliente RESP con socket; el que usa el módulo tablas): import valkey; r = valkey.Valkey(); r.set("a", 1)
+  Lua          /apps/lua/share/lua/5.4/valkey.lua (usa el módulo socket del Lua de SaguiOS): local v = require("valkey").conectar("127.0.0.1", 6379)

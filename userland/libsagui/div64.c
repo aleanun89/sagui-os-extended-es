@@ -58,6 +58,18 @@ DEBIL long long __moddi3(long long a, long long b)
     return r;
 }
 
+/* __ctzdi2 y __clzdi2: ceros al final y al principio de 64 bits (D477: Valkey, HyperLogLog; sin libgcc). */
+DEBIL int __ctzdi2(unsigned long long v)
+{
+    unsigned lo = (unsigned)v;
+    return lo ? __builtin_ctz(lo) : 32 + __builtin_ctz((unsigned)(v >> 32));
+}
+DEBIL int __clzdi2(unsigned long long v)
+{
+    unsigned hi = (unsigned)(v >> 32);
+    return hi ? __builtin_clz(hi) : 32 + __builtin_clz((unsigned)v);
+}
+
 /* __popcountsi2: los bits a 1 de una palabra (el gcc lo llama para
  * __builtin_popcount sin la instrucción popcnt; GNU Prolog lo usa). */
 DEBIL int __popcountsi2(unsigned int v)

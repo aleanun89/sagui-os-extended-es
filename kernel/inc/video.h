@@ -46,6 +46,8 @@ void video_volcar_cpu(int x0, int y0, int x1, int y1);   /* D387: la copia de la
 bool     video_trocar_modo(uint32_t largura, uint32_t altura);
 bool     video_troca_a_quente(void);
 uint32_t video_bpp_a_quente(void);
+uint32_t video_max_largura(void);   /* D472: máximo del cambio en caliente (BGA o virtio-gpu) */
+uint32_t video_max_altura(void);
 uint32_t video_memoria_mapeada(void);   /* bytes del framebuffer en la ventana del kernel */
 
 /* Cursor del mouse: dibujado encima, al mostrar (H19). */

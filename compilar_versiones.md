@@ -40,6 +40,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 
 **Opcional: git dentro (D400).** `tools/git_fuentes.sh` baja libgit2 1.9.1 (etiqueta fija, SHA-256 comprobado) a `userland/terceros/git/fuentes/`; con eso `make` también compila `/apps/bin/git` (init, clone, fetch, pull, push, status, add, commit, log, diff, branch, checkout, remote y config; HTTP(S) con TLS, y SSH). Sin las fuentes se salta con un aviso (`GIT=0` lo desactiva). Va fuera de `SEM_GPL=1`. Ver `docs/git.md`.
 
+**Opcional: Valkey dentro (D477).** `tools/valkey_fuentes.sh` baja Valkey 8.0.2 (SHA-256 fijo; BSD-3-Clause) a `userland/terceros/valkey/fuentes/`; con eso `make` compila `/apps/bin/valkey-server` y `/apps/bin/valkey-cli` (con su hiredis y su Lua 5.1 incluidos) y los deja en la partición de aplicaciones. Sin las fuentes se salta. `VALKEY_DENTRO=0` lo desactiva. Entra también con `SEM_GPL=1`.
+
 | Paquete | Para qué |
 | --- | --- |
 | `gcc`, `gcc-multilib`, `binutils`, `make` | compilar el kernel y los programas en 32 bits |
@@ -139,6 +141,7 @@ Se pasan en la línea de `make`: `make NETSURF=0 B=build-mia -j8`. Si cambias un
 | `LUA_DENTRO` | `1` | Lua 5.4 (`/apps/bin/lua` y `luac`, `liblua.a` y `liblua.so.5.4`, D440): solo entra si están las fuentes (`tools/lua_fuentes.sh`, ver 1 y 5). `LUA_DENTRO=0` lo quita; con `SEM_GPL=1` también entra |
 | `CAPIBARA` | `1` | Capibara (`/apps/bin/capibara` y los ejemplos de `/apps/capibara`, D452): motor de juegos 2D con guiones en Lua; solo entra si están las fuentes de Lua (`tools/lua_fuentes.sh`). `CAPIBARA=0` lo quita; con `SEM_GPL=1` también entra. Para Linux, `make -C userland/capibara` |
 | `FFMPEG` | `1` | FFmpeg (`/apps/bin/ffmpeg` y `ffprobe`, D458): solo entra si están las fuentes (`tools/ffmpeg_fuentes.sh`, ver 1 y 5). `FFMPEG=0` lo quita; con `SEM_GPL=1` tampoco entra |
+| `VALKEY_DENTRO` | `1` | Valkey (`/apps/bin/valkey-server` y `valkey-cli`, D477): solo entra si están las fuentes (`tools/valkey_fuentes.sh`, ver 1 y 5). `VALKEY_DENTRO=0` lo quita; también entra con `SEM_GPL=1`. |
 | `GO` | `1` | programas en Go con TinyGo (`/apps/go/`, ver 1). Sin TinyGo instalado se saltan con un aviso; `GO=0` los desactiva |
 | `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | solo para `make priv_descargas`: dónde está el repositorio de OpenTTD (o de dónde clonarlo). Sin él, la imagen privada no lleva OpenTTD (ver 5) |
 
@@ -268,6 +271,7 @@ Desde la v8.5.4.10r2 (D388) el orden en el disco es: arranque, la ESP, y la exte
 | Fuentes de GNU make 4.4.1 (`/apps/bin/make`, D413) | `bash tools/make_fuentes.sh [--tarball FICHERO]` | `https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz` | GPL-3.0-or-later | `userland/terceros/make/fuentes/` (ignorada por git) |
 | Fuentes de The One True AWK 20261106 (`/bin/awk`, D440) | `bash tools/awk_fuentes.sh [--tarball FICHERO]` | `https://github.com/onetrueawk/awk/archive/refs/tags/20261106.tar.gz` | permisiva de Lucent (tipo HPND) | `userland/terceros/awk/fuentes/` (ignorada por git) |
 | Fuentes de Lua 5.4.9 (`/apps/bin/lua` y `luac`, D440) | `bash tools/lua_fuentes.sh [--tarball FICHERO]` | `https://www.lua.org/ftp/lua-5.4.9.tar.gz` | MIT | `userland/terceros/lua/fuentes/` (ignorada por git) |
+| Fuentes de Valkey 8.0.2 (`/apps/bin/valkey-server` y `valkey-cli`, D477) | `bash tools/valkey_fuentes.sh [--tarball FICHERO]` | `https://github.com/valkey-io/valkey/archive/refs/tags/8.0.2.tar.gz` | BSD-3-Clause | `userland/terceros/valkey/fuentes/` (ignorada por git) |
 | Modelos 3D CC0 para la demo de SaguiGL (`sgldemo -p --modelo`, D404) | `bash tools/modelos3d_datos.sh [--forzar]` | `https://opengameart.org/content/low-poly-biplane`, `https://opengameart.org/content/funky-aircraft` y `https://opengameart.org/content/ww1-wwi-airplane-model-obj` | CC0 1.0 (dominio público) | `userland/terceros/modelos3d/datos/` (ignorada por git); no entran en las imágenes |
 
 Notas:
@@ -279,6 +283,7 @@ Notas:
 - **OpenTTD** (opcional, solo imágenes privadas): el último paso de `make priv_descargas` lo compila como paquete desde su repositorio aparte (por defecto `../openttd-saguios`, o `OPENTTD_URL`) con `tools/openttd_paquete.sh` y lo instala en `input_share/apps`. Sin ese repositorio, avisa y la imagen privada sale sin él. Las imágenes públicas (`INPUT_SHARE=`) nunca lo llevan.
 - **Go** (opcional): `tools/tinygo_entorno.sh instalar` descarga TinyGo y Go en versiones fijas, con SHA-256 comprobado, a `~/.local/saguitools` (sin sudo). Sin ello, `make` salta los ejemplos de Go con un aviso.
 - **Ya van en el repositorio, no se bajan:** las raíces de certificados (`rootfs/etc/ssl/certs/`; se pueden regenerar desde el almacén `ca-certificates` del PC con `python3 tools/raices_ssl.py`), el firmware del pincho Wi-Fi RTL8188EU (`firmware/realtek/`, de linux-firmware, redistribuible sin cambios; `tools/firmware_rtl8188eu.sh --comprobar` lo verifica y sin `--comprobar` lo vuelve a bajar de `git.kernel.org`; `SEM_FIRMWARE=1` lo quita), el de los pinchos Wi-Fi USB (`firmware/realtek/rtl8192cufw_A.bin`, `firmware/realtek/rtl8192cufw_TMSC.bin` y `firmware/ralink/rt2870.bin`, de linux-firmware, redistribuibles sin cambios; `tools/firmware_wifi_usb.sh --comprobar` los verifica y sin `--comprobar` los vuelve a bajar; `SEM_FIRMWARE=1` los quita), el de los controladores Bluetooth (`firmware/realtek/rtl_bt/` y `firmware/atheros/`, de linux-firmware, redistribuibles sin cambios; `tools/firmware_bt.sh --comprobar` los verifica y sin `--comprobar` los vuelve a bajar; `SEM_FIRMWARE=1` los quita; los parches `.hcd` de Broadcom no van en el repositorio: se ponen a mano en `/lib/firmware/brcm/`), el microcódigo de las Radeon R5xx, R6xx y R7xx para el 3D por la GPU (`firmware/radeon/`, de linux-firmware, redistribuible sin cambios; `tools/firmware_radeon.sh --comprobar` lo verifica y sin `--comprobar` lo vuelve a bajar; `SEM_FIRMWARE=1` lo quita), los datos de OpenTyrian (`userland/terceros/opentyrian/dados.img.xz`), las fuentes de OpenJazz, Quake y Vanilla Conquer (se comprueban con `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) y las ROM de CHIP-8, que se ensamblan desde `rootfs/jogos/chip8/fuentes/*.asm`.
+- **ulab** (MIT, `userland/terceros/ulab/code/`, D479): ya va en el repositorio y no se baja (`make` lo compila dentro del `python`).
 
 ### 6. Juegos y datos que pones tú (`input_share/`)
 
@@ -422,6 +427,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 
 **Optional: git inside (D400).** `tools/git_fuentes.sh` downloads libgit2 1.9.1 (fixed tag, SHA-256 checked) into `userland/terceros/git/fuentes/`; with it, `make` also builds `/apps/bin/git` (init, clone, fetch, pull, push, status, add, commit, log, diff, branch, checkout, remote and config; HTTP(S) with TLS, and SSH). Without the sources it is skipped with a notice (`GIT=0` disables it). It is left out of `SEM_GPL=1`. See `docs/git.md`.
 
+**Optional: Valkey inside (D477).** `tools/valkey_fuentes.sh` downloads Valkey 8.0.2 (fixed SHA-256; BSD-3-Clause) into `userland/terceros/valkey/fuentes/`; with it, `make` builds `/apps/bin/valkey-server` and `/apps/bin/valkey-cli` (with their hiredis and Lua 5.1 included) and puts them in the applications partition. Without the sources it is skipped. `VALKEY_DENTRO=0` turns it off. It is also included with `SEM_GPL=1`.
+
 | Package | What for |
 | --- | --- |
 | `gcc`, `gcc-multilib`, `binutils`, `make` | building the kernel and the programs in 32 bits |
@@ -521,6 +528,7 @@ They go on the `make` command line: `make NETSURF=0 B=build-mia -j8`. If you cha
 | `LUA_DENTRO` | `1` | Lua 5.4 (`/apps/bin/lua` and `luac`, `liblua.a` and `liblua.so.5.4`, D440): only included if its sources are there (`tools/lua_fuentes.sh`, see 1 and 5). `LUA_DENTRO=0` removes it; with `SEM_GPL=1` it is included too |
 | `CAPIBARA` | `1` | Capibara (`/apps/bin/capibara` and the examples in `/apps/capibara`, D452): 2D game engine with Lua scripts; only included if the Lua sources are there (`tools/lua_fuentes.sh`). `CAPIBARA=0` removes it; with `SEM_GPL=1` it is included too. For Linux, `make -C userland/capibara` |
 | `FFMPEG` | `1` | FFmpeg (`/apps/bin/ffmpeg` and `ffprobe`, D458): only included if its sources are there (`tools/ffmpeg_fuentes.sh`, see 1 and 5). `FFMPEG=0` removes it; with `SEM_GPL=1` it is not included either |
+| `VALKEY_DENTRO` | `1` | Valkey (`/apps/bin/valkey-server` and `valkey-cli`, D477): only included if its sources are there (`tools/valkey_fuentes.sh`, see 1 and 5). `VALKEY_DENTRO=0` removes it; it is also included with `SEM_GPL=1`. |
 | `GO` | `1` | programs in Go with TinyGo (`/apps/go/`, see 1). Without TinyGo installed they are skipped with a notice; `GO=0` disables them |
 | `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | only for `make priv_descargas`: where the OpenTTD repository is (or where to clone it from). Without it the private image does not carry OpenTTD (see 5) |
 
@@ -650,6 +658,7 @@ Since v8.5.4.10r2 (D388) the order on the disk is: boot, the ESP, and the extend
 | GNU make 4.4.1 sources (`/apps/bin/make`, D413) | `bash tools/make_fuentes.sh [--tarball FILE]` | `https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz` | GPL-3.0-or-later | `userland/terceros/make/fuentes/` (ignored by git) |
 | The One True AWK 20261106 sources (`/bin/awk`, D440) | `bash tools/awk_fuentes.sh [--tarball FILE]` | `https://github.com/onetrueawk/awk/archive/refs/tags/20261106.tar.gz` | Lucent permissive (HPND-style) | `userland/terceros/awk/fuentes/` (ignored by git) |
 | Lua 5.4.9 sources (`/apps/bin/lua` and `luac`, D440) | `bash tools/lua_fuentes.sh [--tarball FILE]` | `https://www.lua.org/ftp/lua-5.4.9.tar.gz` | MIT | `userland/terceros/lua/fuentes/` (ignored by git) |
+| Valkey 8.0.2 sources (`/apps/bin/valkey-server` and `valkey-cli`, D477) | `bash tools/valkey_fuentes.sh [--tarball FILE]` | `https://github.com/valkey-io/valkey/archive/refs/tags/8.0.2.tar.gz` | BSD-3-Clause | `userland/terceros/valkey/fuentes/` (ignored by git) |
 | CC0 3D models for the SaguiGL demo (`sgldemo -p --modelo`, D404) | `bash tools/modelos3d_datos.sh [--forzar]` | `https://opengameart.org/content/low-poly-biplane`, `https://opengameart.org/content/funky-aircraft` and `https://opengameart.org/content/ww1-wwi-airplane-model-obj` | CC0 1.0 (public domain) | `userland/terceros/modelos3d/datos/` (ignored by git); not in the images |
 
 Notes:
@@ -661,6 +670,7 @@ Notes:
 - **OpenTTD** (optional, private images only): the final step of `make priv_descargas` builds it as a package from its own repository (by default `../openttd-saguios`, or `OPENTTD_URL`) with `tools/openttd_paquete.sh` and installs it in `input_share/apps`. Without that repository it warns, and the private image comes out without it. The public images (`INPUT_SHARE=`) never carry it.
 - **Go** (optional): `tools/tinygo_entorno.sh instalar` downloads TinyGo and Go, at fixed versions with checked SHA-256, into `~/.local/saguitools` (no sudo). Without it, `make` skips the Go examples with a notice.
 - **Already in the repository, not downloaded:** the root certificates (`rootfs/etc/ssl/certs/`; they can be regenerated from the PC's `ca-certificates` store with `python3 tools/raices_ssl.py`), the RTL8188EU Wi-Fi dongle firmware (`firmware/realtek/`, from linux-firmware, redistributable unchanged; `tools/firmware_rtl8188eu.sh --comprobar` verifies it and without `--comprobar` it downloads it again from `git.kernel.org`; `SEM_FIRMWARE=1` removes it), the USB Wi-Fi dongles' firmware (`firmware/realtek/rtl8192cufw_A.bin`, `firmware/realtek/rtl8192cufw_TMSC.bin` and `firmware/ralink/rt2870.bin`, from linux-firmware, redistributable unchanged; `tools/firmware_wifi_usb.sh --comprobar` verifies them and without `--comprobar` it downloads them again; `SEM_FIRMWARE=1` removes them), the Bluetooth controller firmware (`firmware/realtek/rtl_bt/` and `firmware/atheros/`, from linux-firmware, redistributable unchanged; `tools/firmware_bt.sh --comprobar` verifies them and without `--comprobar` it downloads them again; `SEM_FIRMWARE=1` removes them; Broadcom `.hcd` patches are not in the repository and go by hand into `/lib/firmware/brcm/`), the Radeon R5xx, R6xx and R7xx microcode for GPU 3D (`firmware/radeon/`, from linux-firmware, redistributable unchanged; `tools/firmware_radeon.sh --comprobar` verifies it and without `--comprobar` it downloads it again; `SEM_FIRMWARE=1` removes it), the OpenTyrian data (`userland/terceros/opentyrian/dados.img.xz`), the OpenJazz, Quake and Vanilla Conquer sources (checked with `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) and the CHIP-8 ROMs, which are assembled from `rootfs/jogos/chip8/fuentes/*.asm`.
+- **ulab** (MIT, `userland/terceros/ulab/code/`, D479): it is in the repository and is not downloaded (`make` compiles it into `python`).
 
 ### 6. Games and data you provide (`input_share/`)
 
@@ -804,6 +814,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 
 **Opcional: git dentro (D400).** `tools/git_fuentes.sh` baixa o libgit2 1.9.1 (tag fixa, SHA-256 verificado) para `userland/terceros/git/fuentes/`; com isso o `make` também compila `/apps/bin/git` (init, clone, fetch, pull, push, status, add, commit, log, diff, branch, checkout, remote e config; HTTP(S) com TLS, e SSH). Sem as fontes ele é pulado com um aviso (`GIT=0` o desativa). Fica fora de `SEM_GPL=1`. Ver `docs/git.md`.
 
+**Opcional: Valkey dentro (D477).** `tools/valkey_fuentes.sh` baixa o Valkey 8.0.2 (SHA-256 fixo; BSD-3-Clause) para `userland/terceros/valkey/fuentes/`; com isso o `make` compila `/apps/bin/valkey-server` e `/apps/bin/valkey-cli` (com o hiredis e o Lua 5.1 incluídos) e os coloca na partição de aplicações. Sem as fontes é pulado. `VALKEY_DENTRO=0` o desativa. Também entra com `SEM_GPL=1`.
+
 | Pacote | Para quê |
 | --- | --- |
 | `gcc`, `gcc-multilib`, `binutils`, `make` | compilar o kernel e os programas em 32 bits |
@@ -903,6 +915,7 @@ Vão na linha do `make`: `make NETSURF=0 B=build-mia -j8`. Se mudar uma opção,
 | `LUA_DENTRO` | `1` | o Lua 5.4 (`/apps/bin/lua` e `luac`, `liblua.a` e `liblua.so.5.4`, D440): só entra se as fontes estiverem (`tools/lua_fuentes.sh`, ver 1 e 5). `LUA_DENTRO=0` o remove; com `SEM_GPL=1` também entra |
 | `CAPIBARA` | `1` | o Capibara (`/apps/bin/capibara` e os exemplos em `/apps/capibara`, D452): motor de jogos 2D com scripts em Lua; só entra se as fontes do Lua estiverem (`tools/lua_fuentes.sh`). `CAPIBARA=0` o remove; com `SEM_GPL=1` também entra. Para Linux, `make -C userland/capibara` |
 | `FFMPEG` | `1` | o FFmpeg (`/apps/bin/ffmpeg` e `ffprobe`, D458): só entra se as fontes estiverem (`tools/ffmpeg_fuentes.sh`, ver 1 e 5). `FFMPEG=0` o tira; com `SEM_GPL=1` também não entra |
+| `VALKEY_DENTRO` | `1` | o Valkey (`/apps/bin/valkey-server` e `valkey-cli`, D477): só entra se as fontes estiverem (`tools/valkey_fuentes.sh`, ver 1 e 5). `VALKEY_DENTRO=0` o remove; também entra com `SEM_GPL=1`. |
 | `GO` | `1` | programas em Go com TinyGo (`/apps/go/`, veja 1). Sem o TinyGo instalado são pulados com um aviso; `GO=0` os desativa |
 | `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | só para `make priv_descargas`: onde está o repositório do OpenTTD (ou de onde cloná-lo). Sem ele, a imagem privada não leva o OpenTTD (veja 5) |
 
@@ -1032,6 +1045,7 @@ Desde a v8.5.4.10r2 (D388) a ordem no disco é: inicialização, a ESP, e a este
 | Fontes do GNU make 4.4.1 (`/apps/bin/make`, D413) | `bash tools/make_fuentes.sh [--tarball ARQUIVO]` | `https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz` | GPL-3.0-or-later | `userland/terceros/make/fuentes/` (ignorada pelo git) |
 | Fontes do The One True AWK 20261106 (`/bin/awk`, D440) | `bash tools/awk_fuentes.sh [--tarball ARQUIVO]` | `https://github.com/onetrueawk/awk/archive/refs/tags/20261106.tar.gz` | permissiva de Lucent (tipo HPND) | `userland/terceros/awk/fuentes/` (ignorada pelo git) |
 | Fontes do Lua 5.4.9 (`/apps/bin/lua` e `luac`, D440) | `bash tools/lua_fuentes.sh [--tarball ARQUIVO]` | `https://www.lua.org/ftp/lua-5.4.9.tar.gz` | MIT | `userland/terceros/lua/fuentes/` (ignorada pelo git) |
+| Fontes do Valkey 8.0.2 (`/apps/bin/valkey-server` e `valkey-cli`, D477) | `bash tools/valkey_fuentes.sh [--tarball ARQUIVO]` | `https://github.com/valkey-io/valkey/archive/refs/tags/8.0.2.tar.gz` | BSD-3-Clause | `userland/terceros/valkey/fuentes/` (ignorada pelo git) |
 | Modelos 3D CC0 para a demo do SaguiGL (`sgldemo -p --modelo`, D404) | `bash tools/modelos3d_datos.sh [--forzar]` | `https://opengameart.org/content/low-poly-biplane`, `https://opengameart.org/content/funky-aircraft` e `https://opengameart.org/content/ww1-wwi-airplane-model-obj` | CC0 1.0 (domínio público) | `userland/terceros/modelos3d/datos/` (ignorada pelo git); não entram nas imagens |
 
 Notas:
@@ -1043,6 +1057,7 @@ Notas:
 - **OpenTTD** (opcional, só imagens privadas): o último passo do `make priv_descargas` o compila como pacote a partir do seu repositório separado (por padrão `../openttd-saguios`, ou `OPENTTD_URL`) com `tools/openttd_paquete.sh` e o instala em `input_share/apps`. Sem esse repositório, avisa e a imagem privada sai sem ele. As imagens públicas (`INPUT_SHARE=`) nunca o levam.
 - **Go** (opcional): `tools/tinygo_entorno.sh instalar` baixa o TinyGo e o Go em versões fixas, com SHA-256 verificado, para `~/.local/saguitools` (sem sudo). Sem isso, o `make` pula os exemplos de Go com um aviso.
 - **Já estão no repositório, não são baixados:** as raízes de certificados (`rootfs/etc/ssl/certs/`; podem ser regeneradas a partir do repositório `ca-certificates` do PC com `python3 tools/raices_ssl.py`), o firmware do adaptador Wi-Fi RTL8188EU (`firmware/realtek/`, do linux-firmware, redistribuível sem alterações; `tools/firmware_rtl8188eu.sh --comprobar` o verifica e, sem `--comprobar`, o baixa de novo de `git.kernel.org`; `SEM_FIRMWARE=1` o remove), o firmware dos adaptadores Wi-Fi USB (`firmware/realtek/rtl8192cufw_A.bin`, `firmware/realtek/rtl8192cufw_TMSC.bin` e `firmware/ralink/rt2870.bin`, do linux-firmware, redistribuíveis sem alterações; `tools/firmware_wifi_usb.sh --comprobar` os verifica e, sem `--comprobar`, os baixa de novo; `SEM_FIRMWARE=1` os remove), o firmware dos controladores Bluetooth (`firmware/realtek/rtl_bt/` e `firmware/atheros/`, do linux-firmware, redistribuíveis sem alterações; `tools/firmware_bt.sh --comprobar` os verifica e, sem `--comprobar`, os baixa de novo; `SEM_FIRMWARE=1` os remove; os patches `.hcd` da Broadcom não estão no repositório e vão à mão em `/lib/firmware/brcm/`), o microcódigo das Radeon R5xx, R6xx e R7xx para o 3D pela GPU (`firmware/radeon/`, do linux-firmware, redistribuível sem alterações; `tools/firmware_radeon.sh --comprobar` verifica-o e, sem `--comprobar`, o baixa de novo; `SEM_FIRMWARE=1` o remove), os dados do OpenTyrian (`userland/terceros/opentyrian/dados.img.xz`), as fontes do OpenJazz, do Quake e do Vanilla Conquer (verificadas com `tools/openjazz_fuentes.sh --comprobar`, `quake_fuentes.sh`, `conquer_fuentes.sh`) e as ROM de CHIP-8, que são montadas a partir de `rootfs/jogos/chip8/fuentes/*.asm`.
+- **ulab** (MIT, `userland/terceros/ulab/code/`, D479): já está no repositório e não é baixado (o `make` o compila dentro do `python`).
 
 ### 6. Jogos e dados que você fornece (`input_share/`)
 

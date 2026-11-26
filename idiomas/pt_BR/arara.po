@@ -1,0 +1,576 @@
+# Traducción de SaguiOS: catálogo «arara», idioma pt_BR (D313).
+# Los msgid son los textos en español del código: no se cambian a mano.
+msgid ""
+msgstr ""
+"Project-Id-Version: SaguiOS-Extended\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: userland/programas/arara.c:46
+msgid "Archivo"
+msgstr "Arquivo"
+
+#: userland/programas/arara.c:46
+msgid "Edición"
+msgstr "Editar"
+
+#: userland/programas/arara.c:46
+msgid "Organizar"
+msgstr "Organizar"
+
+#: userland/programas/arara.c:46 userland/programas/arara.c:584
+msgid "Conector"
+msgstr "Conector"
+
+#: userland/programas/arara.c:46
+msgid "Ver"
+msgstr "Exibir"
+
+#: userland/programas/arara.c:46 userland/programas/arara.c:565 userland/programas/arara.c:868 userland/programas/arara.c:980
+msgid "Página"
+msgstr "Página"
+
+#: userland/programas/arara.c:46
+msgid "Ayuda"
+msgstr "Ajuda"
+
+#: userland/programas/arara.c:49
+msgid ""
+"Nuevo\tCtrl+N\n"
+"Abrir...\tCtrl+O\n"
+"Guardar\tCtrl+S\n"
+"Guardar como...\n"
+"-\n"
+"Exportar a PNG...\n"
+"Exportar a SVG...\n"
+"Exportar a PDF...\n"
+"-\n"
+"Salir"
+msgstr ""
+"Novo\tCtrl+N\n"
+"Abrir...\tCtrl+O\n"
+"Salvar\tCtrl+S\n"
+"Salvar como...\n"
+"-\n"
+"Exportar para PNG...\n"
+"Exportar para SVG...\n"
+"Exportar para PDF...\n"
+"-\n"
+"Sair"
+
+#: userland/programas/arara.c:50
+msgid ""
+"Deshacer\tCtrl+Z\n"
+"Rehacer\tCtrl+Y\n"
+"-\n"
+"Cortar\tCtrl+X\n"
+"Copiar\tCtrl+C\n"
+"Pegar\tCtrl+V\n"
+"Duplicar\tCtrl+D\n"
+"Borrar\tSupr\n"
+"-\n"
+"Seleccionar todo\tCtrl+A"
+msgstr ""
+"Desfazer\tCtrl+Z\n"
+"Refazer\tCtrl+Y\n"
+"-\n"
+"Recortar\tCtrl+X\n"
+"Copiar\tCtrl+C\n"
+"Colar\tCtrl+V\n"
+"Duplicar\tCtrl+D\n"
+"Apagar\tDel\n"
+"-\n"
+"Selecionar tudo\tCtrl+A"
+
+#: userland/programas/arara.c:51
+msgid ""
+"Traer al frente\n"
+"Enviar atrás\n"
+"-\n"
+"Alinear a la izquierda\n"
+"Alinear al centro\n"
+"Alinear a la derecha\n"
+"Alinear arriba\n"
+"Alinear al medio\n"
+"Alinear abajo\n"
+"-\n"
+"Distribuir en horizontal\n"
+"Distribuir en vertical"
+msgstr ""
+"Trazer para a frente\n"
+"Enviar para trás\n"
+"-\n"
+"Alinhar à esquerda\n"
+"Alinhar ao centro\n"
+"Alinhar à direita\n"
+"Alinhar ao topo\n"
+"Alinhar ao meio\n"
+"Alinhar à base\n"
+"-\n"
+"Distribuir na horizontal\n"
+"Distribuir na vertical"
+
+#: userland/programas/arara.c:53
+msgid ""
+"Acercar\t+\n"
+"Alejar\t-\n"
+"Zoom 100 %\n"
+"Ajustar a la ventana\n"
+"-\n"
+"Mostrar u ocultar la rejilla\n"
+"Ajuste a la rejilla"
+msgstr ""
+"Aproximar\t+\n"
+"Afastar\t-\n"
+"Zoom 100 %\n"
+"Ajustar à janela\n"
+"-\n"
+"Mostrar ou ocultar a grade\n"
+"Ajuste à grade"
+
+#: userland/programas/arara.c:54
+msgid ""
+"Página nueva\n"
+"Eliminar página\n"
+"Cambiar el nombre..."
+msgstr ""
+"Nova página\n"
+"Excluir página\n"
+"Mudar o nome..."
+
+#: userland/programas/arara.c:55
+msgid "Acerca de Arara"
+msgstr "Sobre o Arara"
+
+#: userland/programas/arara.c:196
+msgid "Sin memoria para deshacer"
+msgstr "Sem memória para desfazer"
+
+#: userland/programas/arara.c:251
+msgid "Borrar"
+msgstr "Apagar"
+
+#: userland/programas/arara.c:276 userland/programas/arara.c:369 userland/programas/arara.c:1102
+msgid "La página está llena"
+msgstr "A página está cheia"
+
+#: userland/programas/arara.c:300
+msgid "Pegar"
+msgstr "Colar"
+
+#: userland/programas/arara.c:307
+msgid "Elige al menos dos figuras"
+msgstr "Selecione pelo menos duas figuras"
+
+#: userland/programas/arara.c:322
+msgid "Alinear"
+msgstr "Alinhar"
+
+#: userland/programas/arara.c:330
+msgid "Elige al menos tres figuras"
+msgstr "Selecione pelo menos três figuras"
+
+#: userland/programas/arara.c:346
+msgid "Distribuir"
+msgstr "Distribuir"
+
+#: userland/programas/arara.c:361
+msgid "Traer al frente"
+msgstr "Trazer para a frente"
+
+#: userland/programas/arara.c:361
+msgid "Enviar atrás"
+msgstr "Enviar para trás"
+
+#: userland/programas/arara.c:373
+msgid "Insertar figura"
+msgstr "Inserir figura"
+
+#: userland/programas/arara.c:422
+msgid "Sin título"
+msgstr "Sem título"
+
+#: userland/programas/arara.c:434
+msgid "No se ha podido guardar el archivo."
+msgstr "Não foi possível salvar o arquivo."
+
+#: userland/programas/arara.c:441
+msgid "Guardado"
+msgstr "Salvo"
+
+#: userland/programas/arara.c:449
+msgid "Guardar como"
+msgstr "Salvar como"
+
+#: userland/programas/arara.c:449 userland/programas/arara.c:1168
+msgid "Diagramas de Arara (*.arara)|*.arara|Todos los archivos (*.*)|*"
+msgstr "Diagramas do Arara (*.arara)|*.arara|Todos os arquivos (*.*)|*"
+
+#: userland/programas/arara.c:474
+msgid ""
+"El diagrama tiene cambios sin guardar.\n"
+"¿Guardar antes?"
+msgstr ""
+"O diagrama tem alterações não salvas.\n"
+"Salvar antes?"
+
+#: userland/programas/arara.c:536
+msgid "Imagen PNG (*.png)|*.png"
+msgstr "Imagem PNG (*.png)|*.png"
+
+#: userland/programas/arara.c:536
+msgid "Imagen SVG (*.svg)|*.svg"
+msgstr "Imagem SVG (*.svg)|*.svg"
+
+#: userland/programas/arara.c:536
+msgid "Documento PDF (*.pdf)|*.pdf"
+msgstr "Documento PDF (*.pdf)|*.pdf"
+
+#: userland/programas/arara.c:543
+msgid "Exportar"
+msgstr "Exportar"
+
+#: userland/programas/arara.c:545
+msgid "No se ha podido exportar el diagrama."
+msgstr "Não foi possível exportar o diagrama."
+
+#: userland/programas/arara.c:546
+msgid "Exportado"
+msgstr "Exportado"
+
+#: userland/programas/arara.c:554 userland/programas/arara.c:1318
+msgid "Recto"
+msgstr "Reto"
+
+#: userland/programas/arara.c:554
+msgid "En ángulo recto"
+msgstr "Em ângulo reto"
+
+#: userland/programas/arara.c:566
+msgid "Nombre"
+msgstr "Nome"
+
+#: userland/programas/arara.c:567 userland/programas/arara.c:606 userland/programas/arara.c:1318
+msgid "Rejilla"
+msgstr "Grade"
+
+#: userland/programas/arara.c:568 userland/programas/arara.c:1318
+msgid "Ajuste"
+msgstr "Ajuste"
+
+#: userland/programas/arara.c:571
+msgid "Figura"
+msgstr "Figura"
+
+#: userland/programas/arara.c:573 userland/programas/arara_modelo.h:41
+msgid "Texto"
+msgstr "Texto"
+
+#: userland/programas/arara.c:574
+msgid "Posición X"
+msgstr "Posição X"
+
+#: userland/programas/arara.c:575
+msgid "Posición Y"
+msgstr "Posição Y"
+
+#: userland/programas/arara.c:576
+msgid "Ancho"
+msgstr "Largura"
+
+#: userland/programas/arara.c:577
+msgid "Alto"
+msgstr "Altura"
+
+#: userland/programas/arara.c:579
+msgid "Estilo"
+msgstr "Estilo"
+
+#: userland/programas/arara.c:580
+msgid "Relleno"
+msgstr "Preenchimento"
+
+#: userland/programas/arara.c:581
+msgid "Línea"
+msgstr "Linha"
+
+#: userland/programas/arara.c:582 userland/programas/arara.c:589 userland/programas/arara.c:612 userland/programas/arara.c:631
+msgid "Grosor"
+msgstr "Espessura"
+
+#: userland/programas/arara.c:585
+msgid "Tipo"
+msgstr "Tipo"
+
+#: userland/programas/arara.c:586
+msgid "Flecha inicial"
+msgstr "Seta inicial"
+
+#: userland/programas/arara.c:587
+msgid "Flecha final"
+msgstr "Seta final"
+
+#: userland/programas/arara.c:588 userland/programas/arara.c:611
+msgid "Color"
+msgstr "Cor"
+
+#: userland/programas/arara.c:603
+msgid "Propiedad"
+msgstr "Propriedade"
+
+#: userland/programas/arara.c:605 userland/programas/arara.c:1011
+msgid "Cambiar el nombre de la página"
+msgstr "Mudar o nome da página"
+
+#: userland/programas/arara.c:608
+msgid "Tipo de conector"
+msgstr "Tipo de conector"
+
+#: userland/programas/arara.c:609 userland/programas/arara.c:610
+msgid "Flechas"
+msgstr "Setas"
+
+#: userland/programas/arara.c:613 userland/programas/arara.c:1035
+msgid "Editar texto"
+msgstr "Editar texto"
+
+#: userland/programas/arara.c:622 userland/programas/arara.c:765 userland/programas/arara.c:1227
+msgid "Mover"
+msgstr "Mover"
+
+#: userland/programas/arara.c:624
+msgid "Color de relleno"
+msgstr "Cor de preenchimento"
+
+#: userland/programas/arara.c:627
+msgid "Color de línea"
+msgstr "Cor da linha"
+
+#: userland/programas/arara.c:781
+msgid "Cambiar tamaño"
+msgstr "Mudar o tamanho"
+
+#: userland/programas/arara.c:845
+msgid "Arrastra una figura al lienzo o elígela y haz clic donde la quieras."
+msgstr "Arraste uma figura para a área de desenho, ou escolha-a e clique onde a quiser."
+
+#: userland/programas/arara.c:866
+msgid "Zoom"
+msgstr "Zoom"
+
+#: userland/programas/arara.c:870
+msgid "figuras"
+msgstr "figuras"
+
+#: userland/programas/arara.c:870
+msgid "conectores"
+msgstr "conectores"
+
+#: userland/programas/arara.c:872
+msgid "Arrastra de un punto de conexión a otro"
+msgstr "Arraste de um ponto de conexão a outro"
+
+#: userland/programas/arara.c:872
+msgid "Haz clic en el lienzo para colocarla"
+msgstr "Clique na área de desenho para colocá-la"
+
+#: userland/programas/arara.c:872
+msgid "Doble clic en una figura para escribir"
+msgstr "Clique duplo numa figura para escrever"
+
+#: userland/programas/arara.c:927 userland/programas/arara.c:1318
+msgid "Puntero"
+msgstr "Ponteiro"
+
+#: userland/programas/arara.c:927
+msgid "Conector recto"
+msgstr "Conector reto"
+
+#: userland/programas/arara.c:927
+msgid "Conector en ángulo recto"
+msgstr "Conector em ângulo reto"
+
+#: userland/programas/arara.c:928
+msgid "Flecha al inicio"
+msgstr "Seta no início"
+
+#: userland/programas/arara.c:928 userland/programas/arara.c:928
+msgid "sí"
+msgstr "sim"
+
+#: userland/programas/arara.c:928 userland/programas/arara.c:928
+msgid "no"
+msgstr "não"
+
+#: userland/programas/arara.c:928
+msgid "Flecha al final"
+msgstr "Seta no fim"
+
+#: userland/programas/arara.c:929
+msgid "Invertir los conectores elegidos"
+msgstr "Inverter os conectores selecionados"
+
+#: userland/programas/arara.c:978
+msgid "No caben más páginas"
+msgstr "Não cabem mais páginas"
+
+#: userland/programas/arara.c:984
+msgid "Página nueva"
+msgstr "Nova página"
+
+#: userland/programas/arara.c:989
+msgid "¿Eliminar la página con todo su contenido?"
+msgstr "Excluir a página com todo o conteúdo?"
+
+#: userland/programas/arara.c:990 userland/programas/arara.c:1001
+msgid "Eliminar página"
+msgstr "Excluir página"
+
+#: userland/programas/arara.c:1007
+msgid "Cambiar el nombre"
+msgstr "Mudar o nome"
+
+#: userland/programas/arara.c:1007
+msgid "Nombre de la página:"
+msgstr "Nome da página:"
+
+#: userland/programas/arara.c:1115
+msgid "Conectar"
+msgstr "Conectar"
+
+#: userland/programas/arara.c:1141
+msgid "Invertir"
+msgstr "Inverter"
+
+#: userland/programas/arara.c:1168
+msgid "Abrir"
+msgstr "Abrir"
+
+#: userland/programas/arara.c:1173
+msgid "No se ha podido abrir el archivo."
+msgstr "Não foi possível abrir o arquivo."
+
+#: userland/programas/arara.c:1213
+msgid ""
+"Arara: diagramas sencillos al estilo de Visio.\n"
+"Figuras, conectores, páginas y exportación a PNG, SVG y PDF.\n"
+"Software libre, licencia GPL v3."
+msgstr ""
+"Arara: diagramas simples no estilo do Visio.\n"
+"Figuras, conectores, páginas e exportação para PNG, SVG e PDF.\n"
+"Software livre, licença GPL v3."
+
+#: userland/programas/arara.c:1318
+msgid "Ángulo"
+msgstr "Ângulo"
+
+#: userland/programas/arara.c:1318
+msgid "Al frente"
+msgstr "Para a frente"
+
+#: userland/programas/arara.c:1318
+msgid "Atrás"
+msgstr "Para trás"
+
+#: userland/programas/arara.c:1334
+msgid "Arara"
+msgstr "Arara"
+
+#: userland/programas/arara.c:1360
+msgid "Archivo nuevo"
+msgstr "Arquivo novo"
+
+#: userland/programas/arara.c:1438
+msgid "Mover página"
+msgstr "Mover página"
+
+#: userland/programas/arara_modelo.h:36
+msgid "Rectángulo"
+msgstr "Retângulo"
+
+#: userland/programas/arara_modelo.h:37
+msgid "Rectángulo redondeado"
+msgstr "Retângulo arredondado"
+
+#: userland/programas/arara_modelo.h:38
+msgid "Elipse"
+msgstr "Elipse"
+
+#: userland/programas/arara_modelo.h:39
+msgid "Rombo"
+msgstr "Losango"
+
+#: userland/programas/arara_modelo.h:40
+msgid "Triángulo"
+msgstr "Triângulo"
+
+#: userland/programas/arara_modelo.h:42
+msgid "Inicio / fin"
+msgstr "Início / fim"
+
+#: userland/programas/arara_modelo.h:43
+msgid "Proceso"
+msgstr "Processo"
+
+#: userland/programas/arara_modelo.h:44
+msgid "Decisión"
+msgstr "Decisão"
+
+#: userland/programas/arara_modelo.h:45
+msgid "Entrada / salida"
+msgstr "Entrada / saída"
+
+#: userland/programas/arara_modelo.h:46
+msgid "Documento"
+msgstr "Documento"
+
+#: userland/programas/arara_modelo.h:47
+msgid "Base de datos"
+msgstr "Banco de dados"
+
+#: userland/programas/arara_modelo.h:48
+msgid "PC"
+msgstr "PC"
+
+#: userland/programas/arara_modelo.h:49
+msgid "Servidor"
+msgstr "Servidor"
+
+#: userland/programas/arara_modelo.h:50
+msgid "Router"
+msgstr "Roteador"
+
+#: userland/programas/arara_modelo.h:51
+msgid "Nube"
+msgstr "Nuvem"
+
+#: userland/programas/arara_modelo.h:52
+msgid "Impresora"
+msgstr "Impressora"
+
+#: userland/programas/arara_modelo.h:53
+msgid "Persona"
+msgstr "Pessoa"
+
+#: userland/programas/arara_modelo.h:55
+msgid "Básicas"
+msgstr "Básicas"
+
+#: userland/programas/arara_modelo.h:55
+msgid "Diagrama de flujo"
+msgstr "Fluxograma"
+
+#: userland/programas/arara_modelo.h:55
+msgid "Red"
+msgstr "Rede"
+
+#: userland/programas/arara_modelo.h:55
+msgid "Organigrama"
+msgstr "Organograma"
+
+#: userland/programas/arara_modelo.h:130
+msgid "Página 1"
+msgstr "Página 1"
+

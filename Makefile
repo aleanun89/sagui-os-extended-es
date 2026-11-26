@@ -325,10 +325,14 @@ MP_DIR := userland/micropython
 # A biblioteca padrão (D067-D069): módulos do extmod copiados sem mudança e
 # o pegamento próprio (*_sagui.c): arquivos, os, socket, ssl e hashlib. A
 # ponte_sagui.c liga o ssl e o hashlib à libtls (compilada como programa).
+# ulab (D479, MIT): el «NumPy» de MicroPython, compilado dentro (userland/terceros/ulab/).
+ULAB_DIR := userland/terceros/ulab
+ULAB_FLAGS := -DMODULE_ULAB_ENABLED=1 -DULAB_CONFIG_FILE='"ulab_sagui.h"'
+ULAB_SRC := $(filter-out %/numpy/io/io.c,$(shell find $(ULAB_DIR)/code -name '*.c' | sort))
 MP_PROPRIOS := mp_sagui mpthreadport arquivos_sagui os_sagui sinais_sagui rede_sagui ssl_sagui hashlib_sagui janela_sagui sqlite_sagui grafico_sagui
 MP_SRC := $(wildcard $(MP_DIR)/micropython_embed/py/*.c) $(MP_DIR)/micropython_embed/shared/runtime/gchelper_generic.c \
           $(wildcard $(MP_DIR)/micropython_embed/extmod/*.c) $(MP_DIR)/micropython_embed/shared/timeutils/timeutils.c \
-          $(wildcard $(MP_DIR)/libm_dbl/*.c) $(MP_DIR)/libm_sagui.c $(patsubst %,$(MP_DIR)/%.c,$(MP_PROPRIOS))
+          $(wildcard $(MP_DIR)/libm_dbl/*.c) $(MP_DIR)/libm_sagui.c $(patsubst %,$(MP_DIR)/%.c,$(MP_PROPRIOS)) $(ULAB_SRC)
 # D210: la libc es la común (LIBC_OBJ, con la x87; sirve igual a las dos variantes).
 MP_OBJ := $(patsubst %.c,$(B)/%.o,$(MP_SRC)) $(SQLITE_OBJ) $(B)/$(MP_DIR)/inicio_python.o \
           $(B)/$(MP_DIR)/ponte_sagui.o
@@ -471,7 +475,7 @@ APPS_MB ?= 0
 # D324: lo que se mueve del ramdisk a /apps para adelgazarlo (el ramdisk entero se copia a la
 # RAM al arrancar). APPS_MOVER acumula, ademas, lo que solo existe segun la configuracion
 # (opentyrian, python). La lista y los MB de cada cosa estan en docs/decisoes.md (D324).
-APPS_MOVER_FIJO := cipo pluma macaco tucan mico correo planomini gebramini visorpdf chatia ia \
+APPS_MOVER_FIJO := cipo pluma macaco tucan mico correo planomini gebramini arara visorpdf chatia ia \
   reproductor musica camara grabadora paint pascal cc spider sagui3d buscaminas snake banana sgldemo es11demo \
   chip8 chip8asm jclic jclicbajar traductor convertir-audio jabuti llm
 APPS_PROGRAMAS := sqlite3 qjs sintonia $(GP_APPS) $(APPS_MOVER_FIJO) $(APPS_MOVER)
@@ -688,6 +692,8 @@ endif
 include userland/terceros/awk/awk.mk
 # Lua 5.4 (D440): /apps/bin/lua y luac y liblua.a; sus fuentes las baja tools/lua_fuentes.sh. MIT: entra también con SEM_GPL=1.
 include userland/terceros/lua/lua.mk
+# Valkey (D477): /apps/bin/valkey-server y valkey-cli y libhiredis.a; sus fuentes las baja tools/valkey_fuentes.sh. BSD-3: entra también con SEM_GPL=1.
+include userland/terceros/valkey/valkey.mk
 # Capibara (D452): motor de juegos 2D con guiones en Lua (MIT). Va después de lua.mk (usa su liblua.a). CAPIBARA=0 lo deja fuera.
 include userland/capibara/capibara.mk
 
@@ -1155,6 +1161,8 @@ $(B)/userland/programas/gebramini.o: $(GBM_HDR)
 # El catálogo de funciones de Macaco (D311) es una cabecera propia: al cambiarla hay que recompilar macaco.o.
 $(B)/userland/programas/macaco.o: userland/programas/macaco_funciones.h userland/programas/macaco_formatos.h
 $(B)/userland/programas/pluma.o: userland/programas/pluma_cinta.h
+# Arara (D465): el modelo, el formato .arara y el dibujo viven en cabeceras
+$(B)/userland/programas/arara.o: userland/programas/arara_modelo.h userland/programas/arara_dibujo.h
 $(B)/userland/programas/tucan.o: userland/programas/tucan_cinta.h userland/programas/tucan_modos.h userland/programas/tucan_pres.h userland/programas/tucan_agente.h
 $(B)/userland/programas/macaco.o: userland/programas/macaco_cinta.h
 $(B)/userland/bin/gebramini: $(GBM_OBJ)
@@ -1389,6 +1397,15 @@ $(patsubst %,$(B)/$(MP_DIR)/%.o,$(MP_PROPRIOS)): $(B)/$(MP_DIR)/%.o: $(MP_DIR)/%
 	@mkdir -p $(dir $@)
 	$(CC) $(MPCFLAGS) -Wall -finput-charset=UTF-8 -c -o $@ $<
 
+# ulab (D479): código de terceros, sin avisos; mismas banderas que el resto del python (SSE2).
+$(B)/$(ULAB_DIR)/%.o: $(ULAB_DIR)/%.c $(MP_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(MPCFLAGS) $(ULAB_FLAGS) -w -c -o $@ $<
+
+$(B)/x87/$(ULAB_DIR)/%.o: $(ULAB_DIR)/%.c $(MP_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(MPCFLAGS_X87) $(ULAB_FLAGS) -w -c -o $@ $<
+
 # A libm_dbl é código de terceiros (musl/FreeBSD): sem os avisos dela.
 $(B)/$(MP_DIR)/libm_dbl/%.o: $(MP_DIR)/libm_dbl/%.c $(MP_DIR)/libm_dbl/libm.h $(MP_DIR)/libc/math.h $(MP_DIR)/libc/float.h
 	@mkdir -p $(dir $@)
@@ -1573,7 +1590,7 @@ $(B)/apps-testes/.feito: $(DL_PROG_TESTE) $(DL_TESTE_SO)
 # las pruebas (h08, h16, h24, h59...) leen de ahí el contenido exacto de la imagen.
 # D313: los catálogos de traducción (.cat) salen de los .po de idiomas/ y de las marcas _()/N_()
 # del código (el pseudo-idioma «xx» se genera de las fuentes). Van a /sistema/idiomas del ramdisk.
-IDIOMAS_FUENTES := $(wildcard idiomas/*/*.po) $(wildcard kernel/gui/*.c kernel/dispositivos/acpi.c kernel/nucleo/supervisor.c kernel/nucleo/energia.c userland/programas/*.c userland/libsagui/*.c userland/inc/*.h)
+IDIOMAS_FUENTES := $(wildcard idiomas/*/*.po) $(wildcard kernel/gui/*.c kernel/dispositivos/acpi.c kernel/nucleo/supervisor.c kernel/nucleo/energia.c userland/programas/*.c userland/programas/arara_*.h userland/libsagui/*.c userland/inc/*.h)
 $(B)/idiomas/.feito: tools/extraer_textos.py $(IDIOMAS_FUENTES)
 	@rm -rf $(B)/idiomas && mkdir -p $(B)/idiomas
 	$(PY) tools/extraer_textos.py compilar $(B)/idiomas

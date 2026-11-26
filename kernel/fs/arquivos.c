@@ -198,6 +198,22 @@ void arquivos_herdar(processo_t *filho, processo_t *pai)
         }
 }
 
+/* D401/D477: el mapa de FD_CLOEXEC del líder, un bit por descriptor (con MAX_ARQUIVOS > 32 ya no cabe en un entero). */
+static inline bool fe_ler(processo_t *l, int fd)
+{
+    return fd >= 0 && fd < MAX_ARQUIVOS && ((l->fd_fechar_exec[fd >> 5] >> (fd & 31)) & 1u);
+}
+static inline void fe_poner(processo_t *l, int fd, bool si)
+{
+    if (fd < 0 || fd >= MAX_ARQUIVOS) return;
+    if (si) l->fd_fechar_exec[fd >> 5] |= 1u << (fd & 31);
+    else l->fd_fechar_exec[fd >> 5] &= ~(1u << (fd & 31));
+}
+static inline void fe_limpar(processo_t *l)
+{
+    for (unsigned k = 0; k < sizeof l->fd_fechar_exec / sizeof l->fd_fechar_exec[0]; k++) l->fd_fechar_exec[k] = 0;
+}
+
 void arquivos_fechar_todos(processo_t *p)
 {
     for (int i = 0; i < MAX_ARQUIVOS; i++)
@@ -205,7 +221,7 @@ void arquivos_fechar_todos(processo_t *p)
             arquivo_soltar(p->arquivos[i]);
             p->arquivos[i] = NULL;
         }
-    p->fd_fechar_exec = 0;
+    fe_limpar(p);
 }
 
 /* D401 (fork): el hijo recibe todos los descriptores del padre (cada fichero abierto, una
@@ -224,12 +240,12 @@ void arquivos_herdar_todos(processo_t *filho, processo_t *pai)
 void arquivos_fechar_exec(processo_t *l)
 {
     for (int i = 0; i < MAX_ARQUIVOS; i++)
-        if ((l->fd_fechar_exec >> i) & 1u && l->arquivos[i]) {
+        if (fe_ler(l, i) && l->arquivos[i]) {
             arquivo_t *a = l->arquivos[i];
             l->arquivos[i] = NULL;
             arquivo_soltar(a);
         }
-    l->fd_fechar_exec = 0;
+    fe_limpar(l);
 }
 
 /* D401: la llamada que tendría que esperar (bloqueó y devolvió SIS_REPETIR) y el fichero es no
@@ -451,7 +467,7 @@ int32_t sis_fechar(uint32_t fd, uint32_t b, uint32_t c, uint32_t d, uint32_t e)
     arquivo_t *a = pegar(fd);
     if (!a) return ERRO_DESCRITOR;
     processo_recursos()->arquivos[fd] = NULL;
-    processo_recursos()->fd_fechar_exec &= ~(1u << fd);   /* D401 */
+    fe_poner(processo_recursos(), fd, false);   /* D401 */
     arquivo_soltar(a);
     return 0;
 }
@@ -729,7 +745,7 @@ int32_t sis_duplicar(uint32_t antigo, uint32_t novo, uint32_t c, uint32_t d, uin
     a->refs++;
     if (processo_recursos()->arquivos[novo]) arquivo_soltar(processo_recursos()->arquivos[novo]);
     processo_recursos()->arquivos[novo] = a;
-    processo_recursos()->fd_fechar_exec &= ~(1u << novo);   /* D401: como dup2 */
+    fe_poner(processo_recursos(), novo, false);   /* D401: como dup2 */
     return (int32_t)novo;
 }
 
@@ -940,10 +956,9 @@ int32_t sis_descritor(uint32_t fd, uint32_t op, uint32_t arg, uint32_t d, uint32
     if (!a) return ERRO_DESCRITOR;
     switch (op) {
     case DESC_LER_FD:
-        return (int32_t)((l->fd_fechar_exec >> fd) & 1u);
+        return fe_ler(l, fd) ? 1 : 0;
     case DESC_FIXAR_FD:
-        if (arg & DESC_FD_FECHAR_EXEC) l->fd_fechar_exec |= 1u << fd;
-        else l->fd_fechar_exec &= ~(1u << fd);
+        fe_poner(l, fd, (arg & DESC_FD_FECHAR_EXEC) != 0);
         return 0;
     case DESC_LER_FL:
         return (int32_t)(((a->modo & ABRIR_LER) ? DESC_FL_LER : 0) | ((a->modo & ABRIR_ESCREVER) ? DESC_FL_ESCREVER : 0) |
@@ -963,7 +978,7 @@ int32_t sis_descritor(uint32_t fd, uint32_t op, uint32_t arg, uint32_t d, uint32
             if (!l->arquivos[i]) {
                 a->refs++;
                 l->arquivos[i] = a;
-                l->fd_fechar_exec &= ~(1u << i);
+                fe_poner(l, (int)i, false);
                 return (int32_t)i;
             }
         return ERRO_LIMITE;

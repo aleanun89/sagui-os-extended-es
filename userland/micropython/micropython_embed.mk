@@ -16,6 +16,8 @@ SAGUI_TOP ?= ../..
 # repositório do MicroPython à mão), na ordem que o makeqstrdata.py usa.
 # Os nomes (qstr) e os MP_REGISTER_MODULE dos arquivos do SaguiOS também
 # precisam ser coletados (D038, D067).
+# ulab (D479): sus qstr y MODULE_DEF_ULAB se añadieron con tools/mp_qstr_agregar.py (userland/terceros/ulab/code/*.c);
+# con el repositorio de MicroPython, regenerar con SRC_QSTR += $(ULAB_FUENTES) (los .c de ulab, sin numpy/io/io.c).
 SRC_QSTR += mp_sagui.c arquivos_sagui.c os_sagui.c sinais_sagui.c rede_sagui.c ssl_sagui.c hashlib_sagui.c janela_sagui.c sqlite_sagui.c grafico_sagui.c
 # Módulos do extmod usados (fontes copiados sem mudança).
 EXTMOD_SAGUI = modjson.c modre.c modrandom.c modheapq.c modbinascii.c modselect.c modtime.c

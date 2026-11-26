@@ -1,0 +1,2 @@
+asyncio de MicroPython 1.24.1 (extmod/asyncio/, licencia MIT, la misma versión que el intérprete), sin cambios:
+__init__, core, event, funcs, lock, stream y task, en Python (sin el módulo C _asyncio). D478.

@@ -8,7 +8,8 @@ Estado a 2026-11-16 (v8.0; 3dfx, Mach64 y S3, v8.3.3; Radeon de la v8.3 completa
 | Familia (ejemplos) | Imagen (pantalla) | 2D acelerado | 3D por GPU | Vulkan | Máquina de prueba |
 | --- | --- | --- | --- | --- | --- |
 | **Cualquier GPU** con VESA (BIOS) o GOP (UEFI) | ✅ VBE desde siempre; GOP desde v8.0 | — (copia por la CPU, optimizada) | — (SaguiGL por software) | — | todas |
-| **QEMU estándar** (Bochs/BGA), virtio | ✅ cambio de resolución en caliente | — | — | — | QEMU |
+| **QEMU estándar** (Bochs/BGA) | ✅ cambio de resolución en caliente | — | — | — | QEMU |
+| **virtio-gpu** (`-device virtio-gpu-pci`, `-vga virtio`, pantalla `virtio` de Proxmox) | ✅ **v8.5.6.1 (D472)**: driver 2D sin VBE, presentación por TRANSFER_TO_HOST_2D + RESOURCE_FLUSH de las zonas cambiadas, cambio de resolución en caliente hasta 2560x1600 | — (la CPU escribe el respaldo; la «aceleración» es la presentación por rectángulos) | 🔧 **VirGL (D473, v8.5.6.1)**: negociado, capsets, contexto, recursos 3D, `SUBMIT_3D` con vallas y autoprueba del triángulo **BIEN con virglrenderer** (`virtio-vga-gl`, WSLg); ✅ **backend de `gpu3d` (D474)**: `gpu3d_virgl` (v1 y presentar D432) elegido solo con VIRGL negociado, autoprueba común BIEN, `sgldemo -g` igual que el software y el paisaje de 640x480 unas 10 veces más rápido (TCG); falta v2/v3 y probarlo en Proxmox; Mesa `virgl` en la v8.6 | — | QEMU, Proxmox |
 | **VMware SVGA II** (VMware, `-device vmware-svga`) | ✅ | ✅ v7.2 (D195) | — | — | QEMU/VMware |
 | **Intel Gen3** GMA 900/950, 3100 (945, G33) | ✅ | ✅ v7.2, blitter (D195) | 🔧 **v8.3** (D285); etapas, robustez y RAM en el GTT en v8.5.2 (D358) | — | portátiles con 945 |
 | **Intel Gen4-Gen5** GM45, HD de 1.ª gen. Core (Ironlake) | ✅ | ✅ v7.2, blitter (D195) | 📅 v11 (111) | — | Toshiba L635 (Gen5) |

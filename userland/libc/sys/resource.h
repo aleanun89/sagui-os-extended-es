@@ -11,4 +11,21 @@
 #define RUSAGE_CHILDREN (-1)
 struct rusage { struct timeval ru_utime, ru_stime; long ru_maxrss; };
 int getrusage(int quem, struct rusage *r);
+/* D477: getrlimit/setrlimit (servidores.c). El único límite real es el de descriptores abiertos por proceso
+ * (128, MAX_ARQUIVOS del kernel); setrlimit solo acepta lo que ya hay. */
+typedef unsigned long rlim_t;
+struct rlimit { rlim_t rlim_cur, rlim_max; };
+#define RLIM_INFINITY (~0UL)
+#define RLIMIT_CPU    0
+#define RLIMIT_FSIZE  1
+#define RLIMIT_DATA   2
+#define RLIMIT_CORE   4
+#define RLIMIT_RSS    5
+#define RLIMIT_NPROC  6
+#define RLIMIT_MEMLOCK 8
+#define RLIMIT_STACK  3
+#define RLIMIT_NOFILE 7
+#define RLIMIT_AS     9
+int getrlimit(int recurso, struct rlimit *l);
+int setrlimit(int recurso, const struct rlimit *l);
 #endif

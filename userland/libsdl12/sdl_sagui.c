@@ -617,6 +617,23 @@ int SDL_WM_ToggleFullScreen(SDL_Surface *s)
     return 1;
 }
 
+/* D476: limitador de FPS general (variable SDL_SAGUI_FPS_MAX; 0 o ausente = sin tope). Duerme lo que falte tras presentar
+ * (SDL_Delay, que sigue bombeando el audio). Igual que el de la SDL 2: plazo acumulado y reinicio si se va 100 ms tarde. */
+static void fps_limitar(void)
+{
+    static int leido, fps, fps_ant;
+    static unsigned base, n;
+    if (!leido) { const char *e = getenv("SDL_SAGUI_FPS_MAX"); fps = e && *e ? atoi(e) : 0; leido = 1; }
+    if (fps <= 0) return;
+    if (fps > 1000) fps = 1000;
+    unsigned ahora = tempo_ms();
+    if (fps != fps_ant || (int)(ahora - (base + n * 1000u / (unsigned)fps)) > 100) { fps_ant = fps; base = ahora; n = 0; return; }
+    n++;
+    int falta = (int)(base + n * 1000u / (unsigned)fps - ahora);
+    if (falta > 0) SDL_Delay((Uint32)falta);
+    if (n >= 100000u) { base = tempo_ms(); n = 0; }
+}
+
 int SDL_Flip(SDL_Surface *s)
 {
     (void)s;
@@ -627,7 +644,9 @@ int SDL_Flip(SDL_Surface *s)
         primeiro_quadro = 1;
         registrar("[%s] primer cuadro dibujado (%dx%d)", sagui_sdl_nome, janela_l, janela_a);
     }
-    return atualizar_janela(janela_id, NULL);
+    int rc = atualizar_janela(janela_id, NULL);
+    fps_limitar();
+    return rc;
 }
 
 void SDL_UpdateRect(SDL_Surface *s, Sint32 x, Sint32 y, Uint32 l, Uint32 a)

@@ -3,7 +3,7 @@
 #
 # GNU make (GPL-3.0-or-later) viene de tools/make_fuentes.sh (no va en git). Se compila con gcc contra la libc
 # común, con la config.h de plataforma/ (fork/exec/waitpid reales, D401; sin posix_spawn) y un glob() mínimo
-# (plataforma/glob.c). Ejecuta las recetas con $(SHELL), por defecto /bin/sh (sagsh). Sin fuentes se salta con
+# (libc/glob.c). Ejecuta las recetas con $(SHELL), por defecto /bin/sh (sagsh). Sin fuentes se salta con
 # un aviso. MAKE_DENTRO=0 lo desactiva.
 
 MK_DIR := userland/terceros/make
@@ -15,7 +15,7 @@ ifneq ($(wildcard $(MK_F)/.preparado),)
 MK_SRC := $(addprefix $(MK_F)/src/, ar.c arscan.c commands.c default.c dir.c expand.c file.c function.c getopt.c getopt1.c \
             hash.c implicit.c job.c load.c loadapi.c main.c misc.c output.c posixos.c read.c remake.c \
             remote-stub.c rule.c shuffle.c signame.c strcache.c variable.c version.c vpath.c) \
-          $(MK_F)/lib/concat-filename.c $(MK_DIR)/plataforma/glob.c $(MK_DIR)/plataforma/principal_main.c $(MK_DIR)/plataforma/compat.c
+          $(MK_F)/lib/concat-filename.c $(MK_DIR)/plataforma/principal_main.c $(MK_DIR)/plataforma/compat.c
 MK_OBJ := $(patsubst %.c,$(B)/%.o,$(MK_SRC))
 MK_HDR := $(wildcard $(MK_F)/src/*.h $(MK_F)/lib/*.h $(MK_DIR)/plataforma/*.h)
 

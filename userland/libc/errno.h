@@ -56,6 +56,9 @@ extern int errno;
 #define ENOTSUP 95
 #define EOPNOTSUPP ENOTSUP
 #define EAFNOSUPPORT 97
+#define ESOCKTNOSUPPORT 94   /* D477 */
+#define EPFNOSUPPORT 96
+#define ENETDOWN 100
 #define ECONNRESET 104
 #define ETIMEDOUT 110
 #define ECONNREFUSED 111

@@ -26334,3 +26334,314 @@ sus botones con la simulación real), `janelas_saguios` (las 11 ventanas dentro 
 guardar y cargar la opción) y h471 (MPEG-PS). Pasaron también h115 y h100 (vídeo de la libsagui, en el PC y en SaguiOS). En la máquina donde se hizo faltaba `sdl2-config`, así que `pc`,
 `saguios` y la compilación de `campanhas` del script no corrían: `campanhas` se compiló a mano contra las cabeceras de `userland/libsdl2` (167
 comprobaciones, 0 fallos). Con los datos reales (`privado_*`) no se probó (la instalación de esta máquina no trae `intro.MPG`).
+## D465. Arara: diagramas al estilo de Visio, sencillos (decidido el 2026-11-22; v8.5.6.1, rama `v8.5.6.1-arara`)
+
+Pedido del mantenedor: una aplicación de diagramas en la línea de Pluma, Macaco y PlanoMini, simplificada respecto a Microsoft Visio. Se llama **Arara**
+(`/apps/bin/arara`, Inicio > Accesorios; icono propio de 16x16 `arte_mini_arara`); sus archivos son **`.arara`** y Archivos los abre con ella.
+Licencia GPL v3 (SPDX en la cabecera). No toca el núcleo del kernel: solo el menú Inicio, un icono y la asociación de Archivos.
+
+**Qué hace.**
+- **Cuatro paletas** (lista desplegable): básicas (rectángulo, rectángulo redondeado, elipse, rombo, triángulo, texto), diagrama de flujo (inicio/fin,
+  proceso, decisión, entrada/salida, documento, base de datos), red (PC, servidor, router, nube, impresora) y organigrama (caja de persona). Se **arrastran**
+  al lienzo (arrastrar y soltar de D454) o se elige la figura y se hace clic donde se quiere. Cada celda de la paleta se dibuja con el mismo código que el
+  lienzo.
+- **Conectores** rectos y en ángulo recto (poligonal de hasta 6 puntos con un tramo corto de salida), con flecha al inicio, al final o ninguna, **pegados a los
+  cuatro puntos de conexión** de cada figura (arriba, derecha, abajo, izquierda; los puntos solo se ven con la herramienta de conectores). El conector guarda
+  *id de figura y punto*, no coordenadas: **al mover o cambiar de tamaño una figura, el conector la sigue** y se recalcula en cada dibujo. Un extremo sin figura
+  queda suelto; al borrar una figura, sus conectores se quedan sueltos donde estaban.
+- **Edición**: selección por clic (Mayús suma) y por rectángulo, mover (con ajuste a la rejilla), cambiar el tamaño con las ocho asas (el giro del lienzo de D454 se
+  desactiva: Arara no gira figuras), **texto dentro de las figuras** con doble clic (escritura en el propio lienzo; *Intro* = salto de línea, *Esc* o clic fuera
+  terminan), color de relleno y de línea con **alfa** (selector de color de D454) y grosor en el **inspector** (D454), alinear (6 modos) y distribuir (horizontal y
+  vertical), traer al frente y enviar atrás, rejilla con ajuste, zoom (rueda y botones; hasta 400 %), copiar, cortar, pegar, duplicar, borrar y **deshacer/rehacer** (60
+  pasos), y hasta **8 páginas** en pestañas (crear, borrar, renombrar y ordenar arrastrando).
+- **Formato `.arara`**: JSON legible en UTF-8 (una figura o un conector por línea): `{"arara": 1, "paginas": [{"nombre", "figuras": [{"id", "tipo", "x", "y", "l", "a",
+  "relleno", "linea", "grosor", "texto"}], "conectores": [{"id", "tipo", "de", "pto_de", "a", "pto_a", ...}]}]}`, con los colores como `#RRGGBB` o `#AARRGGBB`. El lector es un
+  analizador JSON propio y pequeño (enteros; el texto pasa de UTF-8 a Latin-1 y lo que no cabe se queda en `?`); un archivo roto se rechaza sin tocar el diagrama abierto.
+- **Exportar** la página actual a **PNG** (a doble resolución si no pasa de 6 Mpíxeles; con la `imagem_codificar_png` de la libsagui) y a **SVG** (vectorial, texto
+  como `<text>`), y todas las páginas a **PDF** (una hoja A4 apaisada por página, con la trama de la página incrustada con `pdfw_imagem_rgb`).
+- **Modo sin ventana**: `arara --abrir f.arara [--png f] [--svg f] [--pdf f] [--guardar g] [--info]`.
+
+**Cómo está hecho.** Tres ficheros en `userland/programas/`: `arara_modelo.h` (páginas, figuras, conectores, rutas y puntos de conexión, aciertos, JSON, copias para
+el historial), `arara_dibujo.h` y `arara.c` (la interfaz). **Un solo dibujo para todo**: `dib_fig` y `dib_con` envían polígonos, elipses, líneas y texto en coordenadas del
+mundo a un «sumidero» (`sink_t`); hay dos, el **rasterizador** (pantalla, PNG y PDF; barrido par-impar, trazos gruesos por columnas, solo enteros, sin suavizado) y el de
+**SVG**. Así lo que se ve, el PNG y el SVG salen de la misma descripción. Componentes de la libsagui reutilizados: `edvista_t` (lienzo con zoom, rejilla, imán, rectángulo
+de selección y asas), `inspetor_t`, el selector de color con alfa (lo abre el inspector), `pilha_desfazer_t` (deshacer genérico), `arrsol_*` (arrastrar y soltar), `abas_t`
+(páginas), `barra_menu_t`, `mbotao_t`, `combo_t` y `barra_estado_t`. El historial guarda **copias del documento** (con cuenta de referencias, la orden «antes» de una es la
+«después» de la anterior); es sencillo y robusto y no hace falta una orden por cada tipo de cambio. Límites: 300 figuras y 300 conectores por página; coordenadas del
+mundo en ±15000 para que los productos de los aciertos no desborden 32 bits.
+
+**Portable (D459).** Compila sin cambiar la aplicación con la capa `userland/portable/` (SDL 2 en Linux): `make -f userland/portable/Makefile APPS=arara`. Para eso se
+añadieron al Makefile de la capa y a `tools/portable_repos.py` los componentes del editor de D454 (`gui_vista`, `gui_inspetor`, `gui_selcor`, `gui_desfazer`); Arara es la
+octava aplicación de `tools/portable_repos.py` (el repositorio público lo crea el coordinador, no esta rama). Los ejemplos van en `datos/ejemplos/arara/`.
+
+**Ejemplos** (datos sintéticos, `rootfs/ejemplos/arara/`, generados por `tools/arara_ejemplos.py`): `flujo.arara` (diagrama de flujo de un pedido, con una segunda página
+de notas), `red.arara` (red de oficina) y `organigrama.arara`. Ayuda en `rootfs/ayuda/arara.md` (+ `_EN` y `_PT`; categoría «Juegos y aplicaciones») y catálogos `arara` en `en` y `pt_BR`.
+
+**Pruebas.** `tests/h465_arara.py` (con KVM: `sg kvm -c ". ~/.local/saguitools/env.sh; SAGUI_TURNOS=8 tools/turno.sh python3 tests/h465_arara.py"`; `H465_SIN_PORTABLE=1`
+se salta la parte del anfitrión): (1) parte portable sin QEMU (compila, abre los tres ejemplos, el JSON guardado es idéntico al original, PNG/SVG/PDF validados, un JSON roto
+se rechaza, un guion de ratón pone dos figuras desde la paleta y guarda); (2) en SaguiOS el motor sin ventana con los mismos ficheros, sacados por un pendrive y validados en el
+anfitrión; (3) la ventana: clic en la paleta y clic en el lienzo, arrastrar una elipse desde la paleta, conector recto entre los puntos derecho e izquierdo (se comprueban los
+extremos), **mover una figura 96 hacia abajo y comprobar que el extremo del conector se mueve exactamente igual**, doble clic y texto, deshacer y rehacer (dos veces cada uno),
+Ctrl+S con diálogo y JSON del pendrive con las figuras, el texto, la posición movida y el conector, exportar a PNG, SVG y PDF desde el menú Archivo (validados en el anfitrión),
+reabrir lo guardado y los tres ejemplos; el menú Inicio trae «Arara (diagramas)» en Accesorios y siguen «Apagar...» y «Reiniciar...». Capturas `docs/capturas/H465-*.png`.
+
+**Sin hacer (pendiente).** Conectores con curvas y con texto propio; giro de figuras; agrupar; ajuste de la ruta en ángulo recto para esquivar figuras; PDF vectorial
+(hoy incrusta la trama a doble resolución); varias páginas en un mismo SVG; importar o exportar `.vsdx`; más figuras (UML, eléctricas); arrastrar el extremo suelto de un conector
+para pegarlo a otra figura; copiar entre dos ventanas de Arara por el portapapeles del sistema (hoy es interno); suavizado de bordes en el rasterizador; pestaña de la ayuda
+enlazada desde el menú Ayuda de la aplicación.
+
+## D472. virtio-gpu en modo 2D: escritorio en QEMU y Proxmox sin VBE ni tarjeta de Bochs (decidido el 2026-11-26; v8.5.6.1, rama `v8.5.6.1-virtio-gpu`)
+
+**Qué.** Primera fase de «virtio-gpu y VirGL» (adelantada a la v8.5.6.1 por el mantenedor): un driver **virtio-gpu 2D** para
+`-device virtio-gpu-pci`, `-vga virtio` (virtio-vga) y la pantalla `virtio` de Proxmox. Con `-vga none -device virtio-gpu-pci` no hay BIOS
+de vídeo: la etapa 2 sigue en texto («VESA no encontrado») y el kernel levanta solo el escritorio gráfico.
+
+**Decisiones.** (1) **Transporte aparte**: `kernel/dispositivos/virtio_pci.c` (+ `virtio_pci.h`) es el transporte VIRTIO 1.x moderno sobre
+PCI, sin nada de la GPU: capacidades 1 a 4, recolocación de una BAR alta bajo 4 GB (D283), negociación (siempre `VIRTIO_F_VERSION_1`),
+colas «split» sondeadas (sin interrupciones) y envío de cadenas en tanda; lo podrán usar la red y el bloque virtio. (2) **Driver**:
+`virtio_gpu.c` usa un solo scanout y un recurso 2D en `B8G8R8X8_UNORM`, que en memoria es el `0x00RRGGBB` del búfer de atrás
+(formato directo, sin conversión); el respaldo es una zona seguida de RAM baja que `video.c` toma como «framebuffer de la tarjeta», así que
+el resto del sistema ve una tarjeta de 32 bits como cualquier otra. (3) **Presentación por rectángulos**: `video_mostrar` apunta lo que
+copió (y el cursor) con `vg_atualizar` y, al final del cuadro, `vg_descargar` manda TRANSFER_TO_HOST_2D + RESOURCE_FLUSH de cada
+rectángulo en **una sola tanda** (un aviso y una espera; hasta 4 rectángulos, que se funden si se tocan). Un cerrojo de reentrada deja lo
+apuntado para la vuelta siguiente si la IRQ del ratón llama mientras hay una tanda en marcha; tres fallos seguidos (200 ms) apagan la
+presentación con un aviso en el log. (4) **Cuándo se hace cargo**: sin VBE, cualquier virtio-gpu; con VBE, solo si esa tarjeta es la propia
+virtio-vga (clase 0x0300, se respeta su tamaño); con `-vga std` junto a un `-device virtio-gpu-pci` manda el VBE (nada cambia). Cualquier
+fallo al iniciar reinicia el dispositivo y sigue el camino de siempre (VBE o texto). (5) **Modo**: el de la BIOS, el de la cabecera
+(`pantalla 1280x800 --guardar`) o 1024x768; cambio en caliente (`pantalla WxH`, Configuración) con recurso y respaldo nuevos hasta
+2560x1600; solo 32 bits. El tamaño que dice `GET_DISPLAY_INFO` (1280x800 en QEMU) se anota pero no manda. (6) **VirGL queda preparado, no
+hecho**: la cola de control es la misma que usarán los contextos 3D y `SUBMIT_3D`; `VIRTIO_GPU_F_VIRGL` (bit 0) se lee y se anota en el log
+(«VIRGL ofrecido / no ofrecido; no se negocia») pero no se acepta.
+
+**No toca el núcleo del kernel** (memoria, planificador, VFS, arranque): solo `video.c` (el hueco de una tarjeta más, como la de Bochs),
+`modos_video.c` y `telas.c` (el máximo del cambio en caliente pasa a `video_max_largura/altura`) y los ficheros nuevos.
+
+**Pruebas.** `tests/h472_virtio_gpu.py`: `pura` (`-vga none -device virtio-gpu-pci`: driver activo a 1024x768, captura de 1024x768 que no
+es negra, cambio a 800x600 y 1280x800 con captura del tamaño nuevo), `vga` (`-vga virtio`), `std` (ni rastro de virtio-gpu) y `mixta`
+(`-vga std` + virtio-gpu: manda el VBE). También pasan h58 (resoluciones) y h161 (2D, `std` y `vmware`). **Falta para VirGL**: negociar
+`F_VIRGL`, `GET_CAPSET_INFO`/`GET_CAPSET`, `CTX_CREATE`, recursos 3D (`RESOURCE_CREATE_3D`), `SUBMIT_3D` y `TRANSFER_*_3D`, las vallas
+(fence) por la cola de control, la cola de cursor opcional y un `-device virtio-vga-gl` con pantalla de GL en el anfitrión para probarlo.
+
+## D473. VirGL (3D) sobre la virtio-gpu: capsets, contexto, recursos 3D, flujo de órdenes de virglrenderer y autoprueba del triángulo (decidido el 2026-11-26; v8.5.6.1, rama `v8.5.6.1-virtio-gpu`)
+
+**Qué.** Fase 2 de «virtio-gpu y VirGL» (la 1 es D472). El driver negocia `VIRTIO_GPU_F_VIRGL` cuando el dispositivo la ofrece
+(`-device virtio-vga-gl`, `virtio-gpu-gl-pci`, pantalla `virtio-gl` de Proxmox) y `kernel/dispositivos/virgl.c` habla el protocolo de
+virglrenderer por la misma cola de control: `GET_CAPSET_INFO`/`GET_CAPSET` (virgl v1, 308 bytes, y virgl2 v2, 1384 bytes), `CTX_CREATE`/
+`CTX_DESTROY`, `RESOURCE_CREATE_3D` + `ATTACH_BACKING` + `CTX_ATTACH_RESOURCE`, `TRANSFER_TO_HOST_3D`/`TRANSFER_FROM_HOST_3D`,
+`SUBMIT_3D`, con vallas (`VIRTIO_GPU_FLAG_FENCE`) en las órdenes que dependen de la GPU. Un codificador mínimo del flujo (objetos blend,
+rasterizer, DSA, vertex_elements, surface y sombreadores TGSI **en texto**, `set_framebuffer_state`, `set_viewport_state`, `clear`,
+`set_vertex_buffers`, `draw_vbo`) basta para la **autoprueba** que corre una vez al arrancar si hay VirGL (`principal.c`, después de
+`gpu3d_iniciar`): limpia un destino de 128x128 a gris, dibuja un triángulo con rojo, verde y azul por vértice, trae el resultado a la
+RAM y cuenta píxeles (fondo, rojo, verde, azul, mezclados). El log lo dice en `[VIRGL]` y termina con «autoprueba: BIEN» o «MAL».
+
+**Decisiones.** (1) El 2D del escritorio (D472) no cambia: `vg_orden_dma` presta la cola a `virgl.c` con el cerrojo de reentrada de
+D472. (2) Sin coma flotante en el kernel: los reales de las órdenes van como constantes IEEE 754 ya codificadas. (3) Los búferes de
+vértices se suben con `TRANSFER_TO_HOST_3D` (respaldo en RAM), no con `RESOURCE_INLINE_WRITE`; así el mismo camino servirá para
+texturas. (4) La autoprueba solo se intenta si el dispositivo ofrece VirGL; sin él, ni rastro. (5) **Backend de gpu3d: no en esta fase.** La
+interfaz `gpu3d_driver_t` (v1/v2/v3: destino, Z, texturas con huecos, `desenhar`/`desenhar2`/`desenhar3`, vallas, presentación D432) es
+grande y su autoprueba compara con la CPU píxel a píxel; hacer un `gpu3d_virgl` serio sin poder ver la pantalla (ver abajo) era
+arriesgado. **Plan**: `gpu3d_virgl.c` con `iniciar` (contexto + objetos fijos), `alvo` (recurso 3D destino + Z `Z24_UNORM_S8_UINT`),
+`textura` (recurso con `TRANSFER_TO_HOST_3D` y sampler view/state), `desenhar` (vértices v1 a un búfer de vértices en cada lote,
+sombreadores TGSI generados por estado: color, textura, niebla), `esperar` (la valla), `ler` (`TRANSFER_FROM_HOST_3D`) y `apresentar`
+(`SET_SCANOUT` sobre el recurso 3D, `RESOURCE_FLUSH`); después v2 (mezcla, esténcil, tijera) y v3 (búferes de vértices persistentes).
+
+**Entorno.** QEMU 8.2.2 (el de `~/.local/saguitools` y el del sistema) trae `virtio-vga-gl`, `virtio-gpu-gl-pci` y virglrenderer, pero en
+este WSL2 **no hay `/dev/dri`** (solo `/dev/dxg`), así que `-display egl-headless` falla («no drm render node») y solo funciona
+`-display sdl,gl=on` por WSLg (abre una ventana). Con GL el scanout es una textura y `screendump` dice «no surface»: no hay captura del
+escritorio ni del triángulo; la prueba lo comprueba por el recuento de píxeles que hace el propio kernel tras
+`TRANSFER_FROM_HOST_3D`. En una máquina sin pantalla con GL la parte `virgl` de h472 se omite. Para Proxmox: pantalla `virtio-gl` y
+paquetes `libvirglrenderer1` y los de Mesa/EGL en el anfitrión.
+
+**No toca el núcleo del kernel**: una línea en `principal.c` (la llamada a la autoprueba), `virtio_gpu.c/.h` y el módulo nuevo.
+
+**Pruebas.** `tests/h472_virtio_gpu.py`, parte `virgl` (negociación, los dos capsets, contexto y recursos, SUBMIT_3D con valla en 0x1100,
+triángulo con 11182 píxeles de fondo, 701 rojos, 701 verdes, 718 azules y 3082 mezclados). **Falta**: el backend de gpu3d (plan arriba),
+texturas y profundidad en VirGL, presentar el recurso 3D en el scanout, captura automática (necesita `egl-headless` con un render node o
+un anfitrión con `/dev/dri`), la cola de cursor y probarlo en el Proxmox del servidor.
+
+## D474. gpu3d por VirGL: el backend `gpu3d_virgl` (v1 y presentar) sobre el contexto 3D de virglrenderer (decidido el 2026-11-26; v8.5.6.1, rama `v8.5.6.1-virtio-gpu`)
+
+**Qué.** Fase 3 de «virtio-gpu y VirGL» (D472 2D, D473 protocolo). `kernel/dispositivos/gpu3d_virgl.c` es un driver de la capa
+`gpu3d` (D285) que dibuja con la GPU del anfitrión: con una virtio-gpu que negoció `VIRTIO_GPU_F_VIRGL`, `gpu3d_iniciar` lo elige y, como es
+una GPU virtual (encenderla no toca hardware), queda **sin probar y se prueba solo con el primer uso**, con la autoprueba común de siempre (las
+ocho pruebas, píxel a píxel) y la medida. Así `sgldemo`, SaguiGL y la SDL 2 por GPU (y todo lo que use la capa) van por VirGL sin cambios.
+
+**Decisiones.**
+1. **Contexto propio y codificador compartido.** El driver usa el contexto 2 (la autoprueba del arranque, D473, el 1); `virgl.c` exporta las
+   órdenes (`virgl_ctx_crear`, `virgl_recurso_crear`, `virgl_transferir`, `virgl_enviar`, `virgl_caps`) y el codificador (`virgl_w`,
+   `virgl_cmd`, `virgl_sombreador`); las constantes del flujo pasan a `virgl.h`. Las órdenes reintentan dentro del plazo si la presentación 2D
+   tiene la cola (`vg_ocupado`), y `vg_orden_dma`/`vg_descargar` comprueban y toman la cola con las interrupciones apagadas (antes, una IRQ del
+   ratón podía entrar entre la comprobación y la toma).
+2. **Destino y Z.** Recurso 2D `B8G8R8A8_UNORM` con respaldo en RAM (es el `0x00RRGGBB` de siempre; se lee con `TRANSFER_FROM_HOST_3D`) y Z
+   sin respaldo. **El formato del Z se elige por el capset v1**: virglrenderer solo rellena las máscaras de muestreo y destino (las de
+   profundidad y vértices llegan a cero), y con WSLg (Mesa d3d12) no hay `Z24_UNORM_S8_UINT` (pedirlo pone el contexto en error: «Unknown
+   format 19»); se prueba `Z24S8`, `Z24X8`, `S8Z24`, `Z32F` y `Z16`, en ese orden, y con WSLg queda `Z24X8`. El Z de 16 bits es `Z16_UNORM`.
+3. **Vértices dentro del flujo.** Los `gpu3d_vert_t` tal cual (32 bytes: posición en float, color y especular como `R8G8B8A8_UNORM` que el
+   sombreador reordena con `.zyxw`, u y v en float) se escriben con `RESOURCE_INLINE_WRITE` en el mismo `SUBMIT_3D` que los dibuja, en un búfer
+   de vértices de 1 MB que se recorre en anillo: **una ida y vuelta por la cola por entrega** (con `TRANSFER_TO_HOST_3D`, como en D473, serían
+   dos). El búfer de órdenes es de 160 KB (3072 vértices son 96 KB).
+4. **Sombreadores TGSI en texto**: uno de vértices (de píxeles a recorte con `w = 1/rhw`, así la GPU interpola con perspectiva como pide v1;
+   las escalas `2/L` y `2/A` van en `SET_CONSTANT_BUFFER` y cambian con el destino, construidas con enteros) y dos de fragmentos (color, y
+   textura × color), los dos con el especular sumado al final. Mezcla, Z y muestreo (repetir o borde, vecino o bilineal) son objetos que se
+   crean la primera vez y se guardan (en v1 son 17, 12 y 8 combinaciones como mucho).
+5. **Vallas.** Los dibujos van sin valla (QEMU responde al encolarlos); `esperar` manda un NOP con valla y `ler`/presentar traen el cuadro con
+   valla: la respuesta llega cuando la GPU terminó todo lo anterior. Sin respuesta en el plazo, la capa apaga el 3D (`falha`) y el driver, al
+   ver que la última orden no tuvo respuesta, **no manda nada más y abandona los respaldos** (el anfitrión aún podría escribir en ellos).
+6. **Presentar (D432) por la RAM**, lo sencillo y robusto: el rectángulo de la fuente vuelve del anfitrión (`TRANSFER_FROM_HOST_3D` con valla),
+   la CPU lo escala al respaldo del escritorio y `vg_atualizar`/`vg_descargar` lo llevan al scanout; la flecha del ratón en exclusiva también
+   (`video_cursor_exclusiva`). Así la pantalla y su respaldo nunca se separan (el compositor, el cursor y la vuelta de la pantalla leen el
+   respaldo). **Coste**: dos copias por cuadro (anfitrión -> RAM -> scanout). Con 320x180 a 1024x576 da ~150 fps en TCG. Copiar en la GPU al
+   recurso del scanout (`BLIT`) quedaría desincronizado del respaldo: se deja para cuando el escritorio también se componga en la GPU.
+7. **Solo gpu3d v1** (y presentar). `capacidades`, `desenhar2` y `desenhar3` quedan a NULL: SaguiGL dibuja por software lo que no cabe en v1
+   (mipmaps, esténcil, combinadores...). v2 (las combinaciones en TGSI generado por estado, esténcil, tijera, mezcla separada) y v3 (búferes
+   persistentes y transformación en el sombreador) son el paso siguiente: la estructura (objetos en caché, constantes, búfer en anillo) ya
+   sirve para ellas.
+
+**Medidas** (QEMU 8.2.2 en WSL2, TCG, WSLg): autoprueba 28-110 ms; medida 59 000 triángulos de 8x8 por segundo y 63 Mpíxeles/s con mezcla
+(612 puntos; la limita la ida y vuelta por entrega, no la GPU); el paisaje de `sgldemo -p` a 640x480, **11,1 fps por VirGL contra 1,1 por
+software** (con KVM, 90 contra 24); a 320x240 con KVM, 91 contra 70.
+
+**No toca el núcleo del kernel**: el driver nuevo, una rama en `gpu3d_iniciar`, la flecha en `video_cursor_exclusiva`, la toma atómica de la
+cola en `virtio_gpu.c` y la exportación de `virgl.c`.
+
+**Pruebas.** `tests/h474_gpu3d_virgl.py`: `fuentes`; `virgl` (con `-device virtio-vga-gl -display sdl,gl=on`: elegido sin encender,
+`gpu3d probar` BIEN con las ocho pruebas, `sgldemo -g 4` con sus siete escenas iguales que por software, la ventana de `sgldemo -n` por la GPU,
+el paisaje por la GPU y por software con sus fps, `sdl2presentar` a pantalla completa con los 30 cuadros directos y el patrón fijo leído en la
+RAM del respaldo con `xp` del monitor —con GL no hay `screendump`—, `gpu3d apagar`/`encender`); `pura` (virtio-gpu sin GL: software) y
+`std`. Se omite sola sin pantalla GL. **Falta**: v2/v3, presentar en la GPU, ceder la CPU (`gpu3d_respirar`) durante las esperas largas de la
+cola y probarlo en el Proxmox del servidor (pantalla `virtio-gl`).
+
+
+## D476. Limitador de FPS: 30, 60 o ilimitado en la SDL de SaguiOS, AoEN, Brumacanto y Capibara (decidido el 2026-11-26; v8.5.6.1, rama `v8.5.6.1-fps`)
+
+**Problema.** Los juegos SDL pintaban tan rápido como podían (o a un 60 fijo en el código): en portátiles como el Dell eso es calor y ruido
+sin ganancia, y un cuadro más rápido que el audio no mejora nada. Pedido del mantenedor del 2026-11-22.
+
+**Decisión.** Tres valores en todas partes: **30**, **60** e **ilimitado** (0). La espera **duerme** (`SDL_Delay`, que además sigue bombeando el
+audio: el sonido va por su hilo, D393, y el limitador no lo toca) y no gasta CPU.
+
+1. **SDL 2 de SaguiOS** (general, para los demás juegos): pista o variable de entorno `SDL_SAGUI_FPS_MAX` (`SDL_HINT_SAGUI_FPS_MAX`; 0 o
+   sin ella = ilimitado; vale cualquier número hasta 1000, no solo 30 y 60). **La pista manda sobre la variable.** Se espera al final de
+   `SDL_RenderPresent` y de `SDL_GL_SwapWindow` (`sagui_sdl_fps_limitar` en `sdl2_sagui.c`). El plazo de cada cuadro se acumula
+   (`base + n * 1000 / fps`), así el ritmo medio es exacto aunque el milisegundo no divida a 1000 (el 30 sale a 30,2 y el 60 a 60,2); si el
+   programa va 100 ms tarde reinicia la cuenta en vez de correr para alcanzar. Cambiar el valor con el programa en marcha vale en el
+   cuadro siguiente (la pista se lee en cada cuadro).
+2. **SDL 1.2**: el mismo limitador en `SDL_Flip` (y por tanto `SDL_UpdateRect(s)`), solo por la variable `SDL_SAGUI_FPS_MAX` (no tiene pistas).
+3. **AoEN**: Opciones > Gráficos, selector «Límite de FPS» (60 / 30 / Ilimitado), clave `fps_max` de `aoen.cfg` (de serie 60: el tope fijo de
+   antes, ahora ajustable). `AOEN_FPS_MAX=N` manda para esa vez. Sustituye a la espera fija de 16 ms del bucle principal (16 ms o 33 ms).
+4. **Brumacanto**: **F6** en el juego (60 -> 30 -> ilimitado), clave `fps` de `ajustes.txt` junto a `vista` y `escala`; de serie 60;
+   `BRUMA_FPS=N` manda para esa vez. Sustituye a la espera de 15 ms. Con `--bench` no hay tope, como antes.
+5. **Capibara**: **F5** en el juego (60 -> 30 -> ilimitado), guardado en `~/.config/capibara/ajustes.cfg` (`fps=N`); `--fps=30|60|ilimitado` y
+   `CAPI_FPS` mandan para esa vez (orden: opción, variable, fichero). Sin ajuste vale lo de siempre, el paso del proyecto (`paso`, de serie
+   60). F3 enseña el tope. Con `--bench` solo se aplica si se pide el tope (`--fps=`/`CAPI_FPS`), para poder medirlo.
+6. **Configuración del sistema**: no se añade valor general todavía. Configuración > Pantalla tiene sitio natural (junto a la aceleración
+   gráfica, D323), pero la SDL tendría que leer la elección del sistema en cada programa; queda como pendiente (la pista y la variable ya
+   sirven a quien quiera forzarlo por programa o en `/etc`/perfil).
+
+**No toca el núcleo del kernel**: solo bibliotecas SDL y juegos de usuario.
+
+**Pruebas.** `tests/h476_limitador_fps.py`: `unidad` (PC: `ajustes_test.c` de Brumacanto con la clave `fps`; Capibara con `--bench` y
+`--fps=30/60/ilimitado` a 30,5 / 60,6 / miles de fps), `fuentes`, `sdl` (en SaguiOS, `/apps/bin/sdl2fps`, `userland/libsdl2/sdl2fpsprova.c`:
+por pista 30,2 fps y por variable 30,2 y 60,2; sin tope 7000 fps; **CPU 0 % con tope contra 100 % sin él**; la pista 0 manda sobre la variable),
+`aoen` (los clics en el selector se guardan y se aplican, la vez siguiente arranca con el valor, `AOEN_FPS_MAX` manda y el ritmo medido sale
+a ~30 / ~60 / libre; captura `H476-1`), `brumacanto` (F6 y `ajustes.txt`) y `capibara` (F5, `--fps=30` a ~30 fps y el fichero de ajustes).
+Se repiten h389 (AoEN), h444 (Brumacanto), h452 (Capibara) y h393 (SDL, audio).
+## D477. Valkey 8.0.2 en SaguiOS: servidor, cliente, hiredis y clientes en MicroPython y Lua (decidido el 2026-11-26; v8.5.6.1, rama `v8.5.6.1-servidores`)
+
+**Contexto.** La fila «Servidores y datos» de la v8.5.6.1 pide una base de datos en memoria de clave y valor. Valkey (continuación libre de
+Redis 7.2, BSD-3) la da con estructuras ricas, pub/sub, scripts y persistencia, y es la base del módulo `tablas` (D479).
+
+**Decisión.**
+1. **Valkey 8.0.2** con su hiredis y su Lua 5.1 (cjson, cmsgpack, struct, bit) incluidos: `/apps/bin/valkey-server` (1,8 MB) y `/apps/bin/valkey-cli`
+   (343 KB), en la partición de aplicaciones (no en la base). Las fuentes **no van a git**: `tools/valkey_fuentes.sh` (SHA-256 fijado);
+   nuestro es `userland/terceros/valkey/valkey.mk`, `plataforma/`, `valkey-sagui.conf`, `ejemplos/` y `leeme.txt`. La x87 (dobles), la libc común,
+   `-Os`/`-O2` como Lua.
+2. **Se compila sin `__linux__`** (`-U__linux__`): Valkey cae solo al bucle de eventos con `select()` (`ae_select.c`) y a las rutas genéricas
+   (sin epoll, sin `/proc`, sin backtrace de glibc). Malloc de la libc. Sin TLS ni módulos (`MODULE LOAD` da error). **`fork` real (D401) para RDB y
+   AOF** (BGSAVE y la reescritura del AOF); los hilos de `bio.c` usan la capa pthread (D458).
+3. **Capa del sistema, no parches en Valkey** (todo general, en `userland/libc` salvo lo marcado): `sys/uio.h` (readv/writev), `sys/un.h`
+   (solo el tipo: sin sockets AF_UNIX), `sys/file.h` (flock que acepta), `netinet/tcp.h`, `termios.h` (tcgetattr da ENOTTY: linenoise cae a `fgets`),
+   `syslog.h` (sin efecto), `grp.h`, `dlfcn.h` (débiles: sin carga de módulos), `getrlimit`/`setrlimit` (RLIMIT_NOFILE = 128), `setitimer(ITIMER_REAL)`
+   sobre `alarm`, `strerror_r`, `ctime_r`, `truncate`, `chown`, `ctzdi2`/`clzdi2` (libsagui), `ceill`/`llroundl`/`strtold` y compañía (long double
+   calculado en double), `pthread_cancel`/`pthread_kill` (ENOSYS), `pthread_setcancelstate/type`, los `E*` de red que faltaban y `glob()` (movido del
+   port de make a la libc, con `GLOB_NOCHECK`; la usa la directiva `include` de Valkey con comodines). Todo está en `libc/servidores.c` y es débil, para
+   que un port con la suya (openrsync) gane.
+4. **Descriptores por proceso: de 32 a 128** (`MAX_ARQUIVOS` en `kernel/inc/processo.h`, y `FD_SETSIZE` de `select` a 128). Con 32 no cabían ni los
+   32 descriptores que Valkey se reserva. Es una constante de la tabla de descriptores (64 procesos x 384 bytes más); no toca el planificador, la
+   memoria ni el VFS. Valkey queda con `maxclients 90`.
+5. **Sin almacenamiento local de hilo (TLS):** `__thread` y `_Thread_local` pasan a ser globales (`valkey_sagui.h`). Consecuencias: `io-threads`
+   solo 1 (por defecto), y las estadísticas de memoria (`used_memory`, para INFO y `maxmemory`) comparten hueco entre el hilo principal y los de
+   `bio`, con carreras posibles en un contador informativo (no en los datos). Soporte de TLS real queda como mejora general.
+6. **hiredis** (BSD-3, el de Valkey): `libhiredis.a` y `<hiredis/hiredis.h>` en `/apps/tcc` (`tcc ejemplo.c -lhiredis`, ejemplo en
+   `/apps/valkey/ejemplos/ejemplo_hiredis.c`). El `cc` propio (D033) no enlaza bibliotecas: hiredis es para tcc.
+7. **MicroPython:** `/lib/python/valkey.py` (cliente RESP por `socket`, clase `Valkey(host, port)` con nombres de redis-py; la usa el módulo
+   `tablas`, D479). **Lua:** `/apps/lua/share/lua/5.4/valkey.lua` y un módulo **`socket`** mínimo en el Lua del sistema (`connect`, `send`,
+   `receive("l"|n|"a")`, `settimeout`, `close`; `lsock_sagui.c`, registrado en `package.preload`): Lua no tenía red.
+8. Configuración `/apps/valkey/valkey.conf` (127.0.0.1:6379, RDB en `/home`, `io-threads 1`, `maxmemory 256mb`). El servicio con el sistema de
+   servicios queda como siguiente paso (se arranca a mano o desde un guion).
+
+**Tamaños.** valkey-server 1.818.728 bytes, valkey-cli 342.692, libhiredis.a 98.420; ninguno en la base.
+
+**Pruebas.** `tests/h477_valkey.py`: `pc` (ELF32 estáticos, ficheros, documentación, fuentes fuera de git) y `saguios` (arranque; PING, SET/GET, INCR,
+listas, hashes, zsets, PX y expiración, TTL, EVAL con Lua 5.1, INCRBYFLOAT, pub/sub con un suscriptor, un programa de C con hiredis compilado con
+tcc, MicroPython y Lua, BGSAVE con fork, SAVE, reinicio y carga del RDB, AOF activado en caliente con su reescritura).
+
+**Falta:** servicio con el gestor de servicios, `valkey-benchmark`, sockets AF_UNIX, TLS, `io-threads` y TLS de hilo reales.
+
+## D478. asyncio, Microdot y una capa `bottle.py` para escribir webs en MicroPython (decidido el 2026-11-26; v8.5.6.1, rama `v8.5.6.1-servidores`)
+
+**Contexto.** La fila «Servidores y datos» pide Microdot (MIT) con asyncio y, encima, una capa pequeña como Bottle. En el MicroPython del
+sistema `MICROPY_PY_ASYNCIO` estaba a 0.
+
+**Decisión.**
+1. **asyncio activo sin tocar el intérprete:** el paquete `asyncio` de MicroPython 1.24.1 (`extmod/asyncio`, MIT, la misma versión que el
+   intérprete) se instala **en Python** en `/lib/python/asyncio` (sin el módulo C `_asyncio`, que es solo una optimización: `core.py` cae solo
+   a `task.py`). Necesita `time.ticks_*` y `select.poll`, que ya estaban. Así no se regeneran los `genhdr` del embed port (D170). Más lento
+   que el C, suficiente para un servidor local.
+2. **Microdot 2.8.0** (MIT) en `/lib/python/microdot/` sin cambios: `microdot`, `helpers`, `cors`, `multipart`, `sse`, `websocket`. Sin las
+   partes que piden módulos que SaguiOS no trae (jinja, utemplate, session, auth, login, csrf).
+3. **`/lib/python/bottle.py`** (nuestro, GPL-3.0-only): `route`/`get`/`post`/`put`/`delete`/`patch` con rutas `<n>`, `<n:int>` y `<r:path>`;
+   `request` (`method`, `path`, `query`, `forms`, `params`, `json`, `body`, `headers`, cookies, `remote_addr`), `response` (`status`,
+   `content_type`, `set_header`, `set_cookie`), `template` (subconjunto de SimpleTemplate: `{{expr}}` escapada, `{{!expr}}`, líneas `%` con
+   `for`/`if`/`elif`/`else`/`end`), `static_file` (tipo por extensión, sin salir de la raíz), `redirect`, `abort`, `error`, `HTTPResponse`,
+   `HTTPError`, `Bottle()` y `run`. Un `dict`/lista devuelto sale como JSON. Sin hooks, plugins ni subida de ficheros. Cada petición se
+   atiende con `request`/`response` globales atados a la petición en curso: seguro con rutas síncronas.
+4. Ejemplos en `/ejemplos/web/` (`bottle_hola.py`, `microdot_hola.py`, `prueba_asyncio.py`, plantilla y ficheros estáticos), ayuda
+   `microdot-bottle` y las licencias junto a cada paquete.
+
+**No toca el núcleo del kernel ni el intérprete.**
+
+**Pruebas.** `tests/h478_microdot_bottle.py`: `pc` (ficheros y documentación) y `saguios` (asyncio con `gather` y `create_task`; la
+aplicación de bottle.py servida en el 8080 y consultada desde el anfitrión por la redirección de puertos de QEMU: página con plantilla,
+parámetro de ruta, JSON, formulario POST, POST con JSON, fichero estático, 404, `abort(403)`, redirección, 405; `wget` desde dentro; Microdot
+a pelo en el 5000; diez peticiones seguidas).
+
+## D479. Python para datos: ulab dentro del MicroPython, módulo `tablas` y los compiladores native y viper en x86 (decidido el 2026-11-26; v8.5.6.1, rama `v8.5.6.1-datos`)
+
+**Pedido del mantenedor** (fila «Python para datos» del ROADMAP). Manual: `docs/python-datos.md`; prueba `tests/h479_python_datos.py`.
+
+**Decisión.**
+- **ulab** (MIT, Zoltán Vörös; `v923z/micropython-ulab`, rama principal del 2026-11-25) compilado dentro del `python` y del `python-x87`: las fuentes sin
+  tocar en `userland/terceros/ulab/code/` (registrado en `docs/terceros.md`). Configuración propia en `userland/micropython/ulab_sagui.h`
+  (3 dimensiones; sin `numpy.load/save/loadtxt/savetxt`: usan el VFS de MicroPython, que no tenemos, D067). Se compila con las mismas banderas que
+  el resto del MicroPython (SSE2 en `python`, x87 en `python-x87`; nada de `-mgeneral-regs-only`, que solo lleva el código de la libsagui), regla
+  propia en el Makefile (`ULAB_SRC`, `ULAB_FLAGS`). Hace falta una `libc/sys/types.h` mínima. Los qstr y el `MODULE_DEF_ULAB` de `moduledefs.h`
+  se añadieron sin el repositorio de MicroPython con `tools/mp_qstr_agregar.py`, que ahora decodifica los nombres con símbolos
+  (`ulab_dot_numpy` = «ulab.numpy», `{:#o}`...) y no cuenta los comentarios de C. El binario crece unos 240 KB (ulab y los emisores).
+- **@micropython.native y @micropython.viper**: `MICROPY_EMIT_X86` en `mpconfigport.h` (no en el portable del PC). El código máquina va al montón del GC
+  (`MP_PLAT_ALLOC_EXEC` por omisión): el SaguiOS no pone NX, así que se ejecuta sin más; faltaban los qstr `native`, `viper`, `ptr8/16/32`, `uint`,
+  `ViperTypeError`. **Medida** (KVM, bucle de 30 millones de pasos): Python 900 ms, native 370 ms (2,4x), viper 30 ms (30x); el h479 exige 1,5x y 3x.
+- **Módulo `tablas`** (`rootfs/lib/python/tablas.py`, Python puro, `/lib/python`): `Tabla` (columnas en listas) con filtrar/`donde`, ordenar estable
+  (el `sort` de MicroPython **no** es estable: se desempata a mano), `groupby().agg`, `merge` (inner/left/right/outer), `pivot`, valores que faltan
+  (`rellenar`, `quitar_nulos`), `describir`, correlación y las cuentas gordas con ulab. Formatos: CSV (comillas, `;`, tabulador, acentos de ida y vuelta) y JSON
+  propios; **.xlsx y .mxs reutilizando a Macaco** con `macaco --convertir` por un CSV temporal (el mismo código que abre y guarda en la hoja; no se duplica
+  ningún lector de formatos); SQLite con el `sqlite3` del sistema; **Valkey opcional** (si no hay módulo `valkey`, `TablasNoDisponible`; acepta un
+  `cliente=` propio con `set`/`get`; sin depender de que el otro trabajo esté); gráficos con `sagui_grafico` (D469): PNG/BMP o ventana.
+- **Python portable** (D459): compila también con ulab (`userland/portable/Makefile`; h459c sigue pasando); sin los emisores, que son de i386.
+
+**Pruebas.** `rootfs/testes/datos_ulab.py` (estadística, álgebra lineal, FFT de una señal conocida, polinomios, native y viper con medida) y
+`datos_tablas.py` (61 comprobaciones sobre `/ejemplos/datos/ventas.csv`, sintético y con huecos), más `tests/h479_python_datos.py`, que contrasta con el
+Python del PC las cifras (suma, media, desviación, correlación, sumas por región, pivot) y hace el gráfico en ventana (`docs/capturas/H479-grafico.png`).
+
+**Límites.** `.xlsx`/`.mxs`: solo la hoja activa y valores (no fórmulas ni formatos); un valor de texto vacío es «falta». Con muchos datos las listas de Python
+gastan más memoria que los arrays de ulab (`t.columna()` los da). El gráfico admite como mucho 512 puntos y 12 series (D469).

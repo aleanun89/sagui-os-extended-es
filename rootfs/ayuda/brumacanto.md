@@ -8,7 +8,7 @@ la acelera). Código MIT; gráficos CC0 de Kenney y algunas texturas CC BY-SA 3.
 
 WASD y ratón: moverse y mirar. Espacio: saltar. Mayús: correr. Clic izquierdo: minar o atacar. Clic derecho: colocar.
 1 a 9 o la rueda: objeto. E: mochila y fabricación. F: comerciar. F2: supervivencia o creativo. **F5: guardar.**
-**F3: distancia de dibujo** (32, 48, 64, 80 o 104 bloques; se guarda y vale la vez siguiente). **F4: escala de dibujo** (100, 75 o 50 %; también se guarda).
+**F3: distancia de dibujo** (32, 48, 64, 80 o 104 bloques; se guarda y vale la vez siguiente). **F4: escala de dibujo** (100, 75 o 50 %; también se guarda). **F6: límite de FPS** (60, 30 o ilimitado; se guarda).
 **F11: pantalla completa.** Esc: pausa.
 
 ## Minerales, horno y herramientas (D449)

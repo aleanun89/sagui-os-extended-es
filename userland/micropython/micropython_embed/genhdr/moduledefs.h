@@ -112,6 +112,10 @@ extern const struct _mp_obj_module_t mp_module_sys;
 #undef MODULE_DEF_SYS
 #define MODULE_DEF_SYS { MP_ROM_QSTR(MP_QSTR_sys), MP_ROM_PTR(&mp_module_sys) },
 
+extern const struct _mp_obj_module_t ulab_user_cmodule;
+#undef MODULE_DEF_ULAB
+#define MODULE_DEF_ULAB { MP_ROM_QSTR(MP_QSTR_ulab), MP_ROM_PTR(&ulab_user_cmodule) },
+
 
 #define MICROPY_REGISTERED_MODULES \
     MODULE_DEF_BUILTINS \
@@ -128,6 +132,7 @@ extern const struct _mp_obj_module_t mp_module_sys;
     MODULE_DEF_SQLITE3 \
     MODULE_DEF_SSL \
     MODULE_DEF_SYS \
+    MODULE_DEF_ULAB \
     MODULE_DEF__THREAD \
     MODULE_DEF___MAIN__ \
 // MICROPY_REGISTERED_MODULES

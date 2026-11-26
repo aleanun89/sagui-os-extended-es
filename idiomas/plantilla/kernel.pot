@@ -1106,3 +1106,7 @@ msgstr ""
 msgid "Parando los servicios..."
 msgstr ""
 
+
+#: kernel/gui/barra.c:1220
+msgid "Arara (diagramas)"
+msgstr ""

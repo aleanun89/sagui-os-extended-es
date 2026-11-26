@@ -1,0 +1,25 @@
+{
+  "arara": 1,
+  "paginas": [
+    {
+      "nombre": "Red de la oficina",
+      "figuras": [
+        { "id": 1, "tipo": "nube", "x": 224, "y": 16, "l": 128, "a": 96, "relleno": "#e6f1fb", "linea": "#5b8db8", "grosor": 2, "texto": "Internet" },
+        { "id": 2, "tipo": "router", "x": 240, "y": 160, "l": 96, "a": 64, "relleno": "#bfd9f2", "linea": "#2f5f8f", "grosor": 2, "texto": "Router" },
+        { "id": 3, "tipo": "servidor", "x": 64, "y": 320, "l": 80, "a": 96, "relleno": "#c9d6e2", "linea": "#3e4c59", "grosor": 2, "texto": "Servidor" },
+        { "id": 4, "tipo": "pc", "x": 208, "y": 320, "l": 80, "a": 80, "relleno": "#c9d6e2", "linea": "#3e4c59", "grosor": 2, "texto": "PC 1" },
+        { "id": 5, "tipo": "pc", "x": 320, "y": 320, "l": 80, "a": 80, "relleno": "#c9d6e2", "linea": "#3e4c59", "grosor": 2, "texto": "PC 2" },
+        { "id": 6, "tipo": "pc", "x": 432, "y": 320, "l": 80, "a": 80, "relleno": "#c9d6e2", "linea": "#3e4c59", "grosor": 2, "texto": "PC 3" },
+        { "id": 7, "tipo": "impresora", "x": 544, "y": 320, "l": 80, "a": 80, "relleno": "#d9d9d9", "linea": "#444444", "grosor": 2, "texto": "Impresora" }
+      ],
+      "conectores": [
+        { "id": 8, "tipo": "recto", "de": 1, "pto_de": 2, "a": 2, "pto_a": 0, "flecha_ini": false, "flecha_fin": true, "linea": "#2f4f6f", "grosor": 2 },
+        { "id": 9, "tipo": "angulo", "de": 2, "pto_de": 3, "a": 3, "pto_a": 0, "flecha_ini": false, "flecha_fin": false, "linea": "#2f4f6f", "grosor": 2 },
+        { "id": 10, "tipo": "angulo", "de": 2, "pto_de": 2, "a": 4, "pto_a": 0, "flecha_ini": false, "flecha_fin": false, "linea": "#2f4f6f", "grosor": 2 },
+        { "id": 11, "tipo": "angulo", "de": 2, "pto_de": 2, "a": 5, "pto_a": 0, "flecha_ini": false, "flecha_fin": false, "linea": "#2f4f6f", "grosor": 2 },
+        { "id": 12, "tipo": "angulo", "de": 2, "pto_de": 2, "a": 6, "pto_a": 0, "flecha_ini": false, "flecha_fin": false, "linea": "#2f4f6f", "grosor": 2 },
+        { "id": 13, "tipo": "angulo", "de": 2, "pto_de": 1, "a": 7, "pto_a": 0, "flecha_ini": false, "flecha_fin": false, "linea": "#2f4f6f", "grosor": 2 }
+      ]
+    }
+  ]
+}

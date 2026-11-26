@@ -87,7 +87,7 @@ $(TCC_RAIZ)/.feito: $(TCC_X) $(TCC_B)/libtcc.o $(TCC_B)/tcc_libc_extra.o $(TCC_B
                     $(LIBC_HDR) $(USER_HDR) $(TCC_KERNEL_H) $(wildcard userland/libsdl2/*.h userland/libsdl2/SDL2/*.h) \
                     $(wildcard $(TCC_DIR)/plataforma/include/*.h) $(TCC_EJEMPLOS) $(TCC_DIR)/leeme.txt $(TCC_DIR)/tcc.mk \
                     $(TCC_GL_OBJ) $(TCC_EGL_OBJ) $(SDL2GL_OBJ) $(wildcard userland/inc/GLES/*.h userland/inc/EGL/*.h userland/inc/KHR/*.h) kernel/inc/esquemas.h \
-                    $(LUA_A) $(FF_DEV_OK)
+                    $(LUA_A) $(VALKEY_HIREDIS_A) $(FF_DEV_OK)
 	rm -rf $(TCC_RAIZ) && mkdir -p $(TCC_RAIZ)/include/sagui $(TCC_RAIZ)/include/kernel $(TCC_RAIZ)/include/SDL2 \
 	  $(TCC_RAIZ)/lib $(TCC_RAIZ)/ejemplos $(TCC_B)/lib-obj
 	cp $(TCC_F)/include/*.h $(TCC_RAIZ)/include/
@@ -104,6 +104,8 @@ $(TCC_RAIZ)/.feito: $(TCC_X) $(TCC_B)/libtcc.o $(TCC_B)/tcc_libc_extra.o $(TCC_B
 	cp -r userland/inc/GLES userland/inc/EGL userland/inc/KHR $(TCC_RAIZ)/include/
 	@# D440: Lua 5.4 para incrustarlo: <lua.h>, <lauxlib.h>, <lualib.h>, <luaconf.h>, <lua.hpp> y -llua
 	$(if $(LUA_A),cp $(addprefix $(LUA_F)/,lua.h lauxlib.h lualib.h luaconf.h lua.hpp) $(TCC_RAIZ)/include/ && cp $(LUA_A) $(TCC_RAIZ)/lib/liblua.a)
+	@# D477: hiredis (cliente de Valkey) para incrustarlo: <hiredis/hiredis.h> y -lhiredis
+	$(if $(VALKEY_HIREDIS_A),mkdir -p $(TCC_RAIZ)/include/hiredis && cp $(addprefix userland/terceros/valkey/fuentes/deps/hiredis/,hiredis.h read.h sds.h alloc.h async.h) $(TCC_RAIZ)/include/hiredis/ && cp $(VALKEY_HIREDIS_A) $(TCC_RAIZ)/lib/libhiredis.a)
 	@# D458: FFmpeg para incrustarlo: -lavformat -lavcodec -lswscale -lswresample -lavutil y <libavcodec/avcodec.h>...
 	$(if $(FF_DEV_OK),cp -r $(FF_DEV)/usr/local/include/. $(TCC_RAIZ)/include/ && cp $(FF_DEV)/usr/local/lib/*.a $(TCC_RAIZ)/lib/)
 	@# crt1.o: el _inicio de la libsagui (en .text: NASM deja .text.inicio sin permiso de ejecución) y _start

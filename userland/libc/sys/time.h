@@ -29,6 +29,10 @@ int futimes(int fd, const struct timeval tv[2]);
 #define timersub(a, b, r) do { (r)->tv_sec = (a)->tv_sec - (b)->tv_sec; \
     (r)->tv_usec = (a)->tv_usec - (b)->tv_usec; \
     if ((r)->tv_usec < 0) { (r)->tv_sec--; (r)->tv_usec += 1000000; } } while (0)
+/* D477: setitimer solo para ITIMER_REAL, sobre alarm (segundos enteros hacia arriba; servidores.c). */
+#define ITIMER_REAL 0
+struct itimerval { struct timeval it_interval, it_value; };
+int setitimer(int cual, const struct itimerval *nuevo, struct itimerval *antiguo);
 /* Como la glibc: fd_set y select() vienen también con sys/time.h. */
 #include <sys/select.h>
 #endif

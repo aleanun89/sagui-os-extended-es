@@ -174,6 +174,7 @@ void SDL_GL_SwapWindow(SDL_Window *w)
     nativa_atualizar(w);   /* la ventana pudo cambiar (pantalla completa): EGL lo ve en el cambio */
     eglSwapBuffers(dpy, sup);
     escala_aplicar();
+    sagui_sdl_fps_limitar();   /* D476 */
 }
 
 void SDL_GL_DeleteContext(SDL_GLContext c)

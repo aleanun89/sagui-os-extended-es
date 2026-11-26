@@ -155,6 +155,8 @@ typedef enum { SDL_HINT_DEFAULT, SDL_HINT_NORMAL, SDL_HINT_OVERRIDE } SDL_HintPr
 #define SDL_HINT_RENDER_VSYNC         "SDL_RENDER_VSYNC"
 #define SDL_HINT_OPENGL_ES_DRIVER     "SDL_OPENGL_ES_DRIVER"   /* Brumacanto (D444): se acepta y se ignora (siempre EGL/SaguiGL) */
 #define SDL_HINT_SAGUI_GL_ESCALA      "SDL_SAGUI_GL_ESCALA"    /* D451 (SaguiOS): escala de dibujo de OpenGL ES, 25..100 */
+#define SDL_HINT_SAGUI_FPS_MAX        "SDL_SAGUI_FPS_MAX"      /* D476 (SaguiOS): tope de cuadros por segundo (0 = sin tope; 30, 60...) */
+void sagui_sdl_fps_limitar(void);
 #define SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS "SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS"
 #define SDL_HINT_MOUSE_RELATIVE_MODE_WARP "SDL_MOUSE_RELATIVE_MODE_WARP"
 SDL_bool SDL_SetHint(const char *nome, const char *valor);

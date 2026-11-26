@@ -7,5 +7,7 @@
 #define SAGUI_SYS_IOCTL_H
 #define FIONBIO  0x5421
 #define FIONREAD 0x541B
+#define TIOCGWINSZ 0x5413
+struct winsize { unsigned short ws_row, ws_col, ws_xpixel, ws_ypixel; };
 int ioctl(int fd, unsigned long pedido, ...);
 #endif

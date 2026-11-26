@@ -890,6 +890,25 @@ static const char *const tucan[] = {   /* Tucán: un tucán de perfil con su pic
     "................",
 };
 
+static const char *const arara[] = {   /* Arara: dos figuras (azul y amarilla) unidas por un conector rojo en ángulo recto (D465) */
+    "................",
+    ".PPPPPPPP.......",
+    ".PVVVVVVP.......",
+    ".PVVVVVVP.......",
+    ".PPPPPPPP.......",
+    ".....r..........",
+    ".....r..........",
+    ".....rrrrr......",
+    "..........r.....",
+    "..........r.....",
+    "......PPPPPPPP..",
+    "......PYYYYYYP..",
+    "......PYYYYYYP..",
+    "......PPPPPPPP..",
+    "................",
+    "................",
+};
+
 static const char *const vps[] = {   /* VisualPythonS: un formulario con barra azul, un botón y la serpiente amarilla (D297) */
     "................",
     ".PPPPPPPPPPPPPP.",
@@ -1531,6 +1550,7 @@ const desenho_t arte_mini_ia          = { ia, 16, 16 };
 const desenho_t arte_marca_ia         = { marca_ia, 16, 16 };   /* D380: logo «IA Powered» del escritorio */
 const desenho_t arte_mini_macaco      = { macaco, 16, 16 };
 const desenho_t arte_mini_pluma       = { pluma, 16, 16 };
+const desenho_t arte_mini_arara        = { arara, 16, 16 };   /* D465: diagramas */
 const desenho_t arte_mini_tucan       = { tucan, 16, 16 };   /* D369: editor de presentaciones */   /* mejora 116, D291 */
 const desenho_t arte_mini_gebramini   = { gebramini, 16, 16 };   /* mejora 128, D309 */
 const desenho_t arte_mini_planomini   = { planomini, 16, 16 };   /* mejora 129, D312 */

@@ -1,12 +1,12 @@
-# Aplicaciones portables: Mico, Pluma, Macaco, Tucán, Paint, PlanoMini, GebraMini y VisualPythonS sobre SDL 2 (D459)
+# Aplicaciones portables: Mico, Pluma, Macaco, Tucán, Paint, PlanoMini, GebraMini, VisualPythonS y Arara sobre SDL 2 (D459, D465)
 
-Mico, Pluma, Macaco, Tucán, Paint, PlanoMini y GebraMini se pueden compilar para Linux con las **mismas fuentes** que en SaguiOS. Lo único que cambia es la
+Mico, Pluma, Macaco, Tucán, Paint, PlanoMini, GebraMini y Arara se pueden compilar para Linux con las **mismas fuentes** que en SaguiOS. Lo único que cambia es la
 capa que hace de kernel: `userland/portable/`.
 
 ## Compilar
 
     sudo apt install build-essential libsdl2-dev python3
-    make -f userland/portable/Makefile -j4        # build/portable/{mico,pluma,macaco,tucan,paint,planomini,gebramini}
+    make -f userland/portable/Makefile -j4        # build/portable/{mico,pluma,macaco,tucan,paint,planomini,gebramini,arara}
     SAGUI_DATOS=rootfs ./build/portable/pluma documento.rtf
 
 `SAGUI_DATOS` es la carpeta con `fontes/` (las siete caras DejaVu de `rootfs/fontes/`); sin ella Pluma y Macaco usan solo la
@@ -44,7 +44,7 @@ Windows/MinGW sin probar.
 ## Repositorios
 
 `tools/portable_repos.py [app ...]` genera los repositorios locales (`mico`, `pluma`, `macaco`, `tucan`, `paint`, `planomini`,
-`gebramini`, `visualpythons`) con un único commit. Cada uno lleva copia de lo que enlaza. Regenerar uno borra el repositorio local y cambia su
+`gebramini`, `visualpythons`, `arara`) con un único commit. Cada uno lleva copia de lo que enlaza. Regenerar uno borra el repositorio local y cambia su
 commit: nombra solo los que quieras regenerar.
 
 ## Qué funciona fuera de SaguiOS, app por app (segunda tanda)
@@ -54,13 +54,14 @@ commit: nombra solo los que quieras regenerar.
 | Tucán | crear y editar presentaciones (Ctrl+M, texto, formas), guardar (`.tucan` y PPTX), exportar a PDF, PPTX y PNG, modo presentación (F5), `--demo`, `--info`, `--convertir` | asistente de IA (sin red) |
 | Paint | todas las herramientas con el ratón, deshacer, abrir BMP/PPM/PGM/PNG, guardar BMP de 24 bits y PPM | nada propio (no guarda PNG, tampoco en SaguiOS) |
 | PlanoMini | órdenes y ratón, capas, cotas, modificar, DXF (importar y exportar), PDF y PNG, `.pmini`, modo sin ventana (`--orden`, `--abrir`, `--listar`) | nada propio; los ejemplos salen de `datos/ejemplos/planomini/` |
+| Arara | figuras de las cuatro paletas, conectores rectos y en ángulo que siguen a las figuras, texto, inspector, deshacer, páginas, `.arara` y exportar a PNG, SVG y PDF, modo sin ventana (`--abrir`, `--png`, `--svg`, `--pdf`) | nada propio; los ejemplos salen de `datos/ejemplos/arara/` |
 | GebraMini | puntos, rectas, circunferencias, funciones y raíces, deslizadores, `.gbm`, PNG y PDF, modo sin ventana | nada propio; los ejemplos salen de `datos/ejemplos/gebramini/` |
 
 PlanoMini y GebraMini usan la FPU x87 con ensamblador en línea (`gbm_mat.h`); en x86-64 funciona igual y la prueba compara
 con los mismos resultados que en SaguiOS. Fuera de x86 no compilarían tal cual.
 
 Pruebas: `python3 tests/h459_apps_portables.py [--docs]` (Mico, Pluma, Macaco) y `python3 tests/h459b_apps_portables.py [--docs]`
-(Tucán, Paint, PlanoMini, GebraMini).
+(Tucán, Paint, PlanoMini, GebraMini); Arara la prueba `tests/h465_arara.py` (parte portable, sin QEMU, y parte de SaguiOS).
 
 ## VisualPythonS y el MicroPython de SaguiOS (`visualpythons`)
 

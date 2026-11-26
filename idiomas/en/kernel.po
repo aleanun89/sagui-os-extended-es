@@ -1106,3 +1106,7 @@ msgstr "It is now safe to turn off the computer."
 msgid "Parando los servicios..."
 msgstr "Stopping services..."
 
+
+#: kernel/gui/barra.c:1220
+msgid "Arara (diagramas)"
+msgstr "Arara (diagrams)"

@@ -76,7 +76,7 @@ int32_t sis_bifurcar(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e)
      * ocupados y nadie los soltaba. Los mapas de BAR y las ventanas no se heredan. */
     f->vagas_hilos = t->vaga_pilha ? (uint64_t)1 << (t->vaga_pilha - 1) : 0;
     f->mmio_fim = USUARIO_MMIO;
-    f->fd_fechar_exec = l->fd_fechar_exec;
+    for (unsigned k = 0; k < sizeof f->fd_fechar_exec / sizeof f->fd_fechar_exec[0]; k++) f->fd_fechar_exec[k] = l->fd_fechar_exec[k];
     sinais_iniciar_processo(f, t, true);
     arquivos_herdar_todos(f, l);
     fpu_guardar(t);   /* sus registros, a su área (el XSAVE entero, D381) */

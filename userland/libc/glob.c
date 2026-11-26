@@ -1,11 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* glob.c - glob() mínimo para GNU make en SaguiOS: comodines *, ? y [..] en cualquier componente de
- * la ruta, con las funciones de directorio que make aporta (GLOB_ALTDIRFUNC). Sin llaves ni ~. */
+/* glob.c - glob() mínimo de la libc común (nació para GNU make, D440; D477 lo pasó aquí para Valkey):
+ * comodines *, ? y [..] en cualquier componente de la ruta. Con GLOB_ALTDIRFUNC usa las funciones de
+ * directorio del llamador (make); sin ella, opendir/readdir/lstat. Sin llaves ni ~. */
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <fnmatch.h>
-#include "glob.h"
+#include <glob.h>
 
 static int hay_magia(const char *s)
 {
@@ -104,12 +105,24 @@ int glob(const char *patron, int flags, int (*errfn)(const char *, int), glob_t 
     (void)errfn;
     g->gl_pathc = 0;
     g->gl_pathv = NULL;
-    if (!(flags & GLOB_ALTDIRFUNC)) return GLOB_ABORTED;
+    if (!(flags & GLOB_ALTDIRFUNC)) {
+        g->gl_opendir = (void *(*)(const char *))opendir;
+        g->gl_readdir = (struct dirent *(*)(void *))readdir;
+        g->gl_closedir = (void (*)(void *))closedir;
+        g->gl_lstat = lstat;
+        g->gl_stat = stat;
+    }
     const char *p = patron;
     char pre[2] = "";
     if (*p == '/') { pre[0] = '/'; pre[1] = 0; }
     if (expandir(g, &cap, pre, p) < 0) { globfree(g); return GLOB_NOSPACE; }
-    if (g->gl_pathc == 0) return GLOB_NOMATCH;
+    if (g->gl_pathc == 0) {
+        if (flags & GLOB_NOCHECK) {   /* como POSIX: sin coincidencias, el propio patrón */
+            if (anadir(g, &cap, patron) < 0) { globfree(g); return GLOB_NOSPACE; }
+            return 0;
+        }
+        return GLOB_NOMATCH;
+    }
     if (!(flags & GLOB_NOSORT)) qsort(g->gl_pathv, g->gl_pathc, sizeof(char *), cmp);
     return 0;
 }

@@ -51,7 +51,7 @@ static uint32_t pref_a(void) { return info_boot.res_pref >> 16; }
 static bool cabe_a_quente(uint32_t l, uint32_t a)
 {
     return video_troca_a_quente() && l >= MIN_L && a >= MIN_A && !(l & 7) &&
-           l <= bga_max_largura() && a <= bga_max_altura() && l * a * 4 <= video_memoria_mapeada();
+           l <= video_max_largura() && a <= video_max_altura() && l * a * 4 <= video_memoria_mapeada();
 }
 
 static int achar(uint32_t l, uint32_t a, uint32_t bpp)
@@ -119,7 +119,7 @@ void modos_iniciar(void)
     if (info_boot.res_pref)
         klog("[VIDEO] resolucao preferida no cabecalho: %ux%u\n", pref_l(), pref_a());
     if (video_troca_a_quente())
-        klog("[VIDEO] troca de modo a quente disponivel (ate %ux%u)\n", bga_max_largura(), bga_max_altura());
+        klog("[VIDEO] troca de modo a quente disponivel (ate %ux%u)\n", video_max_largura(), video_max_altura());
 }
 
 /* ------------------------------------------------------------ disco de arranque */
@@ -328,7 +328,7 @@ int32_t modos_info_tela(uint32_t ptr)
         t->memoria_kb = video_memoria_mapeada() >> 10;
     }
     t->a_quente = video_troca_a_quente();
-    if (t->a_quente) { t->max_largura = bga_max_largura(); t->max_altura = bga_max_altura(); }
+    if (t->a_quente) { t->max_largura = video_max_largura(); t->max_altura = video_max_altura(); }
     t->pref_largura = pref_l();
     t->pref_altura = pref_a();
     t->arranque_cd = (info_boot.opcoes & OPC_BOOT_CD) != 0;

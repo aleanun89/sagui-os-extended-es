@@ -68,6 +68,7 @@ GPU** de la SDL y (3) **pantalla completa**.
 | Variable | Qué hace |
 | --- | --- |
 | `SDL_SAGUI_GPU=1` | renderizador por GPU para cualquier programa de la SDL 2 que no pida el de software (`=0`: nunca). Es el nombre nuevo de `SAGUI_SDL2_GPU` (D288), que sigue valiendo; también vale Configuración > Pantalla > Aceleración gráfica (D323) |
+| `SDL_SAGUI_FPS_MAX=N` | **límite de FPS** (D476): duerme tras `SDL_RenderPresent` y `SDL_GL_SwapWindow` para no pasar de N cuadros por segundo (30, 60...; 0 o sin ella, sin tope). También como pista `SDL_HINT_SAGUI_FPS_MAX`, que manda sobre la variable. En la SDL 1.2, solo por variable (`SDL_Flip`) |
 | `SDL_SAGUI_GPU_PRESENTAR=0` | con la GPU, presentar como antes de la D432 (traer el cuadro a la RAM): para comparar |
 | `SDL_SAGUI_GPU_VSYNC=1` | esperar al retrazado vertical antes de copiar (menos desgarro; como mucho los Hz de la pantalla) |
 | `SDL_SAGUI_GPU_FILTRO=1` | escalado bilineal (por defecto, vecino más próximo, como el software) |

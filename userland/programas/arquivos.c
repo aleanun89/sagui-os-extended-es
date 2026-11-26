@@ -2031,6 +2031,17 @@ static bool pdf_extensao(const char *c)
     return compara_texto(e, ".pdf") == 0;
 }
 
+/* .arara: diagramas, para Arara (D465). */
+static bool arara_extensao(const char *c)
+{
+    size_t n = tam_texto(c);
+    if (n < 7) return false;
+    char e[7];
+    for (int k = 0; k < 6; k++) e[k] = (char)(c[n - 6 + k] | 0x20);
+    e[6] = 0;
+    return compara_texto(e, ".arara") == 0;
+}
+
 /* .pptx .tcn: presentaciones, para Tucán (D369). */
 static bool tucan_extensao(const char *c)
 {
@@ -2219,6 +2230,7 @@ static void abrir_arquivo(const char *c, const char *nome, int tipo)
         if (jclic_extensao(c)) prog = "jclic";   /* .jclic .jclic.zip: Actividades JClic (D183) */
         if (pdf_extensao(c)) prog = "visorpdf";   /* .pdf: el Visor de PDF (D138) */
         if (tucan_extensao(c)) prog = "tucan";   /* .pptx .tcn: Tucán (D369) */
+        if (arara_extensao(c)) prog = "arara";   /* .arara: Arara (D465) */
         if (jabuti_extensao(c)) prog = "jabuti";   /* .jbt .blq: Jabuti (D377) */
         if (video_extensao(c)) prog = "reproductor";   /* .avi .mpg .mp4 .m4v: el Reproductor de vídeo (D129) */
         char bin[40];
@@ -3476,7 +3488,7 @@ static void escolha_ver(int idx)
 typedef struct { const char *nome; } app_t;
 static const app_t apps[] = {
     { "editor" }, { "visor" }, { "paint" }, { "markdown" },
-    { "mico" }, { "reproductor" }, { "musica" }, { "visorpdf" }, { "convertir-audio" }, { "tucan" }, { "jabuti" },
+    { "mico" }, { "reproductor" }, { "musica" }, { "visorpdf" }, { "convertir-audio" }, { "tucan" }, { "arara" }, { "jabuti" },
 };
 
 /* El programa que abriría este archivo (la asociación por defecto). */
@@ -3508,6 +3520,7 @@ static const char *programa_padrao(const char *c)
     if (audio_extensao(c)) p = "musica";
     if (pdf_extensao(c)) p = "visorpdf";
     if (tucan_extensao(c)) p = "tucan";      /* D369 */
+    if (arara_extensao(c)) p = "arara";      /* D465 */
     if (video_extensao(c)) p = "reproductor";
     if (nes_extensao(c)) p = "laines";       /* D321 */
     if (sms_extensao(c)) p = "gearsystem";

@@ -10,7 +10,7 @@
 #include "abi.h"
 
 #define MAX_PROCESSOS   64
-#define MAX_ARQUIVOS    32
+#define MAX_ARQUIVOS    128   /* D477: Valkey (clientes + RDB/AOF + tuberías) necesita bastante más que 32 */
 #define PILHA_KERNEL    8192     /* 2 páginas por proceso */
 #define QUANTUM_TIQUES  2        /* 20 ms de CPU antes de ceder el turno */
 #define BAR_MAPAS_MAX   8        /* mapas de dispositivos por proceso (D158) */
@@ -104,7 +104,7 @@ typedef struct processo {
     bool        chamada_repetida;
     uint32_t    sondar_prazo;     /* poll: tic en que vence (0 = sin plazo), mientras se repite */
     quadro_t   *quadro_chamada;   /* el cuadro de la llamada en curso (fork, exec) */
-    uint32_t    fd_fechar_exec;   /* en el líder: bit n = FD_CLOEXEC del descriptor n */
+    uint32_t    fd_fechar_exec[(MAX_ARQUIVOS + 31) / 32];   /* en el líder: bit n = FD_CLOEXEC del descriptor n (D401; un mapa, D477) */
     bool        exec_sem_volta;   /* revisión D401: execve ya mató los demás hilos; si falla ahora, el proceso termina */
     bool        fpu_usada;        /* ya usó FPU/MMX/SSE: "fpu" guarda sus registros */
     bool        prio_audio;       /* D436: «alta prioridad de audio» (PLAN_AUDIO); no se hereda */

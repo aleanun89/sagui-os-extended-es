@@ -21,6 +21,7 @@ sobre la SDL 2 de SaguiOS. Tiene también un **editor gráfico** (`capibara-edit
     capibara juego.capi                un paquete
     capibara --empaquetar proyecto/ juego.capi
     opciones: --pantalla-completa  --gpu=auto|si|no  --hud  --audio-prio=auto|si|no
+              --fps=30|60|ilimitado   tope de cuadros por segundo (D476; F5 en el juego lo cambia y lo guarda)
               --cuadros N [--volcar f.ppm]   N cuadros de paso fijo sin esperar (determinista; imprime CAPI_HASH)
               --bench N                      N cuadros a toda velocidad; imprime CAPI_BENCH (cuadros/s)
               --entrada "12:derecha+;40:saltar+;41:saltar-"   (o CAPI_ENTRADA) pulsa y suelta acciones en cuadros dados
@@ -186,6 +187,10 @@ Las que emite el motor están en la tabla de nodos. Las de la escena (`[Conexion
 | Audio independiente de los FPS (D431) | mezclador sin cerrojos y un hilo propio (en SaguiOS, el de la tarjeta con adelanto de la latencia del kernel y `PLAN_AUDIO` de alta prioridad, automática con la GPU; en el PC, el de la SDL) |
 | Paso fijo | la física no depende de los cuadros: con pocos fps se hacen hasta 5 pasos por cuadro; con muchos, el dibujo interpola |
 | Escenas e instancias | los ficheros `.esc` se leen en cada instancia: para muchos objetos (balas, partículas) conviene instanciar de una escena pequeña y reciclar nodos |
+
+**Límite de FPS (D476).** Sin ajuste, el tope es el paso del proyecto (`paso`, de serie 60). **F5** en el juego lo cambia (60, 30, ilimitado) y lo guarda
+en `~/.config/capibara/ajustes.cfg` (`fps=N`); `--fps=30|60|ilimitado` o `CAPI_FPS` mandan para esa vez (con `--bench` el tope solo se aplica si se pide así). La espera
+duerme: el audio sigue en su hilo.
 
 F3 enseña: fps y tiempo de cuadro, renderizador y lotes, cuadriláteros, texturas, nodos, pares de física, audio y, en SaguiOS, CPU y RAM. Medidas con el motor
 dentro de QEMU (`tests/h452_capibara.py`; el QEMU emula la CPU y la «GPU» simulada dibuja con ella, así que **no dicen nada del hardware real**; medidas del 2026-11-21):

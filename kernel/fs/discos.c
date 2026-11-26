@@ -440,8 +440,13 @@ static void reconhecer(disco_t *d)
         /* D181: la partición de juegos (SAGUI-JOGOS) no es el volumen del disco: el disco de
          * arranque sigue siendo «disco de arranque de SaguiOS» y "montar usb0" no la lleva a /usb.
          * D194: lo mismo con la de aplicaciones (SAGUI-APPS), que va en /apps. */
+        /* D379: la raíz ext2 (SAGUI-RAIZ) tampoco, y una partición del usuario (sin etiqueta SAGUI-) va antes
+         * que las del sistema: un pendrive de arranque con una FAT32 de datos se anuncia con el nombre de
+         * esa FAT32 y su icono abre /usb (H34, error 18). */
         for (int k = 0; k < n && !d->volume; k++)
-            if (filhos[k]->tipo_fs[0] && txt_compara(filhos[k]->rotulo, "SAGUI-JOGOS") != 0 &&
+            if (filhos[k]->tipo_fs[0] && !txt_comeca_com(filhos[k]->rotulo, "SAGUI-")) d->volume = filhos[k];
+        for (int k = 0; k < n && !d->volume; k++)
+            if (filhos[k]->tipo_fs[0] && txt_compara(filhos[k]->rotulo, "SAGUI-JOGOS") != 0 && txt_compara(filhos[k]->rotulo, "SAGUI-RAIZ") != 0 &&
                 txt_compara(filhos[k]->rotulo, "SAGUI-APPS") != 0 && txt_compara(filhos[k]->rotulo, "SAGUI-CONF") != 0 &&
                 txt_compara(filhos[k]->rotulo, "SAGUI-EFI") != 0 && txt_compara(filhos[k]->rotulo, "SAGUI-ESP") != 0) d->volume = filhos[k];   /* D264, D266: la ESP tampoco */
         /* Disco de arranque: tiene la partición del SaguiOS y ninguna FAT32 (una FAT32

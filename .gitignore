@@ -95,3 +95,4 @@ Windows_*.wav
 /userland/terceros/lua/fuentes
 # Fuentes de FFmpeg (D458): las baja tools/ffmpeg_fuentes.sh; no van en git
 /userland/terceros/ffmpeg/fuentes
+/userland/terceros/valkey/fuentes

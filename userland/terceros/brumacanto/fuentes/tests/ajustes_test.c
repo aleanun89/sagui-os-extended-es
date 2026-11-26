@@ -24,6 +24,16 @@ int main(void)
     COMPROBAR(n>0 && ajuste_leer(t,"vista")==80 && ajuste_leer(t,"escala")==50);
     n=ajuste_formatear(t,sizeof t,32,0);
     COMPROBAR(n>0 && ajuste_leer(t,"vista")==32 && ajuste_leer(t,"escala")==-1);   /* sin escala (Linux) */
+    /* limitador de FPS (D476) */
+    COMPROBAR(ajuste_fps_valido(30)==30 && ajuste_fps_valido(0)==0 && ajuste_fps_valido(60)==60);
+    COMPROBAR(ajuste_fps_valido(-1)==60 && ajuste_fps_valido(45)==60);
+    COMPROBAR(ajuste_fps_siguiente(60)==30 && ajuste_fps_siguiente(30)==0 && ajuste_fps_siguiente(0)==60);
+    n=ajuste_formatear_fps(t,sizeof t,64,75,30);
+    COMPROBAR(n>0 && ajuste_leer(t,"vista")==64 && ajuste_leer(t,"escala")==75 && ajuste_leer(t,"fps")==30);
+    n=ajuste_formatear_fps(t,sizeof t,64,0,0);
+    COMPROBAR(n>0 && ajuste_leer(t,"fps")==0);   /* 0 = ilimitado se lee como 0, no como ausente */
+    n=ajuste_formatear_fps(t,sizeof t,64,0,-1);
+    COMPROBAR(n>0 && ajuste_leer(t,"fps")==-1);
     /* la primera vez, segun el equipo */
     COMPROBAR(ajuste_vista_para("SaguiGL (software)")==48);
     COMPROBAR(ajuste_vista_para("SaguiGL (GPU)")==48);       /* GPU antigua sin v3 */

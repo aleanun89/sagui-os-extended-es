@@ -282,7 +282,7 @@ int32_t sis_telas(uint32_t op, uint32_t a, uint32_t b, uint32_t c, uint32_t e)
             t.t[i].largura = sai[i].largura; t.t[i].altura = sai[i].altura;
             if (i == 0) {
                 t.t[i].a_quente = video_troca_a_quente();
-                t.t[i].max_largura = bga_max_largura(); t.t[i].max_altura = bga_max_altura();
+                t.t[i].max_largura = video_max_largura(); t.t[i].max_altura = video_max_altura();
             } else {
                 t.t[i].a_quente = sai[i].mudar_modo != NULL;
                 t.t[i].max_largura = sai[i].max_l; t.t[i].max_altura = sai[i].max_a;

@@ -60,4 +60,8 @@ void sincosf(float, float *, float *);
 float exp2f(float), log2f(float), log10f(float), cbrtf(float), asinf(float), acosf(float);
 long  lrintf(float);
 long long llrint(double), llround(double), llrintf(float), llroundf(float);
+/* D477: long double es la x87 de 80 bits, pero aquí las funciones de long double calculan en double (servidores.c) */
+long double ceill(long double), floorl(long double), roundl(long double), truncl(long double), fabsl(long double);
+long long llroundl(long double);
+long double strtold(const char *s, char **fin);
 #endif

@@ -74,3 +74,17 @@ $(B)/userland/bin/sdl2audio: $(S2A_OBJ) $(SDL2_OBJ) $(LIBC_OBJ) $(QJS_LIBM) $(LI
 	@$(PY) $(CHECK_ELF32) $@.elf
 
 APPS_BINS += $(B)/userland/bin/sdl2audio
+
+# D476: prueba del limitador de FPS de la SDL 2 (h476): cuenta cuadros presentados con 30, 60 o sin tope y mide la CPU.
+S2F_OBJ := $(B)/userland/libsdl2/sdl2fpsprova.o
+$(S2F_OBJ): userland/libsdl2/sdl2fpsprova.c userland/libsdl2/SDL.h $(LIBC_HDR) $(USER_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(SDL2_FLAGS) -c -o $@ $<
+
+$(B)/userland/bin/sdl2fps: $(S2F_OBJ) $(SDL2_OBJ) $(LIBC_OBJ) $(QJS_LIBM) $(LIBSAGUI_OBJ) userland/programa.ld
+	@mkdir -p $(dir $@)
+	$(LD) $(ULDFLAGS) -o $@.elf $(filter %.o,$^)
+	objcopy --strip-all $@.elf $@
+	@$(PY) $(CHECK_ELF32) $@.elf
+
+APPS_BINS += $(B)/userland/bin/sdl2fps

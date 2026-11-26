@@ -26,6 +26,7 @@ extern const desenho_t arte_mini_exploradorbd;   /* mejora 127: Explorador de ba
 extern const desenho_t arte_mini_exploradorsqlite;   /* mejora 131: Explorador SQLite */
 extern const desenho_t arte_mini_exploradorlmk;   /* mejora 131: Explorador lite-monkey */
 extern const desenho_t arte_mini_pluma;   /* mejora 116: el procesador de textos */
+extern const desenho_t arte_mini_arara;   /* D465: diagramas (Arara) */
 extern const desenho_t arte_mini_tucan;   /* D369: el editor de presentaciones */
 extern const desenho_t arte_mini_macaco;   /* melhoria 078: a folha de calculo */
 extern const desenho_t arte_mini_gebramini;   /* mejora 128: geometría dinámica */

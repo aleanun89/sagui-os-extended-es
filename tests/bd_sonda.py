@@ -41,7 +41,16 @@ def sonda(m, w, tempo=20):
     r = {"nodo": [], "boton": [], "caja": {}, "linea": {}, "rejilla": {}, "cab": {}, "celda": {}, "entrada": [], "casilla": [],
          "texto": []}
     rej = None
+    # La serie parte a veces una línea de la sonda (otra salida del kernel se intercala): se unen los
+    # fragmentos que no empiezan por «sonda: » a la línea de sonda anterior, hasta «sonda: fin».
+    unidas = []
     for linea in s.splitlines():
+        linea = linea.rstrip("\r")
+        if linea.startswith("sonda: ") or linea.startswith("vps-sonda"):
+            unidas.append(linea)
+        elif unidas and unidas[-1].startswith("sonda: ") and not unidas[-1].startswith("sonda: fin"):
+            unidas[-1] += linea
+    for linea in unidas:
         if not linea.startswith("sonda: ") or linea.startswith("sonda: fin"):
             continue
         p = linea[len("sonda: "):].rstrip("\r").split("|")

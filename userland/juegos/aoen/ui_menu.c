@@ -263,7 +263,7 @@ static void columna_jugadores(int x, int y, int w, int h) {
 	}
 }
 
-Rect prueba_comercio, prueba_fuego;
+Rect prueba_comercio, prueba_fuego, prueba_fps;
 
 static int fila_opcion(int x, int y, int w, const char *etiqueta, const char *valor, int lbl) {
 	gfx_ts(x, y + 5, etiqueta, COL_CREAM, 1);
@@ -524,6 +524,17 @@ void draw_options(void) {
 			int dg = cfg_get_int("dibujo_gpu", 0);
 			if (checkbox(px + 30, y, "Dibujo por GPU (tarjetas con 3D)", &dg)) { cfg_set_int("dibujo_gpu", dg); gpu_opcion(dg); }
 			gfx_t(px + pw / 2, y + 3, gpu_opcion_texto(), COL_DIM, 1);
+		}
+		y += 34;
+		{   /* D476: limitador de FPS */
+			static const char *fn[] = { "60 FPS", "30 FPS", "Ilimitado" };
+			int fi = app.fps_max == 30 ? 1 : app.fps_max == 0 ? 2 : 0;
+			gfx_ts(px + 30, y + 5, "Límite de FPS:", COL_CREAM, 1);
+			prueba_fps = (Rect){ cx, y, cw, 26 };
+			if ((c = cycler(cx, y, cw, fn[fi]))) {
+				fi = (fi + c + 3) % 3; app.fps_max = fi == 1 ? 30 : fi == 2 ? 0 : 60; cfg_set_int("fps_max", app.fps_max);
+				AOEN_LOG("[AOEN] límite de FPS: %d", app.fps_max);
+			}
 		}
 		y += 34;
 		gfx_ts(px + 30, y + 5, "Efectos gráficos:", COL_GOLD, 1);

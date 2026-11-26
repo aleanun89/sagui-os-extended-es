@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""portable_repos.py - genera los repositorios git locales de Mico, Pluma, Macaco, Tucán, Paint, PlanoMini, GebraMini y VisualPythonS portables (D459).
+"""portable_repos.py - genera los repositorios git locales de Mico, Pluma, Macaco, Tucán, Paint, PlanoMini, GebraMini, VisualPythonS y Arara portables (D459, D465).
 
 Cada repositorio lleva una COPIA de lo que esa aplicacion compila (calculado con `gcc -MM`): las fuentes de la
 aplicacion, la capa userland/portable/, los ficheros de la libsagui que enlaza, las cabeceras, las fuentes DejaVu (Pluma y
@@ -38,10 +38,10 @@ def _correo():
 AUTOR = ("aleanun89", _correo())
 
 LIB = ("compressao deflado_continuo difer edicao_rica edicao_rica_dialogos edicao_rica_obj formatacao formatar gui "
-       "gui_arquivos gui_arvore gui_barras gui_cinta gui_componentes gui_explorador gui_moderno gui_pestanas gui_revisar "
+       "gui_arquivos gui_arvore gui_barras gui_cinta gui_componentes gui_desfazer gui_explorador gui_inspetor gui_moderno gui_pestanas gui_revisar gui_selcor gui_vista "
        "hora icones iconos98 idioma presentacion presentacion_io presentacion_pptx imagem imagem_gif imagem_idct imagem_jpeg imagem_png_escribir inflado_continuo "
        "pdf_escribir regex rtf texto texto_rico utilitarios wordart entrada zonas sincronia http sonidos conf_maquina "
-       "contas empacotar dialogos_cf dialogos_objeto").split()
+       "contas empacotar dialogos_cf dialogos_objeto gui_grafico grafico_calc").split()
 PORT = "janelas_sdl sistema_sdl sistema_nulo rapido_c".split()
 FLAGS = ["-DSAGUI_HOST", "-DSAGUI_PORTABLE", "-w", "-I" + RAIZ + "/userland/inc", "-I" + RAIZ + "/userland/portable",
          "-I" + RAIZ + "/userland/libsagui", "-I" + RAIZ + "/userland/libfontes", "-I" + RAIZ + "/userland/ia", "-I" + RAIZ + "/userland/planomini", "-I" + RAIZ + "/userland/gebramini",
@@ -87,6 +87,14 @@ APPS = {
                       funciona_es="dibujo por órdenes y con el ratón, capas, cotas, modificar, DXF (importar y exportar), PDF y PNG, "
                                   "guardado `.pmini`, modo sin ventana (`--orden`, `--abrir`, `--pdf`)",
                       falta_es="nada relevante"),
+    "arara": dict(desc_es="diagramas al estilo de Visio", desc_en="Visio-style diagrams", desc_pt="diagramas no estilo do Visio",
+                  fuentes=lambda: ["userland/programas/arara.c"], fontes=False,
+                  extra=["userland/programas/arara_modelo.h", "userland/programas/arara_dibujo.h"], captura="H465-9-flujo.png",
+                  ejemplos="arara", ejemplos_abrir=True,
+                  funciona_es="figuras de las cuatro paletas, conectores rectos y en ángulo que siguen a las figuras, texto, inspector, "
+                              "deshacer, varias páginas, guardado `.arara` (JSON) y exportar a PNG, SVG y PDF, modo sin ventana "
+                              "(`--abrir`, `--png`, `--svg`, `--pdf`)",
+                  falta_es="nada relevante"),
     "gebramini": dict(desc_es="geometría dinámica", desc_en="dynamic geometry", desc_pt="geometria dinâmica",
                       fuentes=lambda: ["userland/programas/gebramini.c"] + sorted(ls("userland/gebramini", ".c")),
                       fontes=False, extra=[], captura="H459b-gebramini.png", ejemplos="gebramini",
@@ -94,9 +102,9 @@ APPS = {
                                   "modo sin ventana (`--orden`, `--abrir`, `--pdf`)",
                       falta_es="nada relevante"),
 }
-HERMANOS = ["mico", "pluma", "macaco", "tucan", "paint", "planomini", "gebramini", "visualpythons"]
+HERMANOS = ["mico", "pluma", "macaco", "tucan", "paint", "planomini", "gebramini", "visualpythons", "arara"]
 NOMBRES = {"mico": "Mico", "pluma": "Pluma", "macaco": "Macaco", "tucan": "Tucán", "paint": "Paint",
-           "planomini": "PlanoMini", "gebramini": "GebraMini", "visualpythons": "VisualPythonS"}
+           "planomini": "PlanoMini", "gebramini": "GebraMini", "visualpythons": "VisualPythonS", "arara": "Arara"}
 
 
 def ls(d, ext):
@@ -127,6 +135,8 @@ def readme(app, a):
     ia_en, ia_pt = (" (no AI assistant)", " (sem assistente de IA)") if con_ia else ("", "")
     hermanos = ", ".join("[%s](https://github.com/aleanun89/%s)" % (NOMBRES[h], h) for h in HERMANOS if h != app)
     ejemplos = ("\nLos ejemplos de SaguiOS (menú Ejemplos) van en `datos/ejemplos/%s/` y se encuentran solos desde el directorio del repositorio.\n" % a["ejemplos"]) if a.get("ejemplos") else ""
+    if a.get("ejemplos_abrir"):   # sin menú Ejemplos: se abren desde el diálogo de Abrir
+        ejemplos = "\nLos ejemplos de SaguiOS van en `datos/ejemplos/%s/`: ábrelos con Archivo > Abrir.\n" % a["ejemplos"]
     url = "https://github.com/aleanun89/sagui-os-extended-es"
     return f"""# {nombre} portable
 

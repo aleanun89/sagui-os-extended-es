@@ -1106,3 +1106,7 @@ msgstr "Você já pode desligar o computador."
 msgid "Parando los servicios..."
 msgstr "Parando os serviços..."
 
+
+#: kernel/gui/barra.c:1220
+msgid "Arara (diagramas)"
+msgstr "Arara (diagramas)"

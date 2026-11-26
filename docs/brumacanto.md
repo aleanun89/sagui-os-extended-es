@@ -14,7 +14,7 @@ SDL_GL_* sobre EGL.
   guarda; `auto` la vuelve a elegir según el equipo), `--bench CUADROS`, `--fullscreen` (pantalla completa; F11 la cambia en el juego)
   y `--escala 50|75|100` (escala de dibujo, solo para esa vez; F4 en el juego la cambia y la guarda). D451.
 - **Ajustes guardados** (D444): `ajustes.txt` junto a las partidas (`/home/brumacanto/`), una clave por línea: `vista=64`,
-  `escala=75`. Si no existe, la escala se lee del `escala.txt` de antes. **La primera vez** (sin `vista` guardada y sin `--view`) la
+  `escala=75`, `fps=60` (**límite de FPS**, D476: 60, 30 o 0 = ilimitado; F6 lo cambia en el juego y lo guarda; `BRUMA_FPS=N` vale solo para esa vez). Si no existe, la escala se lee del `escala.txt` de antes. **La primera vez** (sin `vista` guardada y sin `--view`) la
   distancia se elige según lo que anuncia el 3D de SaguiOS en `glGetString(GL_RENDERER)`: `SaguiGL (software)` (no hay 3D por la GPU)
   o `SaguiGL (GPU)` (GPU antigua, sin gpu3d v3) dan **48**; `SaguiGL (GPU v3)` da **64**, y con v3 se miden unos cuadros con la vista de 64
   (se saltan los 45 primeros, que generan terreno; se promedian los 45 siguientes): si el trabajo por cuadro es de 8 ms o menos, se

@@ -1,0 +1,23 @@
+{
+  "arara": 1,
+  "paginas": [
+    {
+      "nombre": "Empresa",
+      "figuras": [
+        { "id": 1, "tipo": "persona", "x": 208, "y": 16, "l": 176, "a": 64, "relleno": "#ffffff", "linea": "#2f5f8f", "grosor": 2, "texto": "Dirección" },
+        { "id": 2, "tipo": "persona", "x": 16, "y": 144, "l": 176, "a": 64, "relleno": "#ffffff", "linea": "#2f5f8f", "grosor": 2, "texto": "Administración" },
+        { "id": 3, "tipo": "persona", "x": 208, "y": 144, "l": 176, "a": 64, "relleno": "#ffffff", "linea": "#2f5f8f", "grosor": 2, "texto": "Tecnología" },
+        { "id": 4, "tipo": "persona", "x": 400, "y": 144, "l": 176, "a": 64, "relleno": "#ffffff", "linea": "#2f5f8f", "grosor": 2, "texto": "Comercial" },
+        { "id": 5, "tipo": "persona", "x": 112, "y": 272, "l": 176, "a": 64, "relleno": "#ffffff", "linea": "#2f5f8f", "grosor": 2, "texto": "Sistemas" },
+        { "id": 6, "tipo": "persona", "x": 304, "y": 272, "l": 176, "a": 64, "relleno": "#ffffff", "linea": "#2f5f8f", "grosor": 2, "texto": "Desarrollo" }
+      ],
+      "conectores": [
+        { "id": 7, "tipo": "angulo", "de": 3, "pto_de": 2, "a": 5, "pto_a": 0, "flecha_ini": false, "flecha_fin": false, "linea": "#2f4f6f", "grosor": 2 },
+        { "id": 8, "tipo": "angulo", "de": 3, "pto_de": 2, "a": 6, "pto_a": 0, "flecha_ini": false, "flecha_fin": false, "linea": "#2f4f6f", "grosor": 2 },
+        { "id": 9, "tipo": "angulo", "de": 1, "pto_de": 2, "a": 2, "pto_a": 0, "flecha_ini": false, "flecha_fin": false, "linea": "#2f4f6f", "grosor": 2 },
+        { "id": 10, "tipo": "angulo", "de": 1, "pto_de": 2, "a": 3, "pto_a": 0, "flecha_ini": false, "flecha_fin": false, "linea": "#2f4f6f", "grosor": 2 },
+        { "id": 11, "tipo": "angulo", "de": 1, "pto_de": 2, "a": 4, "pto_a": 0, "flecha_ini": false, "flecha_fin": false, "linea": "#2f4f6f", "grosor": 2 }
+      ]
+    }
+  ]
+}

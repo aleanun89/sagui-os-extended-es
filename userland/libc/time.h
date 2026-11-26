@@ -33,6 +33,7 @@ char      *strptime(const char *s, const char *fmt, struct tm *t);
 size_t     strftime(char *s, size_t max, const char *fmt, const struct tm *t);
 char      *asctime(const struct tm *t);
 char      *ctime(const time_t *t);
+char      *ctime_r(const time_t *t, char *buf);   /* D477 (servidores.c) */
 int        clock_gettime(clockid_t relogio, struct timespec *ts);
 int        nanosleep(const struct timespec *pedido, struct timespec *resto);
 void       tzset(void);

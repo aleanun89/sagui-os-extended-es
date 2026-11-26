@@ -35,6 +35,19 @@ static inline int ajuste_formatear(char *salida,size_t capacidad,int vista,int e
                     : snprintf(salida,capacidad,"vista=%d\n",vista);
 }
 
+/* D476, limitador de FPS: 30, 60 o 0 (ilimitado); cualquier otro valor (o falta de clave, -1) = 60. Clave "fps". */
+static inline int ajuste_fps_valido(int fps) { return fps==30 ? 30 : fps==0 ? 0 : 60; }
+/* Siguiente en el ciclo de F6: 60 -> 30 -> ilimitado -> 60. */
+static inline int ajuste_fps_siguiente(int fps) { fps=ajuste_fps_valido(fps); return fps==60 ? 30 : fps==30 ? 0 : 60; }
+/* Como ajuste_formatear, y añade la línea "fps=N" (fps<0: no la escribe). */
+static inline int ajuste_formatear_fps(char *salida,size_t capacidad,int vista,int escala,int fps)
+{
+    int n=ajuste_formatear(salida,capacidad,vista,escala);
+    if (n<0 || fps<0 || (size_t)n>=capacidad) return n;
+    int m=snprintf(salida+n,capacidad-(size_t)n,"fps=%d\n",fps);
+    return m<0 || (size_t)(n+m)>=capacidad ? -1 : n+m;
+}
+
 /* Distancia de dibujo de la primera vez segun lo que anuncia el 3D de SaguiOS (glGetString(GL_RENDERER)):
  *   sin 3D por la GPU ("SaguiGL (software)") o con una GPU antigua sin gpu3d v3 ("SaguiGL (GPU)")  -> 48;
  *   con gpu3d v3 ("SaguiGL (GPU v3)")                                                              -> 64.

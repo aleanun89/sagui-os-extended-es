@@ -5,6 +5,7 @@
  * AOEN_PRUEBA no hacen nada. */
 #include "interfaz.h"
 #include "ia.h"
+#include "config.h"
 
 static Uint8 teclas_falsas[512];
 int prueba_activa;   /* hay guion: el ratón simulado cuenta como dentro de la ventana */
@@ -44,6 +45,12 @@ void prueba_paso(int f) {
 		if (f >= 4 && f <= 7) in.key[SDL_SCANCODE_DOWN] = 1;
 		if (f == 9) in.key[SDL_SCANCODE_RIGHT] = 1;
 		if (f == 12) AOEN_LOG("[AOEN] prueba teclado: civilización del jugador 1 = %s, foco %d", civ_def[su.civ[0]].name, foco_actual);
+		return;
+	}
+	if (!strcmp(p, "fps") && app.screen == SC_OPTIONS) {
+		/* D476: dos clics en la flecha derecha del selector «Límite de FPS»: 60 -> 30 -> ilimitado; queda guardado */
+		if (f == 4 || f == 8) { in.mx = (prueba_fps.x + prueba_fps.w - 10) * app.us; in.my = (prueba_fps.y + 10) * app.us; in.mclick = 1; in.mouse_seen = 1; }
+		if (f == 6 || f == 10) AOEN_LOG("[AOEN] prueba fps: fps_max=%d guardado=%d", app.fps_max, cfg_get_int("fps_max", -1));
 		return;
 	}
 	if (!strcmp(p, "comercio") && app.screen == SC_SETUP) {

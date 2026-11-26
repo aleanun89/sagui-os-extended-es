@@ -6,7 +6,7 @@
 #define NS_SYS_SELECT_H
 
 #include <sys/time.h>
-#define FD_SETSIZE 64
+#define FD_SETSIZE 128   /* D477: igual que MAX_ARQUIVOS del kernel */
 typedef struct { unsigned int bits[FD_SETSIZE / 32]; } fd_set;
 #define FD_ZERO(s)  do { int _i; for (_i = 0; _i < FD_SETSIZE / 32; _i++) (s)->bits[_i] = 0; } while (0)
 #define FD_SET(fd, s)   ((s)->bits[(fd) / 32] |= (1u << ((fd) % 32)))

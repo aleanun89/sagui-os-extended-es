@@ -122,6 +122,22 @@ static void p_fork_exec(void)
     ok(w == p && WIFEXITED(st) && WEXITSTATUS(st) == 7, "waitpid: salió con 7 (estado %#x)", st);
     close(fd);
 
+    /* D477: con 128 descriptores la marca FD_CLOEXEC de uno por encima de 31 no pisa la de fd-32. */
+    {
+        int alto = fcntl(0, F_DUPFD, 40), bajo = fcntl(0, F_DUPFD, 8);
+        ok(alto >= 40 && bajo >= 8 && bajo < 32, "descriptores por encima de 31 (%d y %d)", alto, bajo);
+        if (alto >= 40 && bajo >= 8) {
+            fcntl(bajo, F_SETFD, 0);
+            fcntl(alto, F_SETFD, FD_CLOEXEC);
+            ok((fcntl(alto, F_GETFD) & FD_CLOEXEC) && !(fcntl(bajo, F_GETFD) & FD_CLOEXEC), "FD_CLOEXEC en el %d sin tocar el %d", alto, bajo);
+            int g = fcntl(0, F_DUPFD, alto - 32 >= 0 ? alto - 32 : 0);
+            ok(g >= 0 && !(fcntl(g, F_GETFD) & FD_CLOEXEC), "el descriptor %d (alto-32) sigue sin FD_CLOEXEC", g);
+            if (g >= 0) close(g);
+        }
+        if (alto >= 0) close(alto);
+        if (bajo >= 0) close(bajo);
+    }
+
     fflush(NULL);
     p = fork();
     if (p == 0) {

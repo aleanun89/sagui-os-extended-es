@@ -1,0 +1,9 @@
+Python para datos (SaguiOS 8.5.6.1, D479)
+
+  estadistica.py   ulab (el «NumPy» de MicroPython): medias, álgebra lineal, FFT, ajuste.
+  ventas.py        el módulo «tablas» (DataFrame ligero): CSV, groupby, pivot, merge, SQLite, JSON.
+  grafico.py       un gráfico de barras de la tabla en una ventana.
+  rendimiento.py   @micropython.native y @micropython.viper frente a Python puro.
+  ventas.csv, productos.csv   datos sintéticos de ejemplo.
+
+Manual: docs/python-datos.md. Ejecuta con «python /ejemplos/datos/<nombre>.py».

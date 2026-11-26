@@ -20,6 +20,12 @@ AoEN es un juego de estrategia en tiempo real al estilo de Age of Empires, escri
 `make` lo incluye (`userland/juegos/aoen/aoen.mk`): `/apps/bin/aoen` y `/apps/bin/aoen-config`. Sin los DRS el juego
 muestra las instrucciones en su ventana.
 
+## Límite de FPS (Opciones > Gráficos, D476)
+
+Selector «Límite de FPS»: **60** (de serie), **30** o **Ilimitado**. La espera duerme (no gasta CPU) y el audio va por su hilo, así que no se corta.
+Se guarda como `fps_max` en `aoen.cfg` (60, 30 o 0) y vale al arrancar; `AOEN_FPS_MAX=N` manda para esa vez. A 30 el portátil se calienta y suena
+menos; ilimitado sirve para medir. Además, la variable general `SDL_SAGUI_FPS_MAX` de la SDL de SaguiOS (`docs/sdl-gpu.md`) también se aplica.
+
 ## Efectos gráficos (Opciones > Gráficos)
 
 Tres perfiles: **Equipos lentos** (todo apagado: el AoEN original), **Normal** (transiciones, agua, niebla suave, sombras,

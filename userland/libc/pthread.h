@@ -65,6 +65,17 @@ int pthread_detach(pthread_t t);
 void pthread_exit(void *ret) __attribute__((noreturn));
 pthread_t pthread_self(void);
 int pthread_equal(pthread_t a, pthread_t b);
+/* D477 (Valkey): sin cancelación ni señales a hilos. pthread_cancel y pthread_kill devuelven ENOSYS (el hilo sigue);
+ * pthread_setcancelstate/type aceptan y no hacen nada. Valkey solo los usa al apagar o en el informe de caída. */
+#define PTHREAD_CANCEL_ENABLE       0
+#define PTHREAD_CANCEL_DISABLE      1
+#define PTHREAD_CANCEL_DEFERRED     0
+#define PTHREAD_CANCEL_ASYNCHRONOUS 1
+int pthread_cancel(pthread_t t);
+int pthread_kill(pthread_t t, int sinal);
+int pthread_setcancelstate(int estado, int *antiguo);
+int pthread_setcanceltype(int tipo, int *antiguo);
+int pthread_attr_setguardsize(pthread_attr_t *a, size_t n);
 int pthread_setname_np(pthread_t t, const char *nombre);
 
 int pthread_mutexattr_init(pthread_mutexattr_t *a);

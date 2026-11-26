@@ -319,7 +319,7 @@ def interfaz():
 
         t, g = correr(m, "AOEN_SCENE=setup AOEN_PRUEBA=teclado", 200, r"\[AOEN\] prueba teclado: civilizaci\S+n del jugador 1 = (\S+), foco", "H389-20-configuracion")
         verificar(g[0] == "Griegos", "con Abajo y Derecha se cambia la civilización del jugador 1 (%s)" % g[0])
-        verificar(re.search(r"vista previa del mapa: \S+ \d+x\d+, semilla \d+, 4 jugadores", t) is not None, "la configuración genera la vista previa del mapa con los 4 inicios")
+        verificar(re.search(r"vista previa del mapa: [^\r\n]+? \d+x\d+, semilla \d+, 4 jugadores", t) is not None, "la configuración genera la vista previa del mapa con los 4 inicios")
 
         t, g = correr(m, juego + " AOEN_PRUEBA=ayuda", 260, r"\[AOEN\] ayuda: Avanzar a la Edad de Herramientas \| coste 0/500/0/0 \| ([^\r\n]+)[\r\n]", "H389-21-ayuda")
         verificar("ayuda: Entrenar Aldeano | coste 0/50/0/0 | disponible" in t, "la ayuda del botón del aldeano dice su coste (50 de comida)")

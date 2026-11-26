@@ -12,7 +12,7 @@ Los gráficos son de Kenney (CC0); los sonidos, sintetizados por el propio proye
 ## Teclas del motor
 
 **F3**: HUD de rendimiento (fps, tiempo de cuadro, lotes de dibujo, CPU, RAM y si se dibuja por la GPU).
-**F4**: dibuja las cajas de colisión. **F11** o **Alt+Intro**: pantalla completa. **Esc**: salir.
+**F5**: límite de FPS (60, 30 o ilimitado; se guarda). **F4**: dibuja las cajas de colisión. **F11** o **Alt+Intro**: pantalla completa. **Esc**: salir.
 
 ## Desde una terminal
 

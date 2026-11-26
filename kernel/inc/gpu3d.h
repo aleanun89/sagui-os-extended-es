@@ -195,6 +195,7 @@ extern const gpu3d_driver_t gpu3d_r600;    /* Radeon R7xx por el CP (gpu3d_r600.
 extern const gpu3d_driver_t gpu3d_r500;    /* Radeon R5xx: X1300 a X1950 (gpu3d_r500.c, D287) */
 extern const gpu3d_driver_t gpu3d_evergreen; /* Radeon Evergreen y NI sin Cayman: HD 5000-6000, HD 7500M/7600M (gpu3d_evergreen.c, D427) */
 extern const gpu3d_driver_t gpu3d_intel9;  /* Intel Gen9 (Skylake ... Comet Lake) por el RCS con execlists (gpu3d_intel9.c, D438): no se enciende solo */
+extern const gpu3d_driver_t gpu3d_virgl;   /* VirGL de la virtio-gpu (QEMU, Proxmox): la GPU del anfitrión (gpu3d_virgl.c, D474) */
 extern const gpu3d_driver_t gpu3d_sim;     /* de mentira, por la CPU (gpu3d_sim.c): solo pruebas */
 
 /* D358: lo que quedó en marcha en la Intel (GPU3D_VAR_*) y los KB de RAM en el GTT. */

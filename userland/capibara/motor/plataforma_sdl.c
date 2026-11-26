@@ -15,6 +15,7 @@
 #include <SDL_image.h>
 #endif
 #include <ctype.h>
+#include <sys/stat.h>
 
 static SDL_Window *W; static SDL_Renderer *R;
 static int g_acel, g_completa, g_gpu_modo = -1;   /* -1 automático, 0 nunca, 1 siempre */
@@ -24,6 +25,36 @@ static int g_cuadros_fijos, g_bench;              /* --cuadros N / --bench N */
 static const char *g_volcar, *g_grabar_audio, *g_escena_arg;   /* g_escena_arg: --escena (D460: el editor juega la escena abierta) */
 static int g_audio_prio = -1;                     /* -1 automática (con GPU), 0 no, 1 sí */
 static int g_salir_esc = 1;
+
+/* D476, limitador de FPS: -1 = el del proyecto (paso, de serie 60), 30, 60 o 0 (ilimitado). Se elige con --fps=30|60|ilimitado,
+ * con CAPI_FPS, o en el juego con F5 (60 -> 30 -> ilimitado); la elección de F5 se guarda en ~/.config/capibara/ajustes.cfg
+ * (línea «fps=N») y vale la próxima vez. Orden de preferencia: --fps, CAPI_FPS, fichero. La espera duerme (SDL_Delay). */
+static int g_fps_max = -1, g_fps_pedido;   /* g_fps_pedido: --fps o CAPI_FPS; con --bench solo entonces se aplica el tope */
+static int fps_valido(int v) { return v == 30 ? 30 : v <= 0 ? 0 : 60; }
+static int fps_texto(const char *t) { return !strcmp(t, "ilimitado") || !strcmp(t, "0") ? 0 : fps_valido(atoi(t)); }
+static void fps_ruta(char *out, size_t n, int crear) {
+	const char *xdg = getenv("XDG_CONFIG_HOME"), *home = getenv("HOME");
+	char dir[512];
+	if (xdg && *xdg) snprintf(dir, sizeof dir, "%s/capibara", xdg);
+	else snprintf(dir, sizeof dir, "%s/.config/capibara", home && *home ? home : ".");
+	if (crear) {
+		char tmp[512]; snprintf(tmp, sizeof tmp, "%s", dir);
+		for (char *c = tmp + 1; *c; ++c) if (*c == '/') { *c = 0; mkdir(tmp, 0755); *c = '/'; }
+		mkdir(tmp, 0755);
+	}
+	snprintf(out, n, "%s/ajustes.cfg", dir);
+}
+static void fps_leer_fichero(void) {
+	char ruta[640], l[64]; fps_ruta(ruta, sizeof ruta, 0);
+	FILE *f = fopen(ruta, "r"); if (!f) return;
+	while (fgets(l, sizeof l, f)) if (!strncmp(l, "fps=", 4)) g_fps_max = fps_valido(atoi(l + 4));
+	fclose(f);
+}
+static void fps_guardar(void) {
+	char ruta[640]; fps_ruta(ruta, sizeof ruta, 1);
+	FILE *f = fopen(ruta, "w"); if (!f) return;
+	fprintf(f, "fps=%d\n", g_fps_max); fclose(f);
+}
 
 /* ---------------------------------------------------------------------------------------------------- imágenes */
 static uint32_t *decodificar(const unsigned char *d, size_t n, int *w, int *h) {
@@ -136,6 +167,11 @@ static void tratar_eventos(void) {
 			if (e.key.repeat) break;
 			int abajo = e.type == SDL_KEYDOWN; SDL_Keycode k = e.key.keysym.sym;
 			if (abajo && k == SDLK_F3) { g_hud = !g_hud; break; }
+			if (abajo && k == SDLK_F5) {   /* D476 */
+				int act = g_fps_max < 0 ? 60 : g_fps_max;
+				g_fps_max = act == 60 ? 30 : act == 30 ? 0 : 60; fps_guardar();
+				capi_log("CAPI_FPS_MAX %d (F5, guardado)", g_fps_max); break;
+			}
 			if (abajo && k == SDLK_F4) { g_dep_col = !g_dep_col; break; }
 			if (abajo && (k == SDLK_F11 || (k == SDLK_RETURN && (e.key.keysym.mod & KMOD_ALT)))) { poner_completa(!g_completa); break; }
 			if (abajo && k == SDLK_ESCAPE && g_salir_esc) { g_salir = 1; break; }
@@ -211,7 +247,7 @@ static void hud_cuadro(double ms, double pared) {
 		if (hs.acum >= 500) { hs.acum = hs.ocupado = hs.peor = 0; hs.n = 0; }
 		if (g_hud) {
 			int n = 0; MezEst a = mez_estadisticas();
-			snprintf(g_hud_txt[n++], 100, "Capibara %s  FPS %.1f  cuadro %.1f ms (peor %.1f)", CAPI_VERSION, fps_actual, ms_medio, ms_peor);
+			snprintf(g_hud_txt[n++], 100, "Capibara %s  FPS %.1f  cuadro %.1f ms (peor %.1f)  tope %s", CAPI_VERSION, fps_actual, ms_medio, ms_peor, g_fps_max == 30 ? "30" : g_fps_max == 0 ? "ilimitado" : "60");
 			snprintf(g_hud_txt[n++], 100, "render %s (%s)  lotes %ld  tri %ld  copias %ld", g_nombre_rend, g_acel ? "geometria" : "copias", dibsdl_lotes, dibsdl_triangulos, dibsdl_copias);
 			snprintf(g_hud_txt[n++], 100, "quads %d  texturas %d  nodos %d  fisica %ldp", g_nquads, rec_numero_texturas(), nodo_contar(g_mundo.arbol), g_fis_pares);
 			snprintf(g_hud_txt[n++], 100, "audio: %d voces, %lld cuadros, %ld perdidas", a.activas, a.cuadros, a.perdidas);
@@ -255,7 +291,7 @@ static void uso(void) {
 	printf("Capibara %s - motor de juegos 2D\n"
 	       "uso: capibara [opciones] proyecto/ | juego.capi\n"
 	       "     capibara --empaquetar proyecto/ juego.capi\n"
-	       "opciones: --pantalla-completa  --gpu=auto|si|no  --hud  --cuadros N (sin ventana visible, determinista; imprime CAPI_HASH)\n"
+	       "opciones: --pantalla-completa  --gpu=auto|si|no  --fps=30|60|ilimitado (F5 en el juego)  --hud  --cuadros N (sin ventana visible, determinista; imprime CAPI_HASH)\n"
 	       "          --escena ruta.esc  (empieza por esa escena en vez de la principal)\n"
 	       "          --bench N  --volcar f.ppm  --entrada \"12:derecha+;40:saltar+\"  --grabar-audio f.wav  --audio-prio=auto|si|no\n", CAPI_VERSION);
 }
@@ -265,6 +301,8 @@ int capibara_principal(int argc, char **argv) {
 	const char *pasos_txt = getenv("CAPI_ENTRADA");
 	if (pasos_txt) cargar_pasos(pasos_txt);
 	if (getenv("CAPI_GPU")) g_gpu_modo = atoi(getenv("CAPI_GPU"));
+	fps_leer_fichero();
+	if (getenv("CAPI_FPS")) { g_fps_max = fps_texto(getenv("CAPI_FPS")); g_fps_pedido = 1; }
 	setvbuf(stdout, NULL, _IOLBF, 0);
 	for (int i = 1; i < argc; ++i) {
 		const char *a = argv[i];
@@ -275,6 +313,7 @@ int capibara_principal(int argc, char **argv) {
 		}
 		else if (!strcmp(a, "--pantalla-completa")) g_completa = 1;
 		else if (!strcmp(a, "--hud")) g_hud = 1;
+		else if (!strncmp(a, "--fps=", 6)) { g_fps_max = fps_texto(a + 6); g_fps_pedido = 1; }
 		else if (!strncmp(a, "--gpu=", 6)) g_gpu_modo = !strcmp(a + 6, "si") ? 1 : !strcmp(a + 6, "no") ? 0 : -1;
 		else if (!strncmp(a, "--audio-prio=", 13)) g_audio_prio = !strcmp(a + 13, "si") ? 1 : !strcmp(a + 13, "no") ? 0 : -1;
 		else if (!strcmp(a, "--cuadros") && i + 1 < argc) g_cuadros_fijos = atoi(argv[++i]);
@@ -352,10 +391,19 @@ int capibara_principal(int argc, char **argv) {
 			if (!bench_n) { bench_ini = t_ini; bench_t0 = 0; }
 			++bench_n; if (ms > bench_peor) bench_peor = ms;
 			if (bench_n >= g_bench) salir_por_cuadros = 1;
-		} else if (!g_cuadros_fijos) {
+		}
+		if (!g_cuadros_fijos && (!g_bench || g_fps_pedido)) {
 			/* tope de cuadros: hz (la física y el dibujo interpolado siguen igual); el resto del tiempo se cede */
-			double resto = 1000.0 / hz - ms;
-			if (resto > 1.0) SDL_Delay((Uint32)resto);
+			double tope = g_fps_max < 0 ? hz : g_fps_max;   /* D476: 0 = ilimitado, sin espera */
+			if (tope > 0) {   /* plazo acumulado: SDL_Delay redondea al tic del sistema y así el ritmo medio sale exacto */
+				static Uint32 base; static unsigned nc; static double tope_ant;
+				Uint32 ahora = SDL_GetTicks();
+				if (tope_ant != tope || (int)(ahora - (base + (Uint32)(nc * 1000.0 / tope))) > 100) { tope_ant = tope; base = ahora; nc = 0; }
+				else {
+					int falta = (int)(base + (Uint32)(++nc * 1000.0 / tope) - ahora);
+					if (falta > 0) SDL_Delay((Uint32)falta);
+				}
+			}
 		}
 	}
 	(void)bench_t0;

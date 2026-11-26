@@ -1,0 +1,37 @@
+{
+  "arara": 1,
+  "paginas": [
+    {
+      "nombre": "Pedido",
+      "figuras": [
+        { "id": 1, "tipo": "inicio", "x": 184, "y": 16, "l": 112, "a": 48, "relleno": "#d5f0dd", "linea": "#2e7d4b", "grosor": 2, "texto": "Inicio" },
+        { "id": 2, "tipo": "es", "x": 176, "y": 96, "l": 128, "a": 48, "relleno": "#e8e0f5", "linea": "#5b3f9a", "grosor": 2, "texto": "Leer los datos del pedido" },
+        { "id": 3, "tipo": "decision", "x": 184, "y": 192, "l": 128, "a": 80, "relleno": "#fff2b8", "linea": "#9a7b00", "grosor": 2, "texto": "¿Datos válidos?" },
+        { "id": 4, "tipo": "documento", "x": 400, "y": 200, "l": 112, "a": 64, "relleno": "#ffffff", "linea": "#555555", "grosor": 2, "texto": "Mostrar el error" },
+        { "id": 5, "tipo": "proceso", "x": 184, "y": 320, "l": 112, "a": 64, "relleno": "#dcebfa", "linea": "#2f5f8f", "grosor": 2, "texto": "Procesar el pedido" },
+        { "id": 6, "tipo": "bd", "x": 200, "y": 416, "l": 80, "a": 96, "relleno": "#d6e4f0", "linea": "#35566f", "grosor": 2, "texto": "Pedidos" },
+        { "id": 7, "tipo": "inicio", "x": 400, "y": 336, "l": 112, "a": 48, "relleno": "#d5f0dd", "linea": "#2e7d4b", "grosor": 2, "texto": "Fin" },
+        { "id": 8, "tipo": "texto", "x": 312, "y": 192, "l": 48, "a": 32, "relleno": "#00ffffff", "linea": "#00000000", "grosor": 1, "texto": "No" },
+        { "id": 9, "tipo": "texto", "x": 248, "y": 280, "l": 48, "a": 32, "relleno": "#00ffffff", "linea": "#00000000", "grosor": 1, "texto": "Sí" }
+      ],
+      "conectores": [
+        { "id": 10, "tipo": "recto", "de": 1, "pto_de": 2, "a": 2, "pto_a": 0, "flecha_ini": false, "flecha_fin": true, "linea": "#2f4f6f", "grosor": 2 },
+        { "id": 11, "tipo": "recto", "de": 2, "pto_de": 2, "a": 3, "pto_a": 0, "flecha_ini": false, "flecha_fin": true, "linea": "#2f4f6f", "grosor": 2 },
+        { "id": 12, "tipo": "recto", "de": 3, "pto_de": 1, "a": 4, "pto_a": 3, "flecha_ini": false, "flecha_fin": true, "linea": "#2f4f6f", "grosor": 2 },
+        { "id": 13, "tipo": "recto", "de": 3, "pto_de": 2, "a": 5, "pto_a": 0, "flecha_ini": false, "flecha_fin": true, "linea": "#2f4f6f", "grosor": 2 },
+        { "id": 14, "tipo": "recto", "de": 5, "pto_de": 2, "a": 6, "pto_a": 0, "flecha_ini": false, "flecha_fin": true, "linea": "#2f4f6f", "grosor": 2 },
+        { "id": 15, "tipo": "recto", "de": 5, "pto_de": 1, "a": 7, "pto_a": 3, "flecha_ini": false, "flecha_fin": true, "linea": "#2f4f6f", "grosor": 2 },
+        { "id": 16, "tipo": "angulo", "de": 4, "pto_de": 0, "a": 2, "pto_a": 1, "flecha_ini": false, "flecha_fin": true, "linea": "#2f4f6f", "grosor": 2 }
+      ]
+    },
+    {
+      "nombre": "Notas",
+      "figuras": [
+        { "id": 1, "tipo": "texto", "x": 32, "y": 32, "l": 384, "a": 48, "relleno": "#00ffffff", "linea": "#00000000", "grosor": 1, "texto": "Diagrama de flujo de ejemplo de Arara.\nLas figuras se conectan por sus puntos de conexión." },
+        { "id": 2, "tipo": "redond", "x": 32, "y": 112, "l": 112, "a": 64, "relleno": "#e3f2e1", "linea": "#3f7f3f", "grosor": 2, "texto": "Mueve una figura:\nlos conectores la siguen" }
+      ],
+      "conectores": [
+      ]
+    }
+  ]
+}

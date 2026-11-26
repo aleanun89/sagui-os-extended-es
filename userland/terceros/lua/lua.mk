@@ -15,7 +15,7 @@ ifeq ($(LUA_DENTRO),1)
 ifneq ($(wildcard $(LUA_F)/.preparado),)
 LUA_NUCLEO := lapi lcode lctype ldebug ldo ldump lfunc lgc llex lmem lobject lopcodes lparser lstate lstring ltable ltm \
               lundump lvm lzio lauxlib lbaselib lcorolib ldblib liolib lmathlib loadlib loslib lstrlib ltablib lutf8lib linit
-LUA_LIB_OBJ := $(addprefix $(B)/$(LUA_F)/,$(addsuffix .o,$(LUA_NUCLEO)))
+LUA_LIB_OBJ := $(addprefix $(B)/$(LUA_F)/,$(addsuffix .o,$(LUA_NUCLEO))) $(B)/$(LUA_DIR)/plataforma/lsock_sagui.o   # D477: módulo socket
 LUA_HDR := $(wildcard $(LUA_F)/*.h $(LUA_DIR)/plataforma/*.h)
 
 LUA_FLAGS := $(filter-out -mgeneral-regs-only -Wall -Wextra,$(UCFLAGS)) -mfpmath=387 -fexcess-precision=standard \
@@ -28,6 +28,9 @@ $(LUA_LIB_OBJ) $(B)/$(LUA_F)/lua.o $(B)/$(LUA_F)/luac.o: $(B)/%.o: %.c $(LUA_HDR
 $(B)/$(LUA_DIR)/principal_main.o: $(LUA_DIR)/plataforma/principal_main.c
 	@mkdir -p $(dir $@)
 	$(CC) $(LUA_FLAGS) -c -o $@ $<
+
+# D477: linit.c abre utf8 por luaopen_utf8_sagui (lsock_sagui.c), que además deja el módulo «socket» en package.preload
+$(B)/$(LUA_F)/linit.o $(B)/$(LUA_F)/linit.pic.o: LUA_FLAGS += -Dluaopen_utf8=luaopen_utf8_sagui
 
 # la biblioteca, para los programas que incrustan Lua (también va a /apps/tcc/lib)
 LUA_A := $(B)/lua/liblua.a
@@ -66,9 +69,11 @@ $(B)/apps/.feito: $(LUA_SO)
 # /apps/lua: ejemplos, léeme y licencia (el árbol de /apps lo arma APPS_RECURSOS)
 LUA_RAIZ := $(B)/lua-raiz
 LUA_EJEMPLOS := $(wildcard $(LUA_DIR)/ejemplos/*)
-$(LUA_RAIZ)/.feito: $(B)/lua-din/lua-din $(LUA_EJEMPLOS) $(LUA_DIR)/leeme.txt $(LUA_F)/LICENCIA-LUA.txt $(LUA_DIR)/lua.mk
+LUA_MODULOS := $(wildcard $(LUA_DIR)/modulos/*.lua)
+$(LUA_RAIZ)/.feito: $(B)/lua-din/lua-din $(LUA_EJEMPLOS) $(LUA_MODULOS) $(LUA_DIR)/leeme.txt $(LUA_F)/LICENCIA-LUA.txt $(LUA_DIR)/lua.mk
 	rm -rf $(LUA_RAIZ) && mkdir -p $(LUA_RAIZ)/ejemplos $(LUA_RAIZ)/share/lua/5.4 $(LUA_RAIZ)/lib/lua/5.4
 	cp $(LUA_EJEMPLOS) $(LUA_RAIZ)/ejemplos/
+	cp $(LUA_MODULOS) $(LUA_RAIZ)/share/lua/5.4/   # D477: valkey.lua
 	cp $(B)/lua-din/lua-din $(LUA_RAIZ)/lua-din
 	cp $(LUA_DIR)/leeme.txt $(LUA_RAIZ)/leeme.txt
 	cp $(LUA_F)/LICENCIA-LUA.txt $(LUA_RAIZ)/LICENCIA-LUA.txt

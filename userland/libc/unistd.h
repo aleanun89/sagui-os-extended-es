@@ -34,6 +34,10 @@ int     isatty(int fd);
 int     dup(int fd);
 int     dup2(int fd, int novo);
 int     ftruncate(int fd, off_t n);
+int     truncate(const char *caminho, off_t n);   /* D477 (servidores.c) */
+int     chown(const char *caminho, uid_t u, gid_t g);
+int     fchown(int fd, uid_t u, gid_t g);
+int     lchown(const char *caminho, uid_t u, gid_t g);
 int     fsync(int fd);
 unsigned sleep(unsigned s);
 int     usleep(unsigned us);

@@ -413,7 +413,7 @@ static const desenho_t *icone_do_processo(const char *nome)
         { "recortes", &arte_mini_recortes }, { "icones", &arte_mini_icones },
         { "musica", &arte_mini_musica }, { "midi", &arte_mini_musica }, { "sintonia", &arte_mini_musica }, { "zona", &arte_mini_relogio },
         { "visorpdf", &arte_mini_visorpdf }, { "reproductor", &arte_mini_video }, { "camara", &arte_mini_video }, { "grabadora", &arte_mini_musica }, { "convertir-audio", &arte_mini_musica },
-        { "ia", &arte_mini_ia }, { "vps", &arte_mini_vps }, { "exploradorbd", &arte_mini_exploradorbd }, { "exploradorsqlite", &arte_mini_exploradorsqlite }, { "exploradorlmk", &arte_mini_exploradorlmk }, { "macaco", &arte_mini_macaco }, { "pluma", &arte_mini_pluma }, { "tucan", &arte_mini_tucan }, { "gebramini", &arte_mini_gebramini }, { "planomini", &arte_mini_planomini }, { "spider", &arte_mini_spider },
+        { "ia", &arte_mini_ia }, { "vps", &arte_mini_vps }, { "exploradorbd", &arte_mini_exploradorbd }, { "exploradorsqlite", &arte_mini_exploradorsqlite }, { "exploradorlmk", &arte_mini_exploradorlmk }, { "macaco", &arte_mini_macaco }, { "pluma", &arte_mini_pluma }, { "tucan", &arte_mini_tucan }, { "arara", &arte_mini_arara }, { "gebramini", &arte_mini_gebramini }, { "planomini", &arte_mini_planomini }, { "spider", &arte_mini_spider },
         { "jclic", &arte_mini_jclic }, { "jclicbajar", &arte_mini_jclicbajar },   /* D185 */
         { "jabuti", &arte_mini_jabuti }, { "ayuda-gui", &arte_mini_ayuda },   /* D377 */
         { "aoen", &arte_mini_aoen }, { "aoen-config", &arte_mini_aoen },   /* D382 */
@@ -1217,6 +1217,7 @@ static const programa_t programas[] = {
     { N_("Traductor"),               "/apps/bin/traductor", NULL, "traductor", G_ACESSORIOS, &arte_mini_pluma, false },   /* D335: mejora 133 */
     { N_("Macaco (hoja de cálculo)"), "/apps/bin/macaco",    NULL, "macaco",      G_ACESSORIOS, &arte_mini_macaco, false },   /* D142: melhoria 078 */
     { N_("Tucán (presentaciones)"),  "/apps/bin/tucan",      NULL, "tucan",       G_ACESSORIOS, &arte_mini_tucan, false },    /* D369: junto a Pluma y Macaco */
+    { N_("Arara (diagramas)"),       "/apps/bin/arara",       NULL, "arara",       G_ACESSORIOS, &arte_mini_arara, false },    /* D465: diagramas al estilo de Visio, junto a Pluma, Macaco y Tucán */
     { N_("Paint"),                   "/apps/bin/paint",       NULL, "paint",       G_GRAFICOS,   &arte_icone_paint, false },
     { N_("Visor de imágenes"),       "/bin/visor",       NULL, "visor",       G_GRAFICOS,   &arte_icone_visor, false },
     { N_("PlanoMini (CAD 2D)"),      "/apps/bin/planomini",   NULL, "planomini",   G_GRAFICOS,   &arte_mini_planomini, false },   /* D312: mejora 129 */

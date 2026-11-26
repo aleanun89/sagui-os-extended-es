@@ -192,3 +192,10 @@ FRACA int pthread_setspecific(pthread_key_t k, const void *v)
     mutex_largar(&pt_m);
     return r;
 }
+
+/* D477: cancelación y señales a hilos, sin soporte (ver pthread.h). */
+FRACA int pthread_cancel(pthread_t t) { (void)t; return ENOSYS; }
+FRACA int pthread_kill(pthread_t t, int sinal) { (void)t; (void)sinal; return ENOSYS; }
+FRACA int pthread_setcancelstate(int estado, int *antiguo) { (void)estado; if (antiguo) *antiguo = 0; return 0; }
+FRACA int pthread_setcanceltype(int tipo, int *antiguo) { (void)tipo; if (antiguo) *antiguo = 0; return 0; }
+FRACA int pthread_attr_setguardsize(pthread_attr_t *a, size_t n) { (void)a; (void)n; return 0; }

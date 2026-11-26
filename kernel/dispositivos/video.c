@@ -39,6 +39,7 @@
 #include "acel2d.h"
 #include "cpu.h"
 #include "telas.h"
+#include "virtio_gpu.h"
 
 static bool ativo;
 static uint32_t larg, alt, pitch, bpp, bytes_px;   /* larg y alt: el escritorio; pitch, bpp y bytes_px: la cabeza 0 (bpp = profundidad, 15 ocupa 2 bytes) */
@@ -109,8 +110,40 @@ static inline uint32_t na_placa(uint32_t c)
 /* D305: lo mismo para la capa del 2D por la GPU, que rellena directamente en la tarjeta. */
 uint32_t video_cor_placa(cor_t c) { return na_placa(c); }
 
+/* D472: virtio-gpu en modo 2D como tarjeta de la cabeza 0. El framebuffer es una zona de RAM (el respaldo del
+ * recurso) y la presentación va por vg_atualizar/vg_descargar. Con la virtio-vga el VBE ya había puesto un modo
+ * (se respeta su tamaño); con -device virtio-gpu-pci no hay VBE y el modo sale de la cabecera o es 1024x768. */
+static bool iniciar_virtio_gpu(void)
+{
+    if (!vg_candidato(info_boot.vesa_ativo)) return false;
+    uint32_t pl = info_boot.vesa_ativo ? info_boot.vesa_largura : info_boot.res_pref & 0xFFFF;
+    uint32_t pa = info_boot.vesa_ativo ? info_boot.vesa_altura : info_boot.res_pref >> 16;
+    vg_modo_t m;
+    if (!vg_iniciar(pl, pa, &m)) return false;
+    larg = prim_l = m.largura;
+    alt = prim_a = m.altura;
+    pitch = m.pitch;
+    bpp = 32;
+    info_boot.vesa_ativo = 1;
+    info_boot.vesa_largura = m.largura; info_boot.vesa_altura = m.altura; info_boot.vesa_pitch = m.pitch;
+    info_boot.vesa_bpp = 32; info_boot.vesa_fb = m.fis; info_boot.vesa_modo = 0;
+    info_boot.verm_tam = info_boot.verde_tam = info_boot.azul_tam = 0;   /* ler_formato pone 8-8-8 */
+    ler_formato();
+    fb_fisico = m.fis;
+    fb_mapeado = VG_MAX_L * VG_MAX_A * 4;   /* el máximo que se acepta (se pide al cambiar de modo) */
+    tela = m.fb;
+    tras = kmalloc(larg * alt * 4);
+    if (!tras) return false;
+    memset(tras, 0, larg * alt * 4);
+    ativo = true;
+    suj_x0 = suj_y0 = 0; suj_x1 = (int)larg; suj_y1 = (int)alt;
+    klog("[VIDEO] virtio-gpu: %ux%u, %u bits, pitch %u, respaldo %x\n", larg, alt, bpp, pitch, fb_fisico);
+    return true;
+}
+
 bool video_iniciar(void)
 {
+    if (iniciar_virtio_gpu()) return true;
     uint32_t p = info_boot.vesa_bpp;
     if (!info_boot.vesa_ativo || (p != 32 && p != 24 && p != 16 && p != 15))
         return false;
@@ -436,6 +469,8 @@ bool video_cursor_exclusiva(int *x, int *y)
     if (!cur_visivel || (cur_x >= zona_x0 && cur_x < zona_x1 && cur_y >= zona_y0 && cur_y < zona_y1)) return false;
     int cx = cur_x, cy = cur_y;
     desenhar_cursor(cx, cy);
+    vg_atualizar(cx, cy, CUR_L, CUR_A);   /* D474: con la virtio-gpu la flecha va al scanout por su rectángulo */
+    vg_descargar();
     if (x) *x = cx;
     if (y) *y = cy;
     return true;
@@ -476,6 +511,7 @@ void video_mostrar(void)
             acel2d_contar_sw(ACEL_SW_MOSTRAR, (uint32_t)((suj_x1 - suj_x0) * (suj_y1 - suj_y0)));   /* D346 */
             rapido_fim(sse);
             acel_atualizar(suj_x0, suj_y0, suj_x1 - suj_x0, suj_y1 - suj_y0);   /* D195: VMware en modo SVGA */
+            vg_atualizar(suj_x0, suj_y0, suj_x1 - suj_x0, suj_y1 - suj_y0);     /* D472: virtio-gpu */
         }
         toca_cursor = cur_x < suj_x1 && cur_x + CUR_L > suj_x0 && cur_y < suj_y1 && cur_y + CUR_A > suj_y0;
     }
@@ -483,7 +519,9 @@ void video_mostrar(void)
         if (pela_gpu) acel_sincronizar();   /* D387: el cursor va encima de lo que la GPU está copiando */
         desenhar_cursor(cur_x, cur_y);
         acel_atualizar(cur_x, cur_y, CUR_L, CUR_A);
+        vg_atualizar(cur_x, cur_y, CUR_L, CUR_A);
     }
+    vg_descargar();   /* D472: todo lo apuntado al scanout de una vez */
     cur_ant_x = cur_x; cur_ant_y = cur_y; cur_ant_visivel = visivel;
     suj_x0 = suj_x1 = 0;
 }
@@ -497,6 +535,8 @@ void video_volcar_cpu(int x0, int y0, int x1, int y1)
     copiar_regiao(x0, y0, x1, y1, false, 0, 0);
     rapido_fim(sse);
     acel_atualizar(x0, y0, x1 - x0, y1 - y0);
+    vg_atualizar(x0, y0, x1 - x0, y1 - y0);
+    vg_descargar();
 }
 
 void video_mostrar_tudo(void)
@@ -525,7 +565,7 @@ bool video_zona_sem_cursor(int x, int y, int l, int a)
  * mouse también dibuja (video_mostrar). */
 bool video_trocar_modo(uint32_t l, uint32_t a)
 {
-    if (!ativo || !bga_presente()) return false;
+    if (!ativo || (!bga_presente() && !vg_ativo())) return false;
     if (l == prim_l && a == prim_a) return true;
     uint32_t novo_bpp = video_bpp_a_quente();
     if (l * a * 4 > fb_mapeado) return false;
@@ -537,8 +577,17 @@ bool video_trocar_modo(uint32_t l, uint32_t a)
     telas_desktop(0, l, a, &dl, &da);   /* D290: con varias pantallas el escritorio es más que este modo */
     uint32_t *novo = kmalloc(dl * da * 4);
     if (!novo) return false;
-    uint32_t p = bga_mudar(l, a, novo_bpp, prim_l, prim_a, bpp);
+    uint32_t p;
+    vg_modo_t vm;
+    bool por_vg = vg_ativo();
+    if (por_vg) {   /* D472: respaldo y recurso nuevos; el modo anterior sigue si falla */
+        novo_bpp = 32;
+        p = vg_mudar(l, a, &vm) ? vm.pitch : 0;
+    } else {
+        p = bga_mudar(l, a, novo_bpp, prim_l, prim_a, bpp);
+    }
     if (!p || p * a > fb_mapeado) { kfree(novo); return false; }
+    if (por_vg) { tela = vm.fb; fb_fisico = vm.fis; info_boot.vesa_fb = vm.fis; }
     kfree(tras);
     tras = novo;
     memset(tras, 0, dl * da * 4);
@@ -597,5 +646,7 @@ bool video_refazer(void)
  * eligió 16 bits (tarjeta lenta, poca memoria) sigue con ellos. */
 uint32_t video_bpp_a_quente(void) { return bpp == 15 || bpp == 16 ? bpp : 32; }
 
-bool video_troca_a_quente(void) { return ativo && bga_presente(); }
+bool video_troca_a_quente(void) { return ativo && (bga_presente() || vg_ativo()); }
+uint32_t video_max_largura(void) { return vg_ativo() ? VG_MAX_L : bga_max_largura(); }
+uint32_t video_max_altura(void)  { return vg_ativo() ? VG_MAX_A : bga_max_altura(); }
 uint32_t video_memoria_mapeada(void) { return fb_mapeado; }
