@@ -184,11 +184,12 @@ LIBSAGUI_OBJ := $(B)/userland/fonte8x16.o $(B)/userland/libsagui/sse2.o $(B)/use
 LIBSAGUI_BASE_NOMES := ambiente catalogo chamadas compressao conf_maquina contas div64 empacotar entrada formatar fuso gui \
   gui_arquivos gui_barras gui_explorador gui_moderno gui_progreso gui_revisar gui_paineis gui_inspetor gui_selcor gui_vista gui_paleta gui_codigo gui_desfazer gui_consola hilos hora http icones idioma imagem imagem_gif imagem_idct imagem_jpeg \
   inicio.asm mandos memoria rapido rede regex servicos sincronia sonidos sse1 sse2 sse3 ssse3 texto utilitarios zonas \
-  widget cron raiz_live planificador sensores regional gui_componentes pdf_escribir des casa_migrar
+  widget cron raiz_live planificador sensores regional gui_componentes pdf_escribir des casa_migrar unidades_red
 # D462: widget, cron, raiz_live, planificador, sensores, regional, gui_componentes, pdf_escribir, des y casa_migrar
 # pasan a la base (pequeños y sin BSS grande): los usan programas siempre abiertos o muy usados (los widgets, cron,
 # Archivos, el Administrador de tareas, el Editor, vnc...) que, si no, cargaban libsagui_medios.so.1 entera
-# (unos 350 KB de BSS propia por proceso).
+# (unos 350 KB de BSS propia por proceso). D485: unidades_red (el diálogo de archivos la usa).
+
 LIBSAGUI_BASE_OBJ := $(B)/userland/fonte8x16.o $(addprefix $(B)/userland/libsagui/,$(addsuffix .o,$(LIBSAGUI_BASE_NOMES)))
 LIBSAGUI_MEDIOS_OBJ := $(filter-out $(LIBSAGUI_BASE_OBJ),$(LIBSAGUI_OBJ))
 # D378/D462: dónde quedan las bibliotecas compartidas del sistema (definido aquí, antes de los .mk y de la
@@ -235,7 +236,7 @@ COMPILACAO_H := $(B)/gerado/compilacao.h
 # libtls (D060-D063): criptografia, X.509 e TLS, só nos programas que usam rede cifrada.
 TLS_OBJ   := $(patsubst userland/libtls/%.c,$(B)/userland/libtls/%.o,$(wildcard userland/libtls/*.c)) \
              $(B)/userland/libtls/sha256.o
-TLS_PROGS := sshd ssh ssh-keygen wg curl wget certificados cipo sha256sum ia chatia configuracion correo jclicbajar sintonia pluma macaco tucan traductor debug-app
+TLS_PROGS := dav sshd ssh ssh-keygen wg curl wget certificados cipo sha256sum ia chatia configuracion correo jclicbajar sintonia pluma macaco tucan traductor debug-app
 # O cliente de IA (D134): a biblioteca da API compativel com a da OpenAI, que
 # o `ia` do terminal e o assistente do Mico partilham. Fica numa pasta propria
 # (como a libtls) porque so os programas que falam com a IA a ligam.
@@ -300,6 +301,8 @@ PROGRAMAS += $(B)/userland/bin/sagsh $(B)/userland/bin/sh
 # programa está em tests/sgl/ porque o mesmo código compila no anfitrião.
 PROGRAMAS += $(B)/userland/bin/sglv6
 PROGRAMAS += $(B)/userland/bin/es11conf
+PROGRAMAS += $(B)/userland/bin/es20conf
+PROGRAMAS += $(B)/userland/bin/es20ext
 # SQLite 3 (mejora 064, D116): la amalgamación de dominio público en userland/terceros/sqlite/,
 # con el VFS propio (sqlite_vfs_sagui.c) y la libc común (D210; hasta entonces, sqlite_libc.c y
 # unas cabeceras mínimas). Esos objetos no entran en la libsagui común: los ligan solo el
@@ -476,7 +479,7 @@ APPS_MB ?= 0
 # RAM al arrancar). APPS_MOVER acumula, ademas, lo que solo existe segun la configuracion
 # (opentyrian, python). La lista y los MB de cada cosa estan en docs/decisoes.md (D324).
 APPS_MOVER_FIJO := cipo pluma macaco tucan mico correo planomini gebramini arara visorpdf chatia ia \
-  reproductor musica camara grabadora paint pascal cc spider sagui3d buscaminas snake banana sgldemo es11demo \
+  reproductor musica camara grabadora paint pascal cc spider sagui3d buscaminas snake banana sgldemo es11demo es20demo \
   chip8 chip8asm jclic jclicbajar traductor convertir-audio jabuti llm
 APPS_PROGRAMAS := sqlite3 qjs sintonia $(GP_APPS) $(APPS_MOVER_FIJO) $(APPS_MOVER)
 APPS_BINS := $(addprefix $(B)/userland/bin/,$(APPS_PROGRAMAS))
@@ -1059,6 +1062,43 @@ $(ES11_PROG_OBJ): tests/sgl/es11_conformidad.c $(SGL_HDR)
 	$(CC) $(UCFLAGS) -c -o $@ $<
 $(B)/userland/bin/es11conf: $(SGL_OBJ) $(ES11_PROG_OBJ)
 $(B)/userland/bin/es11demo: $(SGL_OBJ)
+# D475: SaguiGL 2.0 (OpenGL ES 2.0 por la CPU). La misma libsgl compilada con -DSGL_ES2 (las funciones que también
+# son de ES 1.1 pasan por sgl2_despacho.c) más la API de ES 2.0, el compilador de GLSL ES 1.00 y la representación
+# intermedia. Los programas de ES 1.1 (SGL_OBJ, Brumacanto, TCC) siguen con los objetos de siempre.
+# es20conf = las pruebas de conformidad (tests/sgl/es20_conformidad.c, las mismas que en el anfitrión); es20demo = la demo.
+SGL2_SOLO := sgl2 sgl2_desenho sgl2_despacho sgl2_gpu sgl_glsl sgl_ri sgl_ri_cpu sgl_tgsi
+SGL2_OBJ  := $(B)/userland/libsgl/es2/sgl.o $(B)/userland/libsgl/es2/sgl_fixo.o $(B)/userland/libsgl/es2/sgl_egl.o \
+             $(addprefix $(B)/userland/libsgl/,$(addsuffix .o,$(SGL2_SOLO)))
+SGL2_HDR  := $(SGL_HDR) userland/libsgl/sgl2_procs.inc $(wildcard userland/inc/GLES2/*.h)
+$(B)/userland/libsgl/es2/%.o: userland/libsgl/%.c $(SGL2_HDR) $(USER_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(filter-out -mgeneral-regs-only,$(UCFLAGS)) $(SGL_FLAGS) -DSGL_ES2 -c -o $@ $<
+ES20_PROG_OBJ := $(B)/userland/programas/es20conf.o
+# D486: es20ext = las extensiones OES (tests/sgl/es20_ext486.c)
+ES20EXT_OBJ := $(B)/userland/programas/es20ext.o
+$(filter-out $(B)/userland/libsgl/es2/%,$(SGL2_OBJ)) $(ES20_PROG_OBJ) $(ES20EXT_OBJ) $(B)/userland/programas/es20demo.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) $(SGL_FLAGS) -DSGL_ES2
+$(filter-out $(B)/userland/libsgl/es2/%,$(SGL2_OBJ)) $(ES20_PROG_OBJ) $(ES20EXT_OBJ) $(B)/userland/programas/es20demo.o: $(SGL2_HDR)
+$(ES20_PROG_OBJ): tests/sgl/es20_conformidad.c $(SGL2_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(UCFLAGS) -c -o $@ $<
+$(ES20EXT_OBJ): tests/sgl/es20_ext486.c $(SGL2_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(UCFLAGS) -c -o $@ $<
+$(B)/userland/bin/es20conf: $(SGL2_OBJ) $(ES20_PROG_OBJ)
+$(B)/userland/bin/es20ext: $(SGL2_OBJ) $(ES20EXT_OBJ)
+$(B)/userland/bin/es20demo: $(SGL2_OBJ)
+
+# glmark2 (D481): el banco de pruebas de OpenGL ES 2.0 de Linaro (GPL-3.0-or-later), C++ sobre la SaguiGL 2.0. Aislado en
+# userland/terceros/glmark2/; sus fuentes no van en git (tools/glmark2_fuentes.sh) y sin ellas, o sin g++, el sistema se
+# construye igual. Fuera de la variante sin GPL. GLMARK2=0 lo deja fuera.
+GLMARK2 ?= 1
+ifneq ($(SEM_GPL),1)
+ifeq ($(GLMARK2)$(CXX_OK),11)
+ifneq ($(wildcard userland/terceros/glmark2/fuentes/.preparado),)
+include userland/terceros/glmark2/glmark2.mk
+endif
+endif
+endif
 
 # O armazón do driver 3D das GPU da AMD (melhora 054, parte B2, D158): a tabela
 # de familias, a identificação (com o mapeo do BAR que faz o kernel) e o
@@ -1205,11 +1245,26 @@ $(B)/$(QJS_DIR)/%.o: $(QJS_DIR)/%.c $(QJS_HDR)
 	@# do proprio gcc: o CPATH do ambiente apontaria para a libc do anfitriao.
 	CPATH= $(CC) $(QJSFLAGS) -c -o $@ $<
 
+# D488: el DOM de las páginas en JavaScript (qjs_dom.js) va dentro del puente como cadena C.
+$(B)/$(QJS_DIR)/qjs_dom.h: $(QJS_DIR)/qjs_dom.js tools/js2h.py
+	@mkdir -p $(dir $@)
+	$(PY) tools/js2h.py $< $@ qjs_dom_js
+$(B)/$(QJS_DIR)/qjs_bridge.o: $(B)/$(QJS_DIR)/qjs_dom.h
+$(B)/$(QJS_DIR)/qjs_bridge.o: QJSFLAGS += -I$(B)/$(QJS_DIR)
+$(B)/userland/programas/cipo.o: $(QJS_DIR)/qjs_bridge.h $(WEB_DIR)/motor.h
+
 $(B)/userland/programas/cipo.o: UCFLAGS := $(filter-out -mgeneral-regs-only,$(UCFLAGS)) \
   -I$(QJS_DIR) \
   -mfpmath=387 -fexcess-precision=standard -I$(WEB_DIR)
 
-$(B)/userland/bin/cipo: $(B)/userland/programas/cipo.o $(WEB_OBJ) $(FONTES_OBJ) $(QJS_OBJ) $(QJS_LIBM) $(LIBSAGUI_OBJ) userland/programa.ld
+# La red del JavaScript del Cipó (D487): los nativos (qjs_rede.c) y la API del navegador (qjs_rede.js, embebida).
+$(B)/userland/qjs_rede/qjs_rede_js.h: $(QJS_DIR)/qjs_rede.js tools/js2h.py
+	@mkdir -p $(dir $@)
+	$(PY) tools/js2h.py $< $@ qjs_rede_js
+$(B)/$(QJS_DIR)/qjs_rede.o: $(B)/userland/qjs_rede/qjs_rede_js.h userland/web/rede.h
+$(B)/$(QJS_DIR)/qjs_rede.o: QJSFLAGS += -I$(B)/userland/qjs_rede -Iuserland/web
+
+$(B)/userland/bin/cipo: $(B)/userland/programas/cipo.o $(WEB_OBJ) $(FONTES_OBJ) $(QJS_OBJ) $(B)/$(QJS_DIR)/qjs_rede.o $(QJS_LIBM) $(LIBSAGUI_OBJ) userland/programa.ld
 	@mkdir -p $(dir $@)
 	$(LD) $(ULDFLAGS) -o $@.elf $(filter %.o,$^)
 	objcopy --strip-all $@.elf $@
@@ -1627,7 +1682,7 @@ $(B)/ramdisk.sgfs: $(B)/sonidos/saguios/.feito $(SONIDOS_KENNEY) $(B)/idiomas/.f
 	if [ -n "$(PROG_TESTE)" ]; then cp $(PROG_TESTE) "$$d/testes/"; fi; \
 	cp $(SO_SISTEMA) "$$d/lib/"; \
 	if [ -n "$(RAMDISK_APPS_DEP)" ]; then cp -r $(B)/apps/raiz "$$d/apps"; \
-	  for x in freeciv openttd; do \
+	  for x in freeciv openttd glmark2; do \
 	    if [ -e "$$d/apps/$$x" ]; then \
 	      echo "Makefile: $$x fuera del ramdisk completo (rutas de más de $(SGFS_MAX_RUTA) caracteres para el SGFS; D379)"; \
 	      rm -rf "$$d/apps/$$x" "$$d/apps/bin/$$x" "$$d/apps/bin/$$x"-*; fi; \
@@ -1690,7 +1745,7 @@ $(shell mkdir -p $(B)/apps && $(PY) tools/marca_carpeta.py $(APPS_MARCA_ENTRADA)
 # temporal que solo al final se renombra (como el ramdisk, D147).
 # D324: guiones de Python que van a /apps/bin junto a python (chip8-roms).
 APPS_GUIONES := $(if $(filter 1,$(MICROPYTHON)),$(wildcard userland/apps/bin/*))
-$(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(DB_RECURSOS) $(LN_RECURSOS) $(GS_RECURSOS) $(MG_RECURSOS) $(SHINE_RECURSOS) $(GO_RECURSOS) $(FC_RECURSOS) $(AOEN_RES) $(BR_RECURSOS) $(CD_RECURSOS) $(JV_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt tools/sonidos_privados.py
+$(APPS_DEP): $(APPS_BINS) $(APPS_GUIONES) $(wildcard userland/apps/videos/*) $(NS_RECURSOS) $(FUENTES_RES) $(OJ_RECURSOS) $(CNC_RECURSOS) $(QK_RECURSOS) $(GB_RECURSOS) $(DB_RECURSOS) $(LN_RECURSOS) $(GS_RECURSOS) $(MG_RECURSOS) $(SHINE_RECURSOS) $(GO_RECURSOS) $(FC_RECURSOS) $(AOEN_RES) $(GM_RECURSOS) $(BR_RECURSOS) $(CD_RECURSOS) $(JV_RECURSOS) $(APPS_MARCA_ENTRADA) userland/apps/leeme.txt tools/sonidos_privados.py
 	@set -e; \
 	mkdir -p $(B)/apps; \
 	t="$$(mktemp -d $(B)/apps/tmp.XXXXXX)"; \

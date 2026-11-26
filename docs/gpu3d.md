@@ -644,6 +644,16 @@ caliente). La bandera `200` no hace falta. Detalle en D457, «Revisión de v3 en
 | 2026-11-22 | Intel Gen9 anuncia v3 (D457, «v3 en Intel»): sin cambios en la interfaz |
 | 2026-11-22 | Primera versión de gpu3d v3 (D457): operaciones 15 a 18, `gpu3d_vbuf_t`, `gpu3d_atrib_t`, `gpu3d_transf_t`, `gpu3d_luz_t`, `gpu3d_luzes_t`, `gpu3d_desenho3_t`, `gpu3d_capas_t.bits3/vbufs/max_luzes` (de los reservados), `GPU3D_EXPULSO`, dos funciones al final de `gpu3d_driver_t` (`vbuf`, `desenhar3`), `G3D_BUF_VERTICES` y `g3d_vbmonte_t`. Nada de v1 ni de v2 cambia |
 
+## SaguiGL 2.0: OpenGL ES 2.0 (D475)
+
+Desde la v8.5.7 la `libsgl` tiene **OpenGL ES 2.0** (`docs/saguigl2.md`). La fase 1 va entera por la CPU: los
+contextos de ES 2.0 apagan la GPU de su `sgl_ctx_t`. Los sombreadores se compilan a una **representación
+intermedia común** (`userland/libsgl/sgl_ri.h`) que cada driver traducirá a su código (TGSI en VirGL, PVS/US en
+R5xx, ALU/CF en R7xx y Evergreen, EU en Gen). Lo que pedirá a la capa una **gpu3d v4** (la fase 2, VirGL, es la
+primera): crear y usar un programa ya traducido, vértices genéricos (atributos con formato y paso en búferes de
+la v3), varios samplers con su vista, el estado de fragmentos completo de ES 2.0 y destino FBO. El detalle por
+familia está en `docs/saguigl2.md`, «Lo que necesita cada backend».
+
 ## Presentar sin volver a la RAM (D432)
 
 Hasta la v8.5.5.1 un programa que dibujaba por la GPU (el renderizador «saguios-gpu» de la SDL 2, D288) tenía que

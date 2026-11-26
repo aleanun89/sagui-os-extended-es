@@ -2482,3 +2482,107 @@ msgstr ""
 msgid "Sin /home persistente los cambios se aplican, pero no se recordarán."
 msgstr ""
 
+
+#: D483
+msgid "Esa carpeta no tiene imágenes (BMP, PNG...)."
+msgstr ""
+
+#: D483
+msgid "Cambiar de fondo automáticamente"
+msgstr ""
+
+#: D483
+msgid "Carpeta de imágenes (Intro para usarla):"
+msgstr ""
+
+#: D483
+msgid "Pulsa Intro para usar esta carpeta."
+msgstr ""
+
+#: D483
+msgid "Cada 1 min"
+msgstr ""
+
+#: D483
+msgid "Cada 5 min"
+msgstr ""
+
+#: D483
+msgid "Cada 10 min"
+msgstr ""
+
+#: D483
+msgid "Cada 30 min"
+msgstr ""
+
+#: D483
+msgid "Cada 60 min"
+msgstr ""
+
+#: D483
+msgid "En orden"
+msgstr ""
+
+#: D483
+msgid "Al azar"
+msgstr ""
+
+#: D483
+msgid "Fundido entre un fondo y otro"
+msgstr ""
+
+#: D483
+msgid "Siguiente fondo"
+msgstr ""
+
+#: D483
+msgid "Cambiando el fondo..."
+msgstr ""
+
+#: D483
+msgid "Acento automático: el color del fondo"
+msgstr ""
+
+#: D483
+msgid "Se recalcula con cada fondo (también con el rotativo)."
+msgstr ""
+
+#: D483
+msgid "Fondo rotativo y acento automático"
+msgstr ""
+
+#: D483
+msgid "Color"
+msgstr ""
+
+#: D483
+msgid "Imagen"
+msgstr ""
+
+#: D483
+msgid "Presentación (rotativo)"
+msgstr ""
+
+#: D483
+msgid "Presentación"
+msgstr ""
+
+#: D483
+msgid "Degradado de siempre"
+msgstr ""
+
+#: D483
+msgid "Color sólido"
+msgstr ""
+
+#: D483
+msgid "Tipo de fondo"
+msgstr ""
+
+#: D483
+msgid "Tomar el color de acento del fondo"
+msgstr ""
+
+#: D483
+msgid "El acento sale del color dominante de cada fondo (con un color sólido, de ese color) y se recalcula al cambiarlo."
+msgstr ""

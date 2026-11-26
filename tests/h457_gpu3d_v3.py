@@ -119,8 +119,8 @@ def fuentes():
               "la capa fija el tamaño de la ABI v3 con _Static_assert")
     verificar("sizeof(gpu3d_capas_t) == 64" in capa and "unsigned int bits3;" in abi, "gpu3d_capas_t sigue midiendo 64 bytes con bits3")
     verificar(re.search(r"int\s+\(\*apresentar\)\(const g3d_apres_t \*p\);.*?int\s+\(\*vbuf\)\(int vaga, uint32_t bytes, uint32_t desloc, "
-                        r"const void \*dados, uint32_t n\);.*?int\s+\(\*desenhar3\)\(const g3d_desenho3_t \*d, g3d_vala_t \*vala\);\s*\} gpu3d_driver_t;", h, re.S),
-              "gpu3d_driver_t: vbuf y desenhar3 al final (pueden ser NULL)")
+                        r"const void \*dados, uint32_t n\);.*?int\s+\(\*desenhar3\)\(const g3d_desenho3_t \*d, g3d_vala_t \*vala\);\s*(?:/\*[^*]*\*/\s*const gpu3d_v4_driver_t \*v4;\s*)?\} gpu3d_driver_t;", h, re.S),
+              "gpu3d_driver_t: vbuf y desenhar3 al final (pueden ser NULL; v4 de D480 admitido tras ellos)")
     verificar("s_apresentar,\n    s_vbuf, s_desenhar3,\n};" in sim and "g3d_v3_cpu(&g, &c)" in sim, "el driver simulado implementa v3 con g3d_v3_cpu")
     r6 = ler("kernel/dispositivos/gpu3d_r600.c")
     verificar("r3_apresentar,\n    r3_vbuf, r3_desenhar3,\n};" in r6 and "v3_confirmada()" in r6 and "R3_REG_DEPURAR" in r6,

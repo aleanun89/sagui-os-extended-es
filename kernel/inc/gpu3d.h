@@ -130,6 +130,21 @@ void g3d_apres_quad(const g3d_apres_t *p, int fl, int fa, gpu3d_vert_t q[6]);
 /* Seis vértices de color «cor» (0xAARRGGBB) sobre el rectángulo x, y, l, a. */
 void g3d_quad_cor(int x, int y, int l, int a, uint32_t cor, gpu3d_vert_t q[6]);
 
+/* D480: gpu3d v4 (docs/saguigl2.md): sombreadores programables ya traducidos a TGSI en texto. La capa ya comprobó
+ * los números (índices, tamaños, punteros del programa); el driver comprueba lo suyo (qué cabe en la GPU).
+ * G3D_OK, G3D_NAO (no cabe o no lo sabe: la libsgl sigue por la CPU) o G3D_FALHA (la GPU no responde: la capa apaga
+ * el 3D). El dibujo y limpiar usan los recursos de color y Z/esténcil que dan; leer espera a la GPU. */
+typedef struct {
+    int  (*caps)(gpu3d_v4_caps_t *c);
+    int  (*programa)(unsigned id, const char *vs, unsigned nvs, const char *fs, unsigned nfs);   /* vs NULL: soltar */
+    int  (*recurso)(const gpu3d_v4_rec_t *r);
+    int  (*subir)(const gpu3d_v4_subir_t *s);
+    int  (*desenhar)(const gpu3d_v4_des_t *d);
+    int  (*limpar)(const gpu3d_v4_limpar_t *l);
+    int  (*ler)(const gpu3d_v4_ler_t *l);
+    void (*soltar_tudo)(void);       /* al abrir y al cerrar el motor: recursos y programas v4 */
+} gpu3d_v4_driver_t;
+
 typedef struct {
     const char *nome;
     /* Pone el motor en marcha (variante: GPU3D_CAB_ANEL...). No dibuja nada todavía. */
@@ -184,6 +199,8 @@ typedef struct {
     int  (*vbuf)(int vaga, uint32_t bytes, uint32_t desloc, const void *dados, uint32_t n);
     /* Dibuja desde los búferes: todo ya validado contra lo anunciado y contra el tamaño de los búferes. */
     int  (*desenhar3)(const g3d_desenho3_t *d, g3d_vala_t *vala);
+    /* ---- gpu3d v4 (D480). NULL en los drivers sin sombreadores programables. */
+    const gpu3d_v4_driver_t *v4;
 } gpu3d_driver_t;
 
 /* D390: los ajustes del fichero del driver, leídos por la capa antes de iniciar() y ya

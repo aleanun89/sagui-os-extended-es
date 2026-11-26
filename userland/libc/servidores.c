@@ -139,8 +139,5 @@ __attribute__((weak)) int chown(const char *caminho, uid_t u, gid_t g) { (void)c
 __attribute__((weak)) int fchown(int fd, uid_t u, gid_t g) { (void)fd; (void)u; (void)g; return 0; }
 __attribute__((weak)) int lchown(const char *caminho, uid_t u, gid_t g) { (void)caminho; (void)u; (void)g; return 0; }
 
-/* Sin carga dinámica en los programas estáticos (la hace libdl en los dinámicos): débiles, para que gane la real. */
-__attribute__((weak)) void *dlopen(const char *nome, int modo) { (void)nome; (void)modo; return NULL; }
-__attribute__((weak)) void *dlsym(void *b, const char *s) { (void)b; (void)s; return NULL; }
-__attribute__((weak)) int dlclose(void *b) { (void)b; return 0; }
-__attribute__((weak)) char *dlerror(void) { return (char *)"no hay carga dinamica de modulos en este programa"; }
+/* dlopen y compañía NO van aquí: un dlopen débil en libc.so.1 gana al real de libsagui/libdl en los programas
+ * dinámicos (h386). Los programas estáticos que los necesiten (Valkey) llevan los suyos (D477). */

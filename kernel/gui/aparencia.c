@@ -10,6 +10,7 @@
 #include "video.h"
 #include "texto.h"
 #include "esquemas.h"
+#include "cursores.h"
 #include "fontes_sistema.h"
 #include "processo.h"
 
@@ -141,6 +142,19 @@ int32_t sis_acento(uint32_t rgb, uint32_t b, uint32_t c, uint32_t d, uint32_t e)
         tema_mudou();
     }
     return (int32_t)esq.acento;
+}
+
+/* SIS_CURSOR (op, tema, tamaño) -> tema | tamaño << 8 | ancho << 16 | alto << 24 (D482). */
+int32_t sis_cursor(uint32_t op, uint32_t tema, uint32_t tamano, uint32_t d, uint32_t e)
+{
+    (void)d; (void)e;
+    if (op == CURSOR_OP_FIJAR) {
+        if (tema >= CURSOR_TEMAS || tamano >= CURSOR_TAMANOS) return ERRO_INVALIDO;
+        video_cursor_estilo((int)tema, (int)tamano);
+    } else if (op != CURSOR_OP_LER) return ERRO_INVALIDO;
+    int t, z;
+    video_cursor_estilo_ler(&t, &z);
+    return (int32_t)((uint32_t)t | (uint32_t)z << 8 | (uint32_t)video_cursor_largura() << 16 | (uint32_t)video_cursor_altura() << 24);
 }
 
 /* SIS_FUNDO (op, ptr, y, n) */

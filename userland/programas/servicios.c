@@ -47,6 +47,7 @@
 #include "servicos.h"
 #include "contas.h"
 #include "pbkdf2.h"
+#include "chaveiro.h"
 #include "conf_maquina.h"   /* D371: casa_real_de_uid */
 
 #define MAX_SERV       20          /* cada uno en marcha gasta un descriptor (su pipe) */
@@ -1259,6 +1260,12 @@ static int tratar_pedido(pedido_recebido_t *p, char *det, int max)
     }
     *falhas = 0;
     *ate = 0;
+    if (entrar) {   /* D485: la clave del llavero de la cuenta, solo en la memoria del kernel */
+        unsigned char k[32];
+        chaveiro_derivar(p->senha, alvo.nome, k);
+        if (chaveiro_op(CHAVEIRO_POR, alvo.uid, k) < 0) anotar("llavero: el kernel no guarda la clave de %s", alvo.nome);
+        memset(k, 0, sizeof k);
+    }
     if (elevar || entrar) { formatar_texto(det, (size_t)max, "contraseña correcta"); return 1; }
     return fijar_senha(&alvo, p->senha_nova, det, max);
 }

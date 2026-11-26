@@ -57,6 +57,7 @@ ROBSON = ("userland/web/motor.c",
           "userland/web/svg.c",
           "userland/web/webgl.c",
           "userland/web/glsl.c",
+          "userland/libsgl/sgl_glsl.c",   # D475: el frontal de glsl.c, copiado y endurecido para SaguiGL 2.0
           "userland/web/glsl.h",
           "userland/web/glsl_emb.h",
           "userland/web/glsl_gen.h",

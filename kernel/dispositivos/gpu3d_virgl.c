@@ -65,6 +65,9 @@ static uint32_t h_blend[17], h_dsa[16], h_samp[8];
 static g3d_vala_t enviada, feita;
 static uint32_t fmt_z24, fmt_z16;           /* los formatos de Z que el anfitrión sabe usar (capset) */
 static uint32_t n_envios, n_bytes_vert, usado_kb;
+static uint32_t fmt_zs;   /* D480: Z24S8 o S8Z24 si el anfitrion lo tiene (0: sin estencil) */
+static void v4_zerar(void);
+static void v4_soltar_tudo(void);
 
 /* ------------------------------------------------------------ números reales con enteros */
 
@@ -250,8 +253,10 @@ static void v_desligar(void)
         memset(tex, 0, sizeof tex);
         rt_id = z_id = vb_id = 0; rt_resp = NULL; rt_pg = 0; rt_surf = z_surf = 0; L = A = 0;
         sub = NULL; usado_kb = 0;
+        v4_zerar();
         return;
     }
+    v4_soltar_tudo();
     virgl_ctx_destruir(CTX);                         /* se lleva todos los objetos del contexto */
     for (int i = 0; i < GPU3D_TEXTURAS; i++) {
         if (tex[i].id) virgl_recurso_soltar(tex[i].id);
@@ -287,6 +292,7 @@ static int v_iniciar(const pci_disp_t *d, int geracao, const acel_tela_t *t, uin
     fmt_z24 = fmt_z16 = 0;
     for (int i = 0; i < 5 && !fmt_z24; i++) if (TEM(VCAPS_MUESTREO, z24[i])) fmt_z24 = z24[i];
     fmt_z16 = TEM(VCAPS_MUESTREO, VFMT_Z16) ? VFMT_Z16 : fmt_z24;
+    fmt_zs = TEM(VCAPS_MUESTREO, VFMT_Z24S8) ? VFMT_Z24S8 : TEM(VCAPS_MUESTREO, VFMT_S8Z24) ? VFMT_S8Z24 : 0;   /* D480: esténcil de v4 */
     klog("[GPU3D] virgl: formatos del anfitrion: muestreo %x %x %x, destino %x %x %x, Z %x, vertices %x %x %x; Z de 24 bits con el formato %u, de 16 con el %u\n",
          caps[1], caps[2], caps[3], caps[17], caps[18], caps[19], caps[33], caps[49], caps[50], caps[51], fmt_z24, fmt_z16);
     if (!fmt_z24 || !TEM(VCAPS_DESTINO, VFMT_B8G8R8A8) || !TEM(VCAPS_MUESTREO, VFMT_B8G8R8A8)) {
@@ -519,10 +525,412 @@ static void v_memoria(uint32_t *total_kb, uint32_t *livre_kb)
 /* La CPU no ve el destino (está en el anfitrión): el diagnóstico de sentinelas no aplica. */
 static void v_vistas(g3d_vista_t *c, g3d_vista_t *z) { (void)c; (void)z; }
 
+/* ============================================================ gpu3d v4 (D480): sombreadores programables ============
+ * La libsgl entrega sombreadores en TGSI de texto (sgl_tgsi.c), uniformes, atributos, texturas y el estado de ES 2.0
+ * ya resuelto; aquí se convierte en órdenes de virglrenderer sobre el mismo contexto 3D:
+ *   - recursos: texturas 2D y cubo (con niveles), destinos de color (también se muestrean) y Z/esténcil; cada uno con
+ *     su «sampler view» o «surface». Las subidas y lecturas pasan por una zona de paso común de 2 MB (el respaldo de
+ *     todos: virtio-gpu deja asociar la misma memoria a varios recursos y QEMU copia en cada orden);
+ *   - un dibujo = atributos y índices escritos con RESOURCE_INLINE_WRITE en dos anillos (vértices e índices), y todo
+ *     el estado en el mismo SUBMIT_3D: framebuffer, viewport, tijera, mezcla, Z/esténcil, rasterizador, elementos de
+ *     vértice, sombreadores, constantes, texturas y muestreadores. Los objetos de estado se crean la primera vez y se
+ *     guardan en cachés pequeñas (al llenarse, se destruyen todos y se rehacen);
+ *   - las pasadas de ES 2.0 sin salida (alvo_cor = el destino) dejan el destino en el anfitrión: la CPU lo ve solo con
+ *     GPU3D_OP_V4_LER (TRANSFER_FROM_HOST_3D con valla).
+ * El kernel no usa coma flotante: los reales llegan como bits y el viewport en medios píxeles se hace con fixo. */
+#define V4_VB_BYTES   (2u << 20)
+#define V4_IB_BYTES   (1u << 20)
+#define V4_STG_PAG    512u                  /* zona de paso: 2 MB */
+#define V4_MAX_UNI    256u
+#define F_1000        0x447A0000u
+
+typedef struct { uint8_t tipo, niveis, zbits, estenc; uint16_t l, a; uint32_t gid, vista, surf, fmt; } r4_t;
+typedef struct { uint32_t vs, fs; bool ok; } p4_t;
+typedef struct { uint8_t obj, n; uint32_t k[24][4]; uint32_t h[24]; } cache4_t;
+
+static r4_t r4[G3D4_RECURSOS];
+static p4_t p4[G3D4_PROGRAMAS];
+static uint8_t *stg;
+static uint32_t vb4_id, ib4_id, vb4_desl, ib4_desl;
+static cache4_t c_bl = { .obj = VO_BLEND }, c_ds = { .obj = VO_DSA }, c_rs = { .obj = VO_RASTERIZER }, c_sm = { .obj = VO_SAMPLER_STATE }, c_ve = { .obj = VO_VERTEX_ELEMENTS };
+
+static uint32_t cache_obter(cache4_t *c, const uint32_t k[4], bool *novo)
+{
+    for (int i = 0; i < c->n; i++)
+        if (!memcmp(c->k[i], k, 16)) { *novo = false; return c->h[i]; }
+    if (c->n >= 24) {
+        for (int i = 0; i < c->n; i++) destruir(c->obj, c->h[i]);
+        c->n = 0;
+    }
+    memcpy(c->k[c->n], k, 16);
+    c->h[c->n] = asa();
+    *novo = true;
+    return c->h[c->n++];
+}
+
+static void v4_zerar(void)
+{
+    memset(r4, 0, sizeof r4); memset(p4, 0, sizeof p4);
+    c_bl.n = c_ds.n = c_rs.n = c_sm.n = c_ve.n = 0;
+    stg = NULL; vb4_id = ib4_id = 0; vb4_desl = ib4_desl = 0;
+}
+
+static void v4_soltar_recurso(unsigned i)
+{
+    r4_t *r = &r4[i];
+    if (!r->tipo) return;
+    destruir(VO_SAMPLER_VIEW, r->vista);
+    destruir(VO_SURFACE, r->surf);
+    if (fl.n) enviar(false, PRAZO_ORDEN);
+    virgl_recurso_soltar(r->gid);
+    memset(r, 0, sizeof *r);
+}
+
+static void v4_soltar_tudo(void)
+{
+    if (!pronto) { v4_zerar(); return; }
+    for (unsigned i = 1; i < G3D4_RECURSOS; i++) v4_soltar_recurso(i);
+    for (unsigned i = 0; i < G3D4_PROGRAMAS; i++) {
+        if (p4[i].vs) { destruir(VO_SHADER, p4[i].vs); destruir(VO_SHADER, p4[i].fs); }
+        memset(&p4[i], 0, sizeof p4[i]);
+    }
+    cache4_t *cs[5] = { &c_bl, &c_ds, &c_rs, &c_sm, &c_ve };
+    for (int k = 0; k < 5; k++) { for (int i = 0; i < cs[k]->n; i++) destruir(cs[k]->obj, cs[k]->h[i]); cs[k]->n = 0; }
+    if (fl.n) enviar(false, PRAZO_ORDEN);
+    if (vb4_id) virgl_recurso_soltar(vb4_id);
+    if (ib4_id) virgl_recurso_soltar(ib4_id);
+    vb4_id = ib4_id = 0;
+    if (stg) { memfisica_liberar_seguidas((uint32_t)stg, V4_STG_PAG); usado_kb -= V4_STG_PAG * (PAGINA / 1024); }
+    stg = NULL;
+}
+
+/* Lo que hace falta en el primer uso: la zona de paso y los dos anillos. */
+static int v4_preparar(void)
+{
+    if (!pronto) return G3D_FALHA;
+    if (stg && vb4_id) return G3D_OK;
+    uint32_t f = memfisica_alocar_seguidas(V4_STG_PAG);
+    if (!f) return G3D_NAO;
+    memset((void *)f, 0, V4_STG_PAG * PAGINA);
+    stg = (uint8_t *)f;
+    usado_kb += V4_STG_PAG * (PAGINA / 1024);
+    vb4_id = prox_id++; ib4_id = prox_id++;
+    if (!virgl_recurso_crear(CTX, vb4_id, TGT_BUFFER, FMT_BUFFER, BIND_VERTEX_BUFFER, V4_VB_BYTES, 1, NULL, 0) ||
+        !virgl_recurso_crear(CTX, ib4_id, TGT_BUFFER, FMT_BUFFER, BIND_INDEX_BUFFER, V4_IB_BYTES, 1, NULL, 0)) {
+        vb4_id = ib4_id = 0;
+        memfisica_liberar_seguidas((uint32_t)stg, V4_STG_PAG); stg = NULL; usado_kb -= V4_STG_PAG * (PAGINA / 1024);
+        return G3D_FALHA;
+    }
+    return G3D_OK;
+}
+
+static int v4_caps(gpu3d_v4_caps_t *c)
+{
+    if (!pronto) return G3D_FALHA;
+    c->bits = G3D4_C_CUBO | (fmt_zs ? G3D4_C_ESTENCIL : 0);
+    return G3D_OK;
+}
+
+static int v4_programa(unsigned id, const char *vs, unsigned nvs, const char *fs, unsigned nfs)
+{
+    (void)nvs; (void)nfs;
+    if (!pronto) return G3D_FALHA;
+    p4_t *p = &p4[id];
+    if (p->vs) { destruir(VO_SHADER, p->vs); destruir(VO_SHADER, p->fs); memset(p, 0, sizeof *p); }
+    if (!vs) { if (fl.n) enviar(false, PRAZO_ORDEN); return G3D_OK; }
+    int r = v4_preparar();
+    if (r != G3D_OK) return r;
+    p->vs = asa(); p->fs = asa();
+    virgl_sombreador(&fl, p->vs, VSOMBRA_VERTICES, vs);
+    virgl_sombreador(&fl, p->fs, VSOMBRA_FRAGMENTOS, fs);
+    if (fl.lleno) { fl.n = 0; fl.lleno = false; memset(p, 0, sizeof *p); return G3D_NAO; }
+    p->ok = true;
+    return enviar(false, PRAZO_ORDEN);
+}
+
+static int v4_recurso(const gpu3d_v4_rec_t *g)
+{
+    if (!pronto) return G3D_FALHA;
+    v4_soltar_recurso(g->id);
+    if (!g->larg) return G3D_OK;
+    int r = v4_preparar();
+    if (r != G3D_OK) return r;
+    r4_t *x = &r4[g->id];
+    uint32_t gid = prox_id++, fmt = VFMT_B8G8R8A8, bind = BIND_SAMPLER_VIEW, tgt = TGT_2D, capas = 1;
+    bool visto = true, superficie = false;
+    if (g->tipo == G3D4_R_CUBO) { tgt = TGT_CUBO; capas = 6; }
+    if (g->tipo == G3D4_R_ALVO) { bind |= BIND_RENDER_TARGET; superficie = true; }
+    if (g->tipo == G3D4_R_ZE) {
+        if (g->estencil) { if (!fmt_zs) return G3D_NAO; fmt = fmt_zs; }
+        else fmt = g->zbits == 16 ? fmt_z16 : fmt_z24;
+        bind = BIND_DEPTH_STENCIL; visto = false; superficie = true;
+    }
+    uint32_t niv = g->tipo == G3D4_R_ZE ? 1u : g->niveis;
+    if (!virgl_recurso_crear2(CTX, gid, tgt, fmt, bind, g->larg, g->alt, 1, capas, niv - 1, g->tipo == G3D4_R_ZE ? NULL : stg, V4_STG_PAG * PAGINA))
+        return G3D_FALHA;
+    x->tipo = (uint8_t)g->tipo; x->niveis = (uint8_t)niv; x->zbits = (uint8_t)g->zbits; x->estenc = (uint8_t)g->estencil;
+    x->l = (uint16_t)g->larg; x->a = (uint16_t)g->alt; x->gid = gid; x->fmt = fmt;
+    if (visto) {
+        x->vista = asa();
+        cmd(VC_CREAR_OBJETO, VO_SAMPLER_VIEW, 6);
+        w(x->vista); w(gid); w(fmt); w(g->tipo == G3D4_R_CUBO ? (5u << 16) : 0u); w((niv - 1) << 8); w(0u | (1u << 3) | (2u << 6) | (3u << 9));
+    }
+    if (superficie) { x->surf = asa(); cmd(VC_CREAR_OBJETO, VO_SURFACE, 5); w(x->surf); w(gid); w(fmt); w(0); w(0); }
+    return fl.n ? enviar(false, PRAZO_ORDEN) : G3D_OK;
+}
+
+/* Sube un rectángulo de una cara y nivel por la zona de paso, en tandas de filas que quepan. */
+static int v4_subir(const gpu3d_v4_subir_t *s)
+{
+    if (!pronto) return G3D_FALHA;
+    r4_t *x = &r4[s->id];
+    if (!x->tipo || x->tipo == G3D4_R_ZE) return G3D_NAO;
+    if (s->nivel >= x->niveis || (x->tipo != G3D4_R_CUBO && s->face)) return G3D_NAO;
+    uint32_t nl = (uint32_t)x->l >> s->nivel, na = (uint32_t)x->a >> s->nivel;
+    if (!nl) nl = 1;
+    if (!na) na = 1;
+    if (s->x + s->larg > nl || s->y + s->alt > na) return G3D_NAO;
+    uint32_t fila = s->larg * 4, por_tanda = (V4_STG_PAG * PAGINA) / fila;
+    if (!por_tanda) return G3D_NAO;
+    for (uint32_t y = 0; y < s->alt; y += por_tanda) {
+        uint32_t n = s->alt - y < por_tanda ? s->alt - y : por_tanda;
+        for (uint32_t j = 0; j < n; j++) memcpy(stg + j * fila, (const uint8_t *)s->dados + (s->invertir ? s->alt - 1 - (y + j) : y + j) * s->passo, fila);
+        if (!virgl_transferir2(CTX, true, x->gid, s->nivel, s->x, s->y + y, s->face, s->larg, n, fila, 0, false, PRAZO_ORDEN)) return G3D_FALHA;
+    }
+    return G3D_OK;
+}
+
+static int v4_ler(const gpu3d_v4_ler_t *g)
+{
+    if (!pronto) return G3D_FALHA;
+    r4_t *x = &r4[g->rec];
+    if (!x->tipo || x->tipo == G3D4_R_ZE || g->x + g->larg > x->l || g->y + g->alt > x->a) return G3D_NAO;
+    uint32_t fila = g->larg * 4, por_tanda = (V4_STG_PAG * PAGINA) / fila;
+    if (!por_tanda) return G3D_NAO;
+    if (fl.n && enviar(false, PRAZO_ORDEN) != G3D_OK) return G3D_FALHA;
+    for (uint32_t y = 0; y < g->alt; y += por_tanda) {
+        uint32_t n = g->alt - y < por_tanda ? g->alt - y : por_tanda;
+        if (!virgl_transferir2(CTX, false, x->gid, 0, g->x, g->y + y, 0, g->larg, n, fila, 0, true, GPU3D_PRAZO_MS)) return G3D_FALHA;
+        feita = enviada;
+        for (uint32_t j = 0; j < n; j++)
+            memcpy((uint8_t *)(g->dest + (uint32_t)((int32_t)(y + j) * g->passo)), stg + j * fila, fila);
+    }
+    return G3D_OK;
+}
+
+/* ---- el estado de un dibujo */
+static uint32_t v4_fator(uint32_t f)
+{
+    static const uint8_t t[15] = { 0x11, 1, 2, 0x12, 5, 0x15, 3, 0x13, 4, 0x14, 7, 0x17, 8, 0x18, 6 };
+    return t[f > 14 ? 1 : f];
+}
+static uint32_t v4_est_palabra(const gpu3d_v4_est_t *e, bool on)
+{
+    if (!on) return 0;
+    return 1u | ((e->func & 7u) << 1) | ((e->falha & 7u) << 4) | ((e->zpassa & 7u) << 7) | ((e->zfalha & 7u) << 10) |
+           ((e->masc_v & 0xFFu) << 13) | ((e->masc_e & 0xFFu) << 21);
+}
+
+static void v4_framebuffer(uint32_t cor, uint32_t ze)
+{
+    cmd(VC_SET_FRAMEBUFFER, 0, 3); w(1); w(ze ? r4[ze].surf : 0); w(r4[cor].surf);
+}
+
+static void v4_ordenar_flujo(uint32_t desl, uint32_t bytes, uint32_t id, const uint8_t *dados_a, uint32_t stride, uint32_t nv, uint32_t comps)
+{
+    /* escribe nv vértices de «comps» floats de dados_a (con paso stride) seguidos en el búfer id desde desl, en tandas */
+    uint32_t por = 12000 / comps;
+    (void)bytes;
+    for (uint32_t i = 0; i < nv; i += por) {
+        uint32_t n = nv - i < por ? nv - i : por, dw = n * comps;
+        if (fl.n + 12 + dw > fl.max) enviar(false, PRAZO_ORDEN);
+        cmd(VC_ESCRIBIR, 0, 11 + dw);
+        w(id); w(0); w(0); w(0); w(0); w(desl + i * comps * 4); w(0); w(0); w(dw * 4); w(1); w(1);
+        for (uint32_t k = 0; k < n; k++) { memcpy(fl.p + fl.n, dados_a + (i + k) * stride, comps * 4); fl.n += comps; }
+    }
+}
+
+static int v4_desenhar(const gpu3d_v4_des_t *d)
+{
+    if (!pronto) return G3D_FALHA;
+    p4_t *pg = &p4[d->programa];
+    r4_t *rc = &r4[d->alvo_cor], *rz = d->alvo_ze ? &r4[d->alvo_ze] : NULL;
+    if (!pg->ok || rc->tipo != G3D4_R_ALVO || (rz && (rz->tipo != G3D4_R_ZE || rz->l != rc->l || rz->a != rc->a))) return G3D_NAO;
+    if (d->modo != G3D4_PRIM_TRIANGULOS && d->modo != G3D4_PRIM_TIRA && d->modo != G3D4_PRIM_LEQUE) return G3D_NAO;
+    if (d->e.est_on && (!rz || !rz->estenc)) return G3D_NAO;
+    for (int et = 0; et < 2; et++)
+        for (unsigned i = 0; i < d->namostras[et]; i++) {
+            const gpu3d_v4_amostra_t *a = &d->am[et][i];
+            if (!a->rec || a->rec >= G3D4_RECURSOS || !r4[a->rec].vista || r4[a->rec].tipo == G3D4_R_ZE) return G3D_NAO;
+        }
+    /* 1. los datos: vértices (cada atributo en su zona del anillo) e índices */
+    uint32_t nat = d->natrib ? d->natrib : 1, tot = 0, off[G3D4_ATRIBS], comps[G3D4_ATRIBS];
+    for (unsigned i = 0; i < nat; i++) {
+        comps[i] = i < d->natrib && d->at[i].ativo ? d->at[i].comps : 4;
+        off[i] = tot;
+        tot += (d->nverts * comps[i] * 4 + 15) & ~15u;
+    }
+    if (tot > V4_VB_BYTES) return G3D_NAO;
+    if (vb4_desl + tot > V4_VB_BYTES) vb4_desl = 0;
+    uint32_t base = vb4_desl;
+    if (fl.n) enviar(false, PRAZO_ORDEN);
+    for (unsigned i = 0; i < nat; i++) {
+        if (i < d->natrib && d->at[i].ativo)
+            v4_ordenar_flujo(base + off[i], 0, vb4_id, (const uint8_t *)d->at[i].dados, d->at[i].passo, d->nverts, comps[i]);
+        else {
+            uint32_t cte[4] = { 0, 0, 0, F_1 };
+            if (i < d->natrib) memcpy(cte, d->at[i].cte, 16);
+            uint32_t por = 3000;      /* el mismo vec4 repetido nverts veces */
+            for (uint32_t v = 0; v < d->nverts; v += por) {
+                uint32_t n = d->nverts - v < por ? d->nverts - v : por, dw = n * 4;
+                if (fl.n + 12 + dw > fl.max) enviar(false, PRAZO_ORDEN);
+                cmd(VC_ESCRIBIR, 0, 11 + dw);
+                w(vb4_id); w(0); w(0); w(0); w(0); w(base + off[i] + v * 16); w(0); w(0); w(dw * 4); w(1); w(1);
+                for (uint32_t k = 0; k < n; k++) { memcpy(fl.p + fl.n, cte, 16); fl.n += 4; }
+            }
+        }
+    }
+    vb4_desl = (base + tot + 63) & ~63u;
+    uint32_t ib_off = 0;
+    if (d->tipo_ind) {
+        uint32_t bytes = (d->n * d->tipo_ind + 3) & ~3u;
+        if (bytes > V4_IB_BYTES) return G3D_NAO;
+        if (ib4_desl + bytes > V4_IB_BYTES) ib4_desl = 0;
+        ib_off = ib4_desl;
+        for (uint32_t i = 0; i < d->n; i += 12000) {
+            uint32_t n = d->n - i < 12000 ? d->n - i : 12000, dw = (n * d->tipo_ind + 3) / 4;
+            if (fl.n + 12 + dw > fl.max) enviar(false, PRAZO_ORDEN);
+            cmd(VC_ESCRIBIR, 0, 11 + dw);
+            w(ib4_id); w(0); w(0); w(0); w(0); w(ib_off + i * d->tipo_ind); w(0); w(0); w(dw * 4); w(1); w(1);
+            fl.p[fl.n + dw - 1] = 0;
+            memcpy(fl.p + fl.n, (const uint8_t *)d->indices + i * d->tipo_ind, n * d->tipo_ind);
+            fl.n += dw;
+        }
+        ib4_desl = (ib_off + bytes + 63) & ~63u;
+    }
+    /* 2. el estado */
+    const gpu3d_v4_estado_t *e = &d->e;
+    v4_framebuffer(d->alvo_cor, d->alvo_ze);
+    cmd(VC_SET_VIEWPORT, 0, 7); w(0);
+    w(g3d_float_de_fixo(e->vp[2], 1)); w(g3d_float_de_fixo(e->vp[3], 1)); w(e->z_escala);
+    w(g3d_float_de_fixo(2 * e->vp[0] + e->vp[2], 1)); w(g3d_float_de_fixo(2 * e->vp[1] + e->vp[3], 1)); w(e->z_trasl);
+    {
+        int x0 = 0, y0 = 0, x1 = rc->l, y1 = rc->a;
+        if (e->tij_on) {
+            x0 = e->tij[0] > 0 ? e->tij[0] : 0; y0 = e->tij[1] > 0 ? e->tij[1] : 0;
+            x1 = e->tij[0] + e->tij[2] < x1 ? e->tij[0] + e->tij[2] : x1; y1 = e->tij[1] + e->tij[3] < y1 ? e->tij[1] + e->tij[3] : y1;
+            if (x1 < x0) x1 = x0;
+            if (y1 < y0) y1 = y0;
+        }
+        cmd(VC_TIJERA, 0, 3); w(0); w((uint32_t)x0 | ((uint32_t)y0 << 16)); w((uint32_t)x1 | ((uint32_t)y1 << 16));
+    }
+    { cmd(VC_COR_MEZCLA, 0, 4); for (int i = 0; i < 4; i++) w(e->cor_mez[i]); }
+    { cmd(VC_STENCIL_REF, 0, 1); w((e->est[0].ref & 0xFFu) | ((e->est[1].ref & 0xFFu) << 8)); }
+    bool novo;
+    uint32_t k[4] = { 0, 0, 0, 0 }, h;
+    /* mezcla */
+    {
+        uint32_t rt = (e->masc_cor & 15u) << 27;
+        if (e->mez_on) rt |= 1u | ((e->eq_rgb & 7u) << 1) | (v4_fator(e->src_rgb) << 4) | (v4_fator(e->dst_rgb) << 9) |
+                             ((e->eq_a & 7u) << 14) | (v4_fator(e->src_a) << 17) | (v4_fator(e->dst_a) << 22);
+        k[0] = rt;
+        h = cache_obter(&c_bl, k, &novo);
+        if (novo) { cmd(VC_CREAR_OBJETO, VO_BLEND, 11); w(h); w(0); w(0); w(rt); for (int i = 1; i < 8; i++) w(0); }
+        asociar(VO_BLEND, h);
+    }
+    /* Z y esténcil */
+    {
+        uint32_t s0 = e->z_on ? (1u | (e->z_escrita ? 2u : 0u) | ((e->z_func & 7u) << 2)) : 0u;
+        uint32_t s1 = v4_est_palabra(&e->est[0], e->est_on), s2 = v4_est_palabra(&e->est[1], e->est_on);
+        k[0] = s0; k[1] = s1; k[2] = s2; k[3] = 0;
+        h = cache_obter(&c_ds, k, &novo);
+        if (novo) { cmd(VC_CREAR_OBJETO, VO_DSA, 5); w(h); w(s0); w(s1); w(s2); w(0); }
+        asociar(VO_DSA, h);
+    }
+    /* rasterizador: recorte por Z, tijera siempre activa (un rectángulo entero si no hay), cull, orientación, offset */
+    {
+        uint32_t s0 = (1u << 1) | ((e->cull & 3u) << 8) | (1u << 14) | (e->frente_ccw ? 1u << 15 : 0u) | (e->off_on ? 1u << 20 : 0u) | (1u << 29) | (1u << 30);
+        k[0] = s0; k[1] = e->off_on ? e->off_fator : 0; k[2] = e->off_on ? e->off_unid : 0; k[3] = 0;
+        h = cache_obter(&c_rs, k, &novo);
+        if (novo) { cmd(VC_CREAR_OBJETO, VO_RASTERIZER, 9); w(h); w(s0); w(F_1); w(0); w(0); w(F_1); w(k[2]); w(k[1]); w(0); }
+        asociar(VO_RASTERIZER, h);
+    }
+    /* elementos de vértice: el atributo i en el hueco i, con su formato (1 a 4 floats) */
+    {
+        uint32_t kk[4] = { 0, 0, 0, 0 };
+        for (unsigned i = 0; i < nat; i++) kk[i / 8] |= (comps[i] - 1u) << (4 * (i % 8));
+        kk[2] = nat;
+        h = cache_obter(&c_ve, kk, &novo);
+        if (novo) {
+            cmd(VC_CREAR_OBJETO, VO_VERTEX_ELEMENTS, 1 + 4 * nat);
+            w(h);
+            for (unsigned i = 0; i < nat; i++) { w(0); w(0); w(i); w(comps[i] == 1 ? 28u : comps[i] == 2 ? VFMT_R32G32_F : comps[i] == 3 ? 30u : VFMT_R32G32B32A32_F); }
+        }
+        asociar(VO_VERTEX_ELEMENTS, h);
+    }
+    cmd(VC_ASOCIAR_SOMBR, 0, 2); w(pg->vs); w(VSOMBRA_VERTICES);
+    cmd(VC_ASOCIAR_SOMBR, 0, 2); w(pg->fs); w(VSOMBRA_FRAGMENTOS);
+    for (int et = 0; et < 2; et++) {
+        uint32_t st = et ? VSOMBRA_FRAGMENTOS : VSOMBRA_VERTICES;
+        if (d->nunif[et]) {
+            uint32_t n = d->nunif[et] * 4;
+            cmd(VC_CONSTANTES, 0, 2 + n); w(st); w(0);
+            memcpy(fl.p + fl.n, (const void *)d->unif[et], n * 4); fl.n += n;
+        }
+        uint32_t na = d->namostras[et];
+        if (na) {
+            uint32_t sm[G3D4_AMOSTRAS];
+            cmd(VC_SAMPLER_VIEWS, 0, 2 + na); w(st); w(0);
+            for (uint32_t i = 0; i < na; i++) w(r4[d->am[et][i].rec].vista);
+            for (uint32_t i = 0; i < na; i++) {
+                const gpu3d_v4_amostra_t *a = &d->am[et][i];
+                static const uint8_t mip[3] = { 2, 0, 1 }, env[3] = { 0, 2, 4 };
+                uint32_t s0 = (uint32_t)env[a->wrap_s > 2 ? 1 : a->wrap_s] | ((uint32_t)env[a->wrap_t > 2 ? 1 : a->wrap_t] << 3) | (2u << 6) |
+                              ((a->min_img & 1u) << 9) | ((uint32_t)mip[a->min_mip > 2 ? 0 : a->min_mip] << 11) | ((a->mag_img & 1u) << 13);
+                uint32_t kk[4] = { s0, 0, 0, 0 };
+                h = cache_obter(&c_sm, kk, &novo);
+                if (novo) { cmd(VC_CREAR_OBJETO, VO_SAMPLER_STATE, 9); w(h); w(s0); w(0); w(0); w(F_1000); w(0); w(0); w(0); w(0); }
+                sm[i] = h;
+            }
+            cmd(VC_ASOCIAR_SAMPLERS, 0, 2 + na); w(st); w(0);
+            for (uint32_t i = 0; i < na; i++) w(sm[i]);
+        }
+    }
+    /* 3. los vértices y el dibujo */
+    cmd(VC_SET_VERTEX_BUF, 0, 3 * nat);
+    for (unsigned i = 0; i < nat; i++) { w(comps[i] * 4); w(base + off[i]); w(vb4_id); }
+    if (d->tipo_ind) { cmd(VC_INDICES, 0, 3); w(ib4_id); w(d->tipo_ind); w(ib_off); }
+    cmd(VC_DIBUJAR, 0, 12);
+    w(0); w(d->n); w(d->modo); w(d->tipo_ind ? 1u : 0u); w(1); w(0); w(0); w(0); w(0); w(0); w(d->nverts - 1); w(0);
+    if (fl.lleno) { fl.n = 0; fl.lleno = false; klog("[GPU3D] virgl v4: el estado de un dibujo no cabe en el SUBMIT_3D\n"); return G3D_NAO; }
+    n_bytes_vert += tot;
+    return enviar(false, PRAZO_ORDEN);
+}
+
+static int v4_limpar(const gpu3d_v4_limpar_t *g)
+{
+    if (!pronto) return G3D_FALHA;
+    r4_t *rc = &r4[g->alvo_cor];
+    if (!g->alvo_cor || rc->tipo != G3D4_R_ALVO) return G3D_NAO;
+    r4_t *rz = g->alvo_ze ? &r4[g->alvo_ze] : NULL;
+    if (rz && rz->tipo != G3D4_R_ZE) return G3D_NAO;
+    uint32_t b = (g->mascara & 1 ? PIPE_CLEAR_COLOR0 : 0) | (rz && (g->mascara & 2) ? PIPE_CLEAR_DEPTH : 0) |
+                 (rz && rz->estenc && (g->mascara & 4) ? PIPE_CLEAR_STENCIL : 0);
+    if (!b) return G3D_OK;
+    v4_framebuffer(g->alvo_cor, g->alvo_ze);
+    cmd(VC_TIJERA, 0, 3); w(0); w(0); w((uint32_t)rc->l | ((uint32_t)rc->a << 16));
+    cmd(VC_LIMPIAR, 0, 8);
+    w(b); w(g->cor[0]); w(g->cor[1]); w(g->cor[2]); w(g->cor[3]); w(g->z_lo); w(g->z_hi); w(g->est);
+    return enviar(false, PRAZO_ORDEN);
+}
+
+static const gpu3d_v4_driver_t v4_driver = { v4_caps, v4_programa, v4_recurso, v4_subir, v4_desenhar, v4_limpar, v4_ler, v4_soltar_tudo };
+
 const gpu3d_driver_t gpu3d_virgl = {
     "virgl", v_iniciar, v_alvo, v_limpar, v_textura, v_desenhar, v_esperar, v_ler, v_desligar, v_detalle, v_memoria,
     "virgl", NULL, 0, v_vistas,
     NULL, NULL, NULL, NULL, NULL,
     v_apresentar,
     NULL, NULL,
+    &v4_driver,
 };

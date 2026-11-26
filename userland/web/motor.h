@@ -24,6 +24,8 @@ typedef struct {
 #define VIDEO_AUTOPLAY 1
 #define VIDEO_LOOP     2
 #define VIDEO_MUTED    4
+#define VIDEO_AUDIO    8     /* es un <audio> (no hay cuadro: solo la caja y los controles, D489) */
+#define VIDEO_CONTROLS 16    /* el elemento lleva el atributo controls */
 
 /* Tipos de alvo de clique. */
 #define MA_LINK  1     /* href */
@@ -97,6 +99,7 @@ bool     motor_focar_campo(motor_t *m, int campo);         /* depois de reler a 
 /* Envio do formulário de quem (campo ou botão; NULL = campo com foco) como
  * endereço GET: acao?nome=valor&... com todos os campos que têm nome. */
 bool     motor_envio(motor_t *m, const motor_alvo_t *quem, char *url, int max);
+bool     motor_envio_modo(motor_t *m, const motor_alvo_t *quem, char *metodo, int mmax, char *enctype, int emax, char *acao, int amax);   /* D487: POST y multipart */
 bool     motor_envio_campo(motor_t *m, int campo, char *url, int max);   /* quem = o elemento data-sagui-campo */
 /* Caixas dos elementos marcados com data-sagui-n (16 ints por elemento) e estilo computado. */
 int      motor_caixas(motor_t *m, int *d, int max);
@@ -116,7 +119,37 @@ bool     motor_marcar_clique(motor_t *m, int dom);
  * o seu texto. Textos em Latin-1. Vale no motor_layout seguinte. */
 bool     motor_dom_atributo(motor_t *m, int dom, const char *nome, const char *valor);
 bool     motor_dom_texto(motor_t *m, int dom, const char *txt);
+/* ---- D488: o DOM mutável e o remaquetado incremental (motor_dom.h) ----
+ * Os nós criados pelo JavaScript nascem soltos (motor_dom_criar) e entram na página com
+ * motor_dom_inserir (antes = -1: no fim); motor_dom_tirar deixa-os soltos outra vez. Cada
+ * mudança marca só o que afeta; o motor_layout seguinte refaz a cascada só disso, guarda as
+ * medidas intrínsecas do resto e calcula a franja da página que mudou (motor_dom_estadistica).
+ * Textos em Latin-1, salvo motor_dom_exportar, que escreve UTF-8 no formato de qjs_bridge.h. */
+int      motor_dom_criar(motor_t *m, const char *tag, const char *texto);   /* tag "#texto": nó de texto */
+bool     motor_dom_inserir(motor_t *m, int pai, int dom, int antes);
+bool     motor_dom_tirar(motor_t *m, int dom);
+bool     motor_dom_dado(motor_t *m, int dom, const char *txt);             /* o texto de um nó de texto */
+bool     motor_dom_html(motor_t *m, int dom, const char *html, int n);     /* innerHTML */
+char    *motor_dom_exportar(motor_t *m, int dom, int *n);                  /* dom < 0: a página toda */
+bool     motor_dom_caixa(motor_t *m, int dom, int *o);                     /* 16 ints, como motor_caixas */
+int      motor_dom_em(motor_t *m, int x, int y);                           /* elemento no ponto da página */
+bool     motor_dom_estilo(motor_t *m, int dom, const char *prop, char *o, int max);
+void     motor_dom_estadistica(motor_t *m, int *estilizados, int *medidas, int *y0, int *y1);
+void     motor_dom_incremental(motor_t *m, bool sim);                      /* false: sempre a cascada completa */
+unsigned motor_dom_assinatura(motor_t *m);                                 /* firma da lista de pintura */
+bool     motor_dom_rolagem(motor_t *m, int dom, int *o);                   /* D489+D488: scrollLeft/Top y máximos de un bloque */
+bool     motor_dom_rolar(motor_t *m, int dom, int x, int y);              /* scrollTo de un bloque */
+int      motor_dom_foco(motor_t *m);                                        /* o elemento do campo com foco, ou -1 */
 fonte_t *motor_fonte_nomeada(motor_t *m, const char *familia, int peso, int italico, int largura);
+void     motor_zoom(motor_t *m, int pct);    /* zoom de la página en % (D489); vale desde el motor_layout siguiente */
+int      motor_zoom_atual(motor_t *m);
+/* Bloques con overflow auto/scroll (D489): (x, y) son coordenadas de la página. */
+bool     motor_rolar_caixa(motor_t *m, int x, int y, int dx, int dy);   /* la rueda; false = que suba la página */
+bool     motor_barra_pulsar(motor_t *m, int x, int y);                 /* clic en una barra (carril o pulgar) */
+bool     motor_barra_arrastando(motor_t *m);
+void     motor_barra_mover(motor_t *m, int x, int y);                   /* con el pulgar agarrado */
+void     motor_barra_soltar(motor_t *m);
+bool     motor_caixa_rolagem(motor_t *m, int x, int y, int *rx, int *ry, int *mx, int *my);
 void     motor_fontes_limpar(void);   /* nova página: esquece as fontes da web baixadas */
 void     motor_sem_esconder(motor_t *m, bool sim);   /* ignora display:none do autor */   /* quantos links a página tem */
 #endif

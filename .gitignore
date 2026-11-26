@@ -96,3 +96,5 @@ Windows_*.wav
 # Fuentes de FFmpeg (D458): las baja tools/ffmpeg_fuentes.sh; no van en git
 /userland/terceros/ffmpeg/fuentes
 /userland/terceros/valkey/fuentes
+# Fuentes de glmark2 (D481): las baja tools/glmark2_fuentes.sh; no van en git
+/userland/terceros/glmark2/fuentes

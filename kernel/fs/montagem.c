@@ -115,13 +115,14 @@ typedef struct {
     const sistema_arquivos_t *orig;     /* el driver de verdad */
     void *priv;                         /* el volumen del driver */
     bool  ativo;                        /* falso después de desmontar: las operaciones atrasadas se rechazan */
+    bool  sem_trava;                    /* D485: el puente (espera a un proceso de usuario): sin trava_fs */
 } envolto_t;
 
 static envolto_t envoltos[MAX_MONTAGENS];
 
 #define E ((envolto_t *)priv)
-#define ENTRAR() trava_pegar(&trava_fs)
-#define SAIR()   trava_soltar(&trava_fs)
+#define ENTRAR() do { if (!E->sem_trava) trava_pegar(&trava_fs); } while (0)
+#define SAIR()   do { if (!E->sem_trava) trava_soltar(&trava_fs); } while (0)
 
 static int t_info(void *priv, const char *rel, info_arquivo_t *inf)
 { ENTRAR(); int r = E->ativo ? E->orig->info(E->priv, rel, inf) : ERRO_NAO_EXISTE; SAIR(); return r; }
@@ -144,7 +145,8 @@ static int t_sincronizar(void *priv, void *arq)
  * omite (el FAT32 no guarda nada pendiente después de cada operación). */
 static void t_fechar(void *priv, void *arq)
 {
-    if (contexto_irq() ? !trava_tentar(&trava_fs) : (ENTRAR(), false)) return;
+    if (E->sem_trava) { if (E->ativo) E->orig->fechar(E->priv, arq); return; }   /* D485: el puente no espera al cerrar */
+    if (contexto_irq() ? !trava_tentar(&trava_fs) : (trava_pegar(&trava_fs), false)) return;
     if (E->ativo) E->orig->fechar(E->priv, arq);
     SAIR();
 }
@@ -181,6 +183,7 @@ static void envolver(int i, const sistema_arquivos_t *fs, void *priv)
     e->orig = fs;
     e->priv = priv;
     e->ativo = true;
+    e->sem_trava = false;
     e->tabela = *fs;
     e->tabela.desmontar = t_desmontar;
     e->tabela.info = t_info;
@@ -274,6 +277,8 @@ int montagem_meta(montagem_t *m, const char *rel, meta_t *s, bool olhar)
         s->gid = m->gid;
         s->modo = (uint16_t)(0777 & ~m->umask);
     }
+    /* D485: en un montaje sin ejecución los ficheros no llevan la «x» (las carpetas sí: es entrar). */
+    if ((m->opcoes & MONTAR_SEM_EXEC) && *rel && s->tipo != TIPO_PASTA) s->modo &= (uint16_t)~0111u;
     if (!*rel) {   /* la carpeta del montaje */
         s->tipo = TIPO_PASTA;
         if (txt_compara(m->ponto, "/home") == 0) {   /* D371: de root cuando cada cuenta tiene su carpeta */
@@ -365,6 +370,45 @@ int montagem_montar_dono(disco_t *d, const char *ponto, const char *tipo, uint32
     if (raiz->removivel && !raiz->de_boot)
         disco_avisar(AVISO_MONTADO, so_leitura ? "Pendrive montado en %s (solo lectura)" : "Pendrive montado en %s", ponto);
     return 0;
+}
+
+/* D485: ver montagem.h. Lo usa el puente (ponte.c) para /red y para cada unidad de red. */
+montagem_t *montagem_montar_virtual(disco_t *d, const char *ponto, const sistema_arquivos_t *fs, void *priv,
+                                    uint32_t opcoes, uint32_t uid, uint32_t gid, uint32_t umask, int *erro)
+{
+    *erro = ERRO_INVALIDO;
+    if (ponto[0] != '/' || !ponto[1] || txt_tamanho(ponto) >= CAMINHO_MAX) return NULL;
+    for (int i = 0; i < MAX_MONTAGENS; i++)
+        if (tabela[i].usado && txt_compara(tabela[i].ponto, ponto) == 0) { *erro = ERRO_JA_EXISTE; return NULL; }
+    int livre = -1;
+    for (int i = 0; i < MAX_MONTAGENS && livre < 0; i++) if (!tabela[i].usado) livre = i;
+    if (livre < 0) { *erro = ERRO_LIMITE; return NULL; }
+    montagem_t *m = &tabela[livre];
+    memset(m, 0, sizeof *m);
+    m->usado = true;
+    txt_copia_n(m->ponto, ponto, sizeof m->ponto);
+    m->tam_ponto = (uint32_t)txt_tamanho(m->ponto);
+    m->disco = d;
+    envolver(livre, fs, priv);
+    envoltos[livre].sem_trava = true;
+    m->fs = &envoltos[livre].tabela;
+    m->priv = &envoltos[livre];
+    m->opcoes = opcoes;
+    m->geracao = ++geracao;
+    m->uid = uid;
+    m->gid = gid;
+    m->umask = umask;
+    txt_copia_n(m->tipo, fs->nome, sizeof m->tipo);
+    d->montagem = m;
+    *erro = 0;
+    klog("[MONTAGEM] %s (%s) montado em %s\n", d->nome, m->tipo, ponto);
+    return m;
+}
+
+bool montagem_sem_exec(const char *caminho)
+{
+    montagem_t *m = montagem_de(caminho, NULL);
+    return m && (m->opcoes & MONTAR_SEM_EXEC);
 }
 
 int montagem_desmontar(montagem_t *m, bool gravar)
@@ -474,6 +518,7 @@ void fstab_aplicar(disco_t *so_este)
                 if (n == 2 && txt_compara_n(o, "ro", 2) == 0) opcoes |= MONTAR_SO_LEITURA;
                 if (n == 2 && txt_compara_n(o, "rw", 2) == 0) opcoes |= MONTAR_LEITURA_ESCRITA;
                 if (n == 6 && txt_compara_n(o, "noauto", 6) == 0) pular = true;
+                if (n == 6 && txt_compara_n(o, "noexec", 6) == 0) opcoes |= MONTAR_SEM_EXEC;   /* D485 */
                 /* D282: uid=, gid=, umask= (FAT32, ISO 9660, UDF; el ext2 tiene los suyos). */
                 int32_t v;
                 if (n > 4 && txt_compara_n(o, "uid=", 4) == 0 && (v = valor_opcao(o + 4, n - 4, 10)) >= 0 && v <= UID_MAX) {
@@ -520,7 +565,9 @@ int32_t montagem_info(info_montagem_t *v, uint32_t n)
     uint32_t k = 0;
     for (int i = 0; i < MAX_MONTAGENS && k < n; i++) {
         montagem_t *m = &tabela[i];
-        if (!m->usado) continue;
+        if (!m->usado || m->oculto) continue;
+        /* D485: una unidad de red solo la ve su cuenta (y root). */
+        if (m->privado && processo_recursos()->uid != UID_ROOT && processo_recursos()->uid != m->uid) continue;
         memset(&v[k], 0, sizeof v[k]);
         txt_copia_n(v[k].dispositivo, m->disco->nome, sizeof v[k].dispositivo);
         txt_copia_n(v[k].ponto, m->ponto, sizeof v[k].ponto);

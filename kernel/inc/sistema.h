@@ -76,7 +76,13 @@ int32_t sis_abrir_tv(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 int32_t sis_primeiro_plano(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 int32_t sis_estilo_janela(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 int32_t sis_acento(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);   /* D112 */
+int32_t sis_cursor(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);   /* D482 */
 int32_t sis_esquema(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);   /* D428 */
+int32_t sis_ponte(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);     /* D485: unidades de red (ponte.c) */
+int32_t sis_chaveiro(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);  /* D485: el llavero (chaveiro.c) */
+void    ponte_revisar(void);                                         /* D485: las unidades sin servidor */
+int     ponte_bandeja(uint32_t uid, int *sem_rede, char *nome, uint32_t max);   /* D485: la bandeja */
+void    chaveiro_esquecer_menos(uint32_t uid);                       /* D485: al cambiar de sesión */
 int32_t sis_idioma(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);   /* D313 */
 int32_t sis_criar_widget(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);   /* D365 */
 int32_t sis_fundo(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);

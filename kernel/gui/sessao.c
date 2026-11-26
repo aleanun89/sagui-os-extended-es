@@ -28,6 +28,7 @@
 #include "permisos.h"
 #include "processo.h"
 #include "relogio.h"
+#include "sistema.h"
 #include "supervisor.h"
 #include "teclado.h"
 #include "telas.h"
@@ -279,6 +280,10 @@ static void tarefa(void *arg)
 {
     int modo = (int)(uintptr_t)arg;
     matar_tudo();
+    /* D485: la clave del llavero solo de la cuenta que entra (ninguna al cerrar) y fuera las unidades de red
+     * cuyos servicios murieron con la sesión. */
+    chaveiro_esquecer_menos(modo == T_INICIO ? entrando.uid : 0xFFFFFFFFu);
+    ponte_revisar();
     if (modo == T_FIM) {
         permisos_fixar_sessao(UID_SAGUI, GID_SAGUI, "");   /* detrás de la pantalla, la configuración de la máquina */
         fim_pronto = true;

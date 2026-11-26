@@ -163,7 +163,7 @@ además corta el desarrollo. Reglas:
     paran los agentes; después, la batería sola.
   - **Como mucho 2 agentes a la vez** que compilen o prueben en QEMU; el resto, esperando.
     **En el PC principal del mantenedor (Ryzen 9 9900X, 96 GB; WSL ve parte) pueden ser 6** (dicho el
-    2026-11-15), hasta **10 agentes** escribiendo código, y la batería con `-j 6`. En otro ordenador, 2.
+    2026-11-15; **ampliado un 33 % el 2026-11-26: 11 turnos** en `SAGUI_TURNOS`), hasta **13 agentes** escribiendo código, y la batería con `-j 8`. En otro ordenador, 2.
   - **Escribir código no cuenta:** pueden trabajar más agentes a la vez si solo escriben; el límite
     es para compilar y probar. El coordinador lo hace cumplir con `tools/turno.sh` (`flock` con `SAGUI_TURNOS` huecos, el último
     reservado a `PRIORIDAD=1`, que además espera a que acabe la batería) con el que cada agente envuelve `make` y las pruebas

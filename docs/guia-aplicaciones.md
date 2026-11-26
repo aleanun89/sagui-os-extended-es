@@ -352,7 +352,7 @@ defecto (`/apps/bin` para las de la lista `APPS_MOVER_FIJO` del `Makefile`, `/bi
 | `/bin/sobre` | versión y créditos de SaguiOS-Extended (D101) | `userland/programas/sobre.c` |
 | `/bin/sobre-o-sistema` | la ventana "Acerca de SaguiOS-Extended" (H28, D101): versión, tamaño de la imagen, procesos activos, memoria y créditos | `userland/programas/sobre-o-sistema.c` |
 | `/bin/sonido` | diagnóstico y pruebas del códec de sonido HDA (D107) | `userland/programas/sonido.c` |
-| `/bin/sonidos` | los sonidos del sistema (D421): toca el de un evento y vigila USB y batería | `userland/programas/sonidos.c` |
+| `/bin/sonidos` | los sonidos del sistema (D421, D484): un sonido por acción, presets (`--presets`, `--preset-*`), toca el de un evento y vigila USB, batería y ventanas | `userland/programas/sonidos.c` |
 | `/bin/sort` | ordena las líneas de archivos o de la entrada (D097) | `userland/programas/sort.c` |
 | `/apps/bin/spider` | Solitario Spider de SaguiOS (D173) | `userland/programas/spider.c` |
 | `/bin/split` | parte un archivo en trozos (D232) | `userland/programas/split.c` |

@@ -22,6 +22,10 @@
  * que el motor lo pueda compilar también el cc de dentro del SaguiOS (que no
  * tiene enteros de 64 bits); los valores exactos van en double, que representa
  * enteros hasta 2^53. */
+#ifdef SGL_ES2
+/* D475: las funciones que también son de OpenGL ES 2.0 se llaman es1_gl*; los gl* los pone sgl2_despacho.c */
+#include "sgl_es1_nomes.h"
+#endif
 #include "sgl.h"
 
 #if defined(__SSE2__) && !defined(SGL_POR_CC)
@@ -421,10 +425,16 @@ static void gpu_cair(sgl_ctx_t *c)
     else { uint16_t *z = c->zbuf; for (int i = 0; i < n; i++) z[i] = 0xFFFF; }
 }
 
+#ifdef SGL_ES2
+int sgl2_gpu_estado(void);
+#endif
 int sgl_gpu_ligar(sgl_ctx_t *c)
 {
     if (!c) return 0;
     if (c->gpu) return 1;
+#ifdef SGL_ES2
+    if (sgl2_gpu_estado() > 0) return 0;   /* D480: el motor ya es de los contextos de ES 2.0 de este proceso */
+#endif
     if (gpu_ctx && gpu_ctx != c) return 0;
     if (c->larg < 8 || c->alt < 8) return 0;
     gpu_lote = env_int("SAGUI_GL_LOTE", GV_MAX);
@@ -697,7 +707,13 @@ static void gpu_linha(const vert_t *a, const vert_t *b)
     g[0] = c[0]; g[1] = c[1]; g[2] = c[2]; g[3] = c[0]; g[4] = c[2]; g[5] = c[3];
 }
 
-void glFinish(void) { gpu_sincronizar(); }
+#ifdef SGL_ES2
+void sgl2_gpu_sincronizar_atual(void);   /* D480 (sgl2_gpu.c): lo que la GPU de ES 2.0 dibujó vuelve a la CPU */
+#define SGL2_SINCRONIZAR() sgl2_gpu_sincronizar_atual()
+#else
+#define SGL2_SINCRONIZAR() ((void)0)
+#endif
+void glFinish(void) { SGL2_SINCRONIZAR(); gpu_sincronizar(); }
 void glFlush(void)  { gpu_sincronizar(); }
 #define GPU_DESPEJAR() gpu_despejar()
 #else
@@ -705,7 +721,15 @@ int  sgl_gpu_ligar(sgl_ctx_t *c) { (void)c; return 0; }
 void sgl_gpu_desligar(sgl_ctx_t *c) { (void)c; }
 int  sgl_gpu_ativa(void) { return 0; }
 void sgl_gpu_automatica(int ativa) { (void)ativa; }
-void glFinish(void) {}
+#ifdef SGL_ES2
+void sgl2_gpu_sincronizar_atual(void);
+#endif
+void glFinish(void)
+{
+#ifdef SGL_ES2
+    sgl2_gpu_sincronizar_atual();
+#endif
+}
 void glFlush(void) {}
 #define GPU_DESPEJAR() ((void)0)
 #endif
@@ -977,6 +1001,13 @@ void sgl_destruir_contexto(sgl_ctx_t *c)
 
 void sgl_usar_contexto(sgl_ctx_t *c) { C = c; }
 sgl_ctx_t *sgl_contexto_atual(void) { return C; }   /* D426: p. ej. para sgl_gpu_ligar() bajo EGL */
+/* D475: los píxeles donde dibuja el contexto (los de la ventana, su búfer propio o el pbuffer), para SaguiGL 2.0 */
+int sgl_destino(sgl_ctx_t *c, uint32_t **px, int *larg, int *alt)
+{
+    if (!c) return 0;
+    *px = c->px; *larg = c->larg; *alt = c->alt;
+    return 1;
+}
 
 /* D425: el contexto pasa a dibujar en otro sitio (eglMakeCurrent con otra superficie). */
 int sgl_mudar_destino(sgl_ctx_t *c, void *janela, uint32_t *px, int larg, int alt)

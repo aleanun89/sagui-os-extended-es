@@ -9,6 +9,12 @@
  * primer eglMakeCurrent, que es cuando se sabe dónde dibuja. */
 #include "sgl.h"
 #include "../inc/EGL/egl.h"
+#ifdef SGL_ES2
+#include "sgl2.h"   /* D475: contextos de OpenGL ES 2.0 */
+#define EGL_BITS_ES (EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT)
+#else
+#define EGL_BITS_ES EGL_OPENGL_ES_BIT
+#endif
 
 #if !defined(SGL_ANFITRIAO)
 #include "gui.h"
@@ -45,6 +51,10 @@ typedef struct {
     sgl_ctx_t *c;
     surf_t    *alvo;
     int        destruir;
+    int        versao;         /* D475: 1 = OpenGL ES 1.1, 2 = OpenGL ES 2.0 (c2) */
+#ifdef SGL_ES2
+    sgl2_ctx_t *c2;
+#endif
 } ctx_t;
 
 #define MAGIA_SURF 0x53555246
@@ -134,7 +144,7 @@ static EGLint cfg_attr(const cfg_t *c, EGLint a, int *ok)
     case EGL_MIN_SWAP_INTERVAL: return 0;
     case EGL_MAX_SWAP_INTERVAL: return 1;
     case EGL_COLOR_BUFFER_TYPE: return EGL_RGB_BUFFER;
-    case EGL_RENDERABLE_TYPE: case EGL_CONFORMANT: return EGL_OPENGL_ES_BIT;
+    case EGL_RENDERABLE_TYPE: case EGL_CONFORMANT: return EGL_BITS_ES;
     default: *ok = 0; return 0;
     }
 }
@@ -369,18 +379,26 @@ EGLContext eglCreateContext(EGLDisplay d, EGLConfig c, EGLContext comp, const EG
     const cfg_t *k = cfg_de(c);
     if (!k) { erro_egl = EGL_BAD_CONFIG; return EGL_NO_CONTEXT; }
     if (api != EGL_OPENGL_ES_API) { erro_egl = EGL_BAD_MATCH; return EGL_NO_CONTEXT; }
+    int versao = 1;
     for (; at && at[0] != EGL_NONE; at += 2) {
+#ifdef SGL_ES2
+        if (at[0] == EGL_CONTEXT_CLIENT_VERSION) { if (at[1] != 1 && at[1] != 2) { erro_egl = EGL_BAD_MATCH; return EGL_NO_CONTEXT; } versao = at[1]; }   /* D475: ES 1.1 o 2.0 */
+#else
         if (at[0] == EGL_CONTEXT_CLIENT_VERSION) { if (at[1] != 1) { erro_egl = EGL_BAD_MATCH; return EGL_NO_CONTEXT; } }   /* solo ES 1 */
+#endif
         else { erro_egl = EGL_BAD_ATTRIBUTE; return EGL_NO_CONTEXT; }
     }
     ctx_t *x = (ctx_t *)EGL_ALOCAR(sizeof *x);
     if (!x) { erro_egl = EGL_BAD_ALLOC; return EGL_NO_CONTEXT; }
-    x->magia = MAGIA_CTX; x->cfg = k;
+    x->magia = MAGIA_CTX; x->cfg = k; x->versao = versao;
     return (EGLContext)x;
 }
 
 static void ctx_soltar(ctx_t *x)
 {
+#ifdef SGL_ES2
+    if (x->c2) sgl2_destruir(x->c2);
+#endif
     if (x->c) sgl_destruir_contexto(x->c);
     x->magia = 0;
     EGL_LIBERAR(x);
@@ -402,13 +420,22 @@ static void soltar_atual(void)
     surf_t *d = atual_d, *l = atual_l;
     atual = 0; atual_d = atual_l = 0;
     sgl_usar_contexto(0);
+#ifdef SGL_ES2
+    sgl2_usar(0);
+#endif
     if (c && c->destruir) ctx_soltar(c);
     if (d && d->destruir) surf_soltar(d);
     if (l && l != d && l->destruir) surf_soltar(l);
 }
 
+#ifdef SGL_ES2
+static void sincronizar_gpu2(void) { if (atual && atual->c2) sgl2_gpu_sincronizar(atual->c2); }   /* D480 */
+#else
+static void sincronizar_gpu2(void) {}
+#endif
 EGLBoolean eglMakeCurrent(EGLDisplay d, EGLSurface sd, EGLSurface sl, EGLContext c)
 {
+    sincronizar_gpu2();
     if (d == EGL_NO_DISPLAY && c == EGL_NO_CONTEXT && sd == EGL_NO_SURFACE && sl == EGL_NO_SURFACE) { soltar_atual(); return EGL_TRUE; }
     if (!dpy_ok(d)) return EGL_FALSE;
     if (c == EGL_NO_CONTEXT) {
@@ -436,11 +463,25 @@ EGLBoolean eglMakeCurrent(EGLDisplay d, EGLSurface sd, EGLSurface sl, EGLContext
         sgl_estencil(x->c, x->cfg->est);
         sgl_tras_proprio(x->c);   /* D451: la ventana solo ve cuadros enteros (eglSwapBuffers) */
         x->alvo = s;
+#ifdef SGL_ES2
+        if (x->versao == 2) {
+            /* D475: el contexto de ES 1.1 solo pone el destino; ES 2.0 va por la CPU (sin GPU por ahora) */
+            sgl_gpu_desligar(x->c);
+            x->c2 = sgl2_criar(x->c, x->cfg->z, x->cfg->est);
+            if (!x->c2) return falha(EGL_BAD_ALLOC);
+        }
+#endif
     } else if (x->alvo != s) {
         if (!sgl_mudar_destino(x->c, s->janela, s->px, s->larg, s->alt)) return falha(EGL_BAD_ALLOC);
+#ifdef SGL_ES2
+        if (x->versao == 2) sgl_gpu_desligar(x->c);
+#endif
         x->alvo = s;
     }
     sgl_usar_contexto(x->c);
+#ifdef SGL_ES2
+    sgl2_usar(x->versao == 2 ? x->c2 : 0);
+#endif
     atual = x; atual_d = s; atual_l = r;
     return EGL_TRUE;
 }
@@ -463,7 +504,7 @@ EGLBoolean eglQueryContext(EGLDisplay d, EGLContext c, EGLint a, EGLint *v)
     switch (a) {
     case EGL_CONFIG_ID: *v = x->cfg->id; break;
     case EGL_CONTEXT_CLIENT_TYPE: *v = EGL_OPENGL_ES_API; break;
-    case EGL_CONTEXT_CLIENT_VERSION: *v = 1; break;
+    case EGL_CONTEXT_CLIENT_VERSION: *v = x->versao; break;
     case EGL_RENDER_BUFFER: *v = x->alvo ? EGL_BACK_BUFFER : EGL_NONE; break;
     default: return falha(EGL_BAD_ATTRIBUTE);
     }
@@ -481,6 +522,7 @@ EGLBoolean eglSwapBuffers(EGLDisplay d, EGLSurface s)
     surf_t *x = surf_de(s);
     if (!x) return falha(EGL_BAD_SURFACE);
     if (!atual || atual_d != x) return falha(EGL_BAD_SURFACE);
+    sincronizar_gpu2();
     if (x->janela) sgl_trocar();     /* trae el cuadro de la GPU y muestra la ventana */
     else glFinish();
     surf_atualizar(x, atual);
@@ -500,6 +542,9 @@ typedef void (*proc_t)(void);
 #define P(f) { #f, (proc_t)f }
 static const struct { const char *n; proc_t f; } procs[] = {
 #include "sgl_procs.inc"
+#ifdef SGL_ES2
+#include "sgl2_procs.inc"
+#endif
     P(eglGetError), P(eglGetDisplay), P(eglInitialize), P(eglTerminate), P(eglQueryString), P(eglGetConfigs),
     P(eglChooseConfig), P(eglGetConfigAttrib), P(eglCreateWindowSurface), P(eglCreatePbufferSurface),
     P(eglCreatePixmapSurface), P(eglDestroySurface), P(eglQuerySurface), P(eglBindAPI), P(eglQueryAPI),

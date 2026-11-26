@@ -2488,3 +2488,460 @@ msgstr "This section's changes are already applied."
 msgid "Sin /home persistente los cambios se aplican, pero no se recordarán."
 msgstr "Without a persistent /home changes are applied but will not be remembered."
 
+
+#: D483
+msgid "Esa carpeta no tiene imágenes (BMP, PNG...)."
+msgstr "That folder has no images (BMP, PNG...)."
+
+#: D483
+msgid "Cambiar de fondo automáticamente"
+msgstr "Change the background automatically"
+
+#: D483
+msgid "Carpeta de imágenes (Intro para usarla):"
+msgstr "Image folder (press Enter to use it):"
+
+#: D483
+msgid "Pulsa Intro para usar esta carpeta."
+msgstr "Press Enter to use this folder."
+
+#: D483
+msgid "Cada 1 min"
+msgstr "Every 1 min"
+
+#: D483
+msgid "Cada 5 min"
+msgstr "Every 5 min"
+
+#: D483
+msgid "Cada 10 min"
+msgstr "Every 10 min"
+
+#: D483
+msgid "Cada 30 min"
+msgstr "Every 30 min"
+
+#: D483
+msgid "Cada 60 min"
+msgstr "Every 60 min"
+
+#: D483
+msgid "En orden"
+msgstr "In order"
+
+#: D483
+msgid "Al azar"
+msgstr "Random"
+
+#: D483
+msgid "Fundido entre un fondo y otro"
+msgstr "Fade between backgrounds"
+
+#: D483
+msgid "Siguiente fondo"
+msgstr "Next background"
+
+#: D483
+msgid "Cambiando el fondo..."
+msgstr "Changing the background..."
+
+#: D483
+msgid "Acento automático: el color del fondo"
+msgstr "Automatic accent: the background color"
+
+#: D483
+msgid "Se recalcula con cada fondo (también con el rotativo)."
+msgstr "Recalculated with each background (also with the rotating one)."
+
+#: D483
+msgid "Fondo rotativo y acento automático"
+msgstr "Rotating background and automatic accent"
+
+#: D483
+msgid "Color"
+msgstr "Color"
+
+#: D483
+msgid "Imagen"
+msgstr "Image"
+
+#: D483
+msgid "Presentación (rotativo)"
+msgstr "Slideshow (rotating)"
+
+#: D483
+msgid "Presentación"
+msgstr "Slideshow"
+
+#: D483
+msgid "Degradado de siempre"
+msgstr "The usual gradient"
+
+#: D483
+msgid "Color sólido"
+msgstr "Solid color"
+
+#: D483
+msgid "Tipo de fondo"
+msgstr "Background type"
+
+#: D483
+msgid "Tomar el color de acento del fondo"
+msgstr "Take the accent color from the background"
+
+#: D483
+msgid "El acento sale del color dominante de cada fondo (con un color sólido, de ese color) y se recalcula al cambiarlo."
+msgstr "The accent comes from the dominant color of each background (from that color if it is solid) and is recalculated when it changes."
+
+#: D485
+msgid "Nombre no válido: letras, números, - y _ (hasta 24)."
+msgstr "Invalid name: letters, digits, - and _ (up to 24)."
+
+#: D485
+msgid "La dirección empieza por https:// (o http://)."
+msgstr "The address starts with https:// (or http://)."
+
+#: D485
+msgid "Ya tienes el máximo de unidades."
+msgstr "You already have the maximum number of drives."
+
+#: D485
+msgid "El llavero está cerrado: ábrelo abajo."
+msgstr "The keyring is locked: unlock it below."
+
+#: D485
+msgid "No se pudo guardar la contraseña."
+msgstr "Could not save the password."
+
+#: D485
+#, c-format
+msgid "Guardada «%s». Las contraseñas van cifradas en el llavero."
+msgstr "Saved «%s». Passwords are stored encrypted in the keyring."
+
+#: D485
+msgid "Llavero abierto."
+msgstr "Keyring unlocked."
+
+#: D485
+msgid "Esa contraseña no abre el llavero."
+msgstr "That password does not unlock the keyring."
+
+#: D485
+msgid "No se pudo cambiar."
+msgstr "Could not change it."
+
+#: D485
+msgid "El llavero tiene ahora su propia contraseña."
+msgstr "The keyring now has its own password."
+
+#: D485
+msgid "El llavero vuelve a la contraseña de la cuenta."
+msgstr "The keyring uses the account password again."
+
+#: D485
+msgid "Todavía no tienes unidades de red. Rellena el formulario de abajo."
+msgstr "You have no network drives yet. Fill in the form below."
+
+#: D485
+msgid "Conectar"
+msgstr "Connect"
+
+#: D485
+msgid "Editar"
+msgstr "Edit"
+
+#: D485
+msgid "Tus unidades"
+msgstr "Your drives"
+
+#: D485
+msgid "Nombre"
+msgstr "Name"
+
+#: D485
+msgid "Dirección (URL)"
+msgstr "Address (URL)"
+
+#: D485
+msgid "Usuario"
+msgstr "User"
+
+#: D485
+msgid "Contraseña (vacía: la de antes)"
+msgstr "Password (empty: keep the old one)"
+
+#: D485
+msgid "Contraseña"
+msgstr "Password"
+
+#: D485
+msgid "Conectar al iniciar la sesión"
+msgstr "Connect when logging in"
+
+#: D485
+msgid "Guardar y probar"
+msgstr "Save and test"
+
+#: D485
+msgid "Nueva"
+msgstr "New"
+
+#: D485
+msgid "Se montan en /red/<nombre>: solo las ve tu cuenta y desde ellas no se ejecuta nada. Usa https:// salvo en tu red de casa."
+msgstr "They are mounted at /red/<name>: only your account sees them and nothing runs from them. Use https:// except on your home network."
+
+#: D485
+msgid "Unidad"
+msgstr "Drive"
+
+#: D485
+msgid "Cerrado: escribe su contraseña para abrirlo."
+msgstr "Locked: type its password to unlock it."
+
+#: D485
+msgid "El fichero del llavero está dañado."
+msgstr "The keyring file is damaged."
+
+#: D485
+msgid "Tu cuenta no tiene contraseña: quien copie el fichero lo abre. Ponle una contraseña propia al llavero."
+msgstr "Your account has no password: whoever copies the file can open it. Give the keyring its own password."
+
+#: D485
+msgid "Abrir el llavero"
+msgstr "Unlock the keyring"
+
+#: D485
+msgid "Contraseña nueva"
+msgstr "New password"
+
+#: D485
+msgid "Repítela"
+msgstr "Repeat it"
+
+#: D485
+msgid "Cambiar la del llavero"
+msgstr "Change the keyring password"
+
+#: D485
+msgid "Llavero"
+msgstr "Keyring"
+
+#: D485
+msgid "Unidades de red"
+msgstr "Network drives"
+
+#: D485
+msgid "cifrado con la contraseña de la cuenta"
+msgstr "encrypted with the account password"
+
+#: D485
+msgid "cifrado con la contraseña propia del llavero"
+msgstr "encrypted with the keyring's own password"
+
+#: D485
+msgid "cifrado sin contraseña: protege poco"
+msgstr "encrypted without a password: weak protection"
+
+#: D482
+msgid "Clásico (negro y blanco)"
+msgstr "Classic (black and white)"
+
+#: D482
+msgid "Moderno (azul translúcido)"
+msgstr "Modern (translucent blue)"
+
+#: D482
+msgid "Normal"
+msgstr "Normal"
+
+#: D482
+msgid "Grande"
+msgstr "Large"
+
+#: D482
+msgid "Muy grande"
+msgstr "Very large"
+
+#: D482
+msgid "Elige el aspecto y el tamaño de la flecha del ratón. El cambio se ve al momento; los tamaños grandes ayudan en pantallas grandes o si cuesta ver el cursor."
+msgstr "Choose the look and size of the mouse arrow. The change shows at once; large sizes help on big screens or if the pointer is hard to see."
+
+#: D482
+msgid "Tema"
+msgstr "Theme"
+
+#: D482
+msgid "Tamaño"
+msgstr "Size"
+
+#: D484
+msgid "Borrar archivos"
+msgstr "Delete files"
+
+#: D484
+msgid "Abrir una ventana"
+msgstr "Open a window"
+
+#: D484
+msgid "Cerrar una ventana"
+msgstr "Close a window"
+
+#: D484
+msgid "Minimizar una ventana"
+msgstr "Minimize a window"
+
+#: D484
+msgid "Maximizar una ventana"
+msgstr "Maximize a window"
+
+#: D484
+msgid "Correo nuevo"
+msgstr "New mail"
+
+#: D484
+msgid "Captura de pantalla"
+msgstr "Screenshot"
+
+#: D484
+msgid "   (esquema, solo lectura)"
+msgstr "   (scheme, read-only)"
+
+#: D484
+msgid "Del esquema activo"
+msgstr "From the active sound scheme"
+
+#: D484
+#, c-format
+msgid "Esquema %s"
+msgstr "Sound scheme %s"
+
+#: D484
+msgid "Archivo propio..."
+msgstr "Own file..."
+
+#: D484
+msgid "Elegir un sonido"
+msgstr "Choose a sound"
+
+#: D484
+msgid "Nombre no válido: solo letras, cifras, - y _."
+msgstr "Invalid name: letters, digits, - and _ only."
+
+#: D484
+msgid "Ese nombre es de un esquema (solo lectura)."
+msgstr "That name belongs to a sound scheme (read-only)."
+
+#: D484
+msgid "Ya existe un preset con ese nombre."
+msgstr "A preset with that name already exists."
+
+#: D484
+msgid "No se pudo."
+msgstr "It could not be done."
+
+#: D484
+#, c-format
+msgid "Volumen general: %d %%"
+msgstr "Master volume: %d %%"
+
+#: D484
+msgid "Elegir..."
+msgstr "Choose..."
+
+#: D484
+msgid "Acciones: sonido, volumen y prueba"
+msgstr "Actions: sound, volume and test"
+
+#: D484
+msgid "«[esquema]» = el sonido del esquema; «Elegir...» pone el de otro esquema o un archivo propio (WAV, MP3, FLAC, MIDI). Las acciones de ventana van desactivadas de serie y no suenan más de 3 veces por segundo."
+msgstr "«[scheme]» = the sound of the scheme; «Choose...» sets the one of another scheme or your own file (WAV, MP3, FLAC, MIDI). Window actions are off by default and play at most 3 times per second."
+
+#: D484
+#, c-format
+msgid "Sonido para: %s"
+msgstr "Sound for: %s"
+
+#: D484
+msgid "Un preset guarda la combinación actual: el sonido, el volumen y el interruptor de cada acción. Los esquemas instalados son presets de partida (solo lectura)."
+msgstr "A preset saves the current combination: the sound, the volume and the switch of each action. Installed sound schemes are starting presets (read-only)."
+
+#: D484
+msgid "Preset cargado."
+msgstr "Preset loaded."
+
+#: D484
+msgid "Nombre:"
+msgstr "Name:"
+
+#: D484
+msgid "Cargar"
+msgstr "Load"
+
+#: D484
+msgid "Preset guardado."
+msgstr "Preset saved."
+
+#: D484
+msgid "Renombrar"
+msgstr "Rename"
+
+#: D484
+msgid "Preset renombrado."
+msgstr "Preset renamed."
+
+#: D484
+msgid "Borrar preset"
+msgstr "Delete preset"
+
+#: D484
+msgid "¿Borrar este preset y sus audios propios?"
+msgstr "Delete this preset and its own audio files?"
+
+#: D484
+msgid "Preset borrado."
+msgstr "Preset deleted."
+
+#: D484
+msgid "Exportar..."
+msgstr "Export..."
+
+#: D484
+msgid "Exportar preset"
+msgstr "Export preset"
+
+#: D484
+msgid "Preset exportado (los audios propios, junto al archivo)."
+msgstr "Preset exported (its own audio files, next to the file)."
+
+#: D484
+msgid "Importar..."
+msgstr "Import..."
+
+#: D484
+msgid "Importar preset"
+msgstr "Import preset"
+
+#: D484
+msgid "Preset importado."
+msgstr "Preset imported."
+
+#: D484
+#, c-format
+msgid "Preset en uso: %s"
+msgstr "Preset in use: %s"
+
+#: D484
+msgid "(ninguno; combinación propia)"
+msgstr "(none; own combination)"
+
+#: D484
+msgid "Acciones"
+msgstr "Actions"
+
+#: D484
+msgid "Presets"
+msgstr "Presets"
+
+#: D482
+msgid "Cursor del ratón"
+msgstr "Mouse cursor"

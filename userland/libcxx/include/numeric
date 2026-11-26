@@ -1,0 +1,36 @@
+// <numeric> - lo poco que usan los ports (D481, glmark2: std::accumulate).
+// SPDX-License-Identifier: GPL-2.0-or-later
+#ifndef SAGUI_CXX_NUMERIC
+#define SAGUI_CXX_NUMERIC
+#pragma GCC system_header
+
+#include <iterator>
+
+namespace std {
+
+template <class I, class T> T accumulate(I ini, I fim, T v)
+{
+    for (; ini != fim; ++ini) v = v + *ini;
+    return v;
+}
+
+template <class I, class T, class F> T accumulate(I ini, I fim, T v, F f)
+{
+    for (; ini != fim; ++ini) v = f(v, *ini);
+    return v;
+}
+
+template <class I, class T> void iota(I ini, I fim, T v)
+{
+    for (; ini != fim; ++ini, ++v) *ini = v;
+}
+
+template <class I1, class I2, class T> T inner_product(I1 a, I1 a_fim, I2 b, T v)
+{
+    for (; a != a_fim; ++a, ++b) v = v + (*a) * (*b);
+    return v;
+}
+
+} // namespace std
+
+#endif

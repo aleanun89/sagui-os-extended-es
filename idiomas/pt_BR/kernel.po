@@ -1110,3 +1110,22 @@ msgstr "Parando os serviços..."
 #: kernel/gui/barra.c:1220
 msgid "Arara (diagramas)"
 msgstr "Arara (diagramas)"
+
+#: D483
+msgid "Siguiente fondo"
+msgstr "Próximo fundo"
+
+#: D485
+#, c-format
+msgid "Unidad de red %s: sin conexión"
+msgstr "Unidade de rede %s: sem conexão"
+
+#: D485
+#, c-format
+msgid "Unidad de red %s: conectada"
+msgstr "Unidade de rede %s: conectada"
+
+#: D485
+#, c-format
+msgid "Unidades de red: %d (%d sin conexión)"
+msgstr "Unidades de rede: %d (%d sem conexão)"

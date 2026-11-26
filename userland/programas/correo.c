@@ -22,6 +22,7 @@
 #include "gui.h"
 #include "icones.h"
 #include "agentes.h"
+#include "sonidos.h"   /* D484 */
 
 #define ARQ_CONTA   "/home/.config/correo"
 #define DIR_CONF    "/home/.config"
@@ -948,6 +949,7 @@ static void recibir(void)
         formatar_texto(t, sizeof t, "Recibidos %d mensajes (%d nuevos)", c.entregues, c.novos);
         definir_estado(t);
         registrar("correo: recibidos %d mensajes por %s (%d nuevos)", c.entregues, conta.proto, c.novos);
+        if (c.novos > 0) sonido_evento("correo");   /* D484 */
         if (imap) {
             /* Las demás carpetas del buzón, cada una en su subcarpeta. */
             static char nomes[MAX_PASTAS][64];

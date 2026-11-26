@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>O1 overflow</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff}
+#o{position:absolute;left:0;top:0;width:8px;height:8px;background:#f0f}
+.c{position:absolute;top:10px;width:200px;height:100px;border:0}
+#a{left:10px;overflow:auto}
+#b{left:250px;overflow:scroll}
+#h{left:490px;overflow:hidden}
+#x{left:730px;overflow-x:auto;overflow-y:hidden;height:100px}
+#x div{width:600px;height:60px;background:linear-gradient(90deg,#ff0000,#0000ff)}
+#o2{position:absolute;left:0;top:300px;width:8px;height:16px;background:#f0f}
+#s{position:absolute;left:30px;top:140px;width:10px;height:1500px;background:#eee}
+#b .p{width:100px;height:30px;background:#00aa00}
+</style></head><body><div id="o"></div>
+<div class="c" id="a"><div style="height:50px;background:#ff0000"></div><div style="height:50px;background:#00aa00"></div><div style="height:50px;background:#0000ff"></div><div style="height:50px;background:#ffff00"></div><div style="height:50px;background:#00ffff"></div><div style="height:50px;background:#ff8000"></div><div style="height:50px;background:#800080"></div><div style="height:50px;background:#808080"></div></div>
+<div class="c" id="b"><div class="p"></div></div>
+<div class="c" id="h"><div style="height:50px;background:#ff0000"></div><div style="height:50px;background:#00aa00"></div><div style="height:50px;background:#0000ff"></div><div style="height:50px;background:#ffff00"></div><div style="height:50px;background:#00ffff"></div><div style="height:50px;background:#ff8000"></div><div style="height:50px;background:#800080"></div><div style="height:50px;background:#808080"></div></div>
+<div class="c" id="x"><div></div></div>
+<div id="o2"></div><div id="s"></div>
+</body></html>

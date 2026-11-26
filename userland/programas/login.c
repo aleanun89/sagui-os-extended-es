@@ -13,6 +13,7 @@
 #include "sagui.h"
 #include "contas.h"
 #include "pbkdf2.h"
+#include "chaveiro.h"
 #include "conf_maquina.h"
 
 #define FALHAS_MAX 5
@@ -75,6 +76,12 @@ int principal(int argc, char **argv)
             char senha[PED_SENHA_MAX];
             if (ler_senha("Contraseña: ", senha, sizeof senha) < 0) senha[0] = 0;
             ok = existe && tem && pbkdf2_conferir(senha, h);
+            if (ok && c.uid != UID_ROOT) {   /* D485: la clave del llavero de la cuenta, solo en la memoria del kernel */
+                unsigned char k[32];
+                chaveiro_derivar(senha, c.nome, k);
+                chaveiro_op(CHAVEIRO_POR, c.uid, k);
+                memset(k, 0, sizeof k);
+            }
             memset(senha, 0, sizeof senha);
         }
         memset(h, 0, sizeof h);

@@ -15,7 +15,7 @@
 #include "trava.h"
 #include "vfs.h"
 
-#define MAX_MONTAGENS 12   /* D379: la raíz en disco ocupa una */
+#define MAX_MONTAGENS 20   /* D379: la raíz en disco ocupa una; D485: /red y las unidades de red, hasta 7 */
 
 typedef struct sistema_arquivos {
     const char *nome;                 /* "fat32", "ext2" */
@@ -59,6 +59,8 @@ typedef struct montagem {
     bool     criou_ponto;             /* la carpeta la creó el montaje: desaparece al desmontar */
     char     tipo[8];                 /* "fat32", "ext4", "iso9660", "udf" (D233: el que se usó) */
     uint32_t uid, gid, umask;         /* D282: dueño y máscara en los sistemas sin dueños (FAT32, ISO, UDF) */
+    bool     privado;                 /* D485: solo lo ve su dueño (uid) y root (las unidades de red) */
+    bool     oculto;                  /* D485: no sale en la lista de montajes (/red) */
 } montagem_t;
 
 /* Un archivo abierto en un montaje (arquivos.c). */
@@ -71,6 +73,7 @@ typedef struct {
 
 extern const sistema_arquivos_t fs_fat32, fs_exfat, fs_ext2, fs_iso9660, fs_udf, fs_cdda, fs_ramfs;
 extern const sistema_arquivos_t fs_xfs;   /* D446: XFS, solo lectura */
+extern const sistema_arquivos_t fs_ponte, fs_red;   /* D485: las unidades de red y /red (ponte.c) */
 extern sistema_arquivos_t fs_sobreposicao;   /* D379: su tam_arq lo pone sobreposicao_preparar */
 extern sistema_arquivos_t fs_serie;          /* v8.5.4.2: la capa inferior de la live, a la vista (sobreposicao.c) */
 extern trava_t trava_fs;   /* D095: una operación de sistema de archivos a la vez (ver montagem.c) */
@@ -95,6 +98,13 @@ int  montagem_montar_dono(disco_t *d, const char *ponto, const char *tipo, uint3
  * sin dueños no se lee el disco (no se sabe si existe ni el tipo). */
 int  montagem_meta(montagem_t *m, const char *rel, meta_t *saida, bool olhar);
 int  montagem_desmontar(montagem_t *m, bool gravar);
+/* D485: un montaje sin disco de verdad ni carpeta (el desvío es por la ruta) y SIN el cerrojo de los sistemas
+ * de archivos (D095): el driver espera a un proceso de usuario y no puede tenerlo tomado. "d" es un disco de
+ * mentira del driver (fuera de la tabla de discos). Devuelve el montaje o NULL (*erro dice por qué). */
+montagem_t *montagem_montar_virtual(disco_t *d, const char *ponto, const sistema_arquivos_t *fs, void *priv,
+                                    uint32_t opcoes, uint32_t uid, uint32_t gid, uint32_t umask, int *erro);
+/* D485: ¿está la ruta absoluta en un montaje con MONTAR_SEM_EXEC? */
+bool montagem_sem_exec(const char *caminho);
 void montagem_desmontar_tudo(void);           /* antes de reiniciar */
 void logs_disco_gravar(const char *motivo);   /* D120: anillo de klog -> /logs/kernel-*.log (si hay /logs) */
 

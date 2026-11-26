@@ -5,7 +5,6 @@
 04-pseudoclases-2:11   # ::marker (el marcador se pinta con el color del texto)
 06-unidades:14         # una medida sin unidad distinta de 0 se acepta como px
 13-fondos-imagenes:13  # background-clip
-13-fondos-imagenes:14  # border-style dashed/dotted (se pinta sólido)
 18-formularios-2:8     # ::placeholder (el texto de ejemplo sale siempre gris)
 19-js-dom:10           # createElement / appendChild: el script no puede cambiar la forma del árbol
 19-js-dom:12           # innerHTML de un elemento (solo el de document.body)

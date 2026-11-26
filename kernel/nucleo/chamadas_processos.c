@@ -477,6 +477,10 @@ int32_t sis_memoria(uint32_t op, uint32_t ini, uint32_t n, uint32_t d, uint32_t 
         return (int32_t)troca_sacar_faixa(l->espaco, ini, ini + n);
     if (op == MEM_COMPARTIR) {   /* D378 (fase 3): d = fd << 8 | MEM_PROT_EXEC o 0; e = desplazamiento */
         if (d & 0xFF & ~(uint32_t)MEM_PROT_EXEC) return ERRO_INVALIDO;   /* nunca escritura */
+        if (d & MEM_PROT_EXEC) {   /* D485: ni código de un montaje sin ejecución (bibliotecas en /red) */
+            char cam[CAMINHO_MAX];
+            if (arquivos_caminho(d >> 8, cam, sizeof cam) == 0 && montagem_sem_exec(cam)) return ERRO_ACESSO;
+        }
         if (!espaco_pode_tirar()) return SIS_REPETIR;   /* D351: va a cambiar marcos del rango */
         return imagens_mapear(l, ini, n, d >> 8, (d & MEM_PROT_EXEC) != 0, e);
     }

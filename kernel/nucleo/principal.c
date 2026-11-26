@@ -206,6 +206,14 @@ static void abrir_widgets(void)
     klog("[SAGUI] widgets: %d\n", pid);
 }
 
+/* D485: las unidades de red de la cuenta marcadas «conectar al iniciar» (si no tiene, «dav iniciar» acaba enseguida). */
+static void abrir_unidades_rede(void)
+{
+    char *argv_d[] = { "dav", "iniciar", NULL };
+    int pid = processo_executar("/bin/dav", 2, argv_d, NULL);
+    klog("[SAGUI] unidades de red: %d\n", pid);
+}
+
 static void etapa(const char *texto)
 {
     console_cor(COR_VERDE_CLARO, COR_PRETO);
@@ -625,6 +633,7 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
         } else if (sessao_arrancar()) {   /* D340: una sola cuenta sin contraseña: directo, como siempre */
             abrir_terminal();
             abrir_widgets();
+            abrir_unidades_rede();
         }
         /* D216: el gestor de servicios, después del Terminal (no lo retrasa) y
          * sin esperar a nada: si falta o falla, se anota y se sigue. D340: con la
@@ -640,6 +649,7 @@ void inicio_kernel(uint32_t magico, info_boot_t *bi)
                 aplicar_configuracao(true);
                 abrir_terminal();
                 abrir_widgets();
+                abrir_unidades_rede();
             }
         }
     }

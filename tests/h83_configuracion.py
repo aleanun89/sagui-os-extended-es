@@ -239,6 +239,9 @@ def parte2e3():
         # el recorrido acaba en la última pestaña: se vuelve a Escritorio para los colores
         ca.ir_ox(m, ox, oy, "escritorio")
         time.sleep(0.5)
+        # D483: la página tiene el tipo de fondo arriba; con una imagen puesta las muestras bajan: se vuelve al tipo «Color»
+        m.clique(*ca.panel_ox(ox, oy, 38, 39, l=j["l"], a=j["a"]))
+        time.sleep(1.2)
         # clique de verdade en una muestra (Rojo: índice 6 de los 16 colores de acento)
         m.clique(*ca.panel_ox(ox, oy, *ca.muestra_acento(6), l=j["l"], a=j["a"]))
         time.sleep(0.6)

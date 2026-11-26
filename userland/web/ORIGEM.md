@@ -87,6 +87,14 @@ Huffman do AAC (FAAD2, GPL-2.0+). Se algum dia se integrar o vídeo, vão em
 FAAD2 is copyright (c) Nero AG, www.nero.com»). As **fontes DejaVu** (`rootfs/fontes/`) têm a
 `LICENCA-DejaVu.txt` ao lado.
 
+### El compilador de GLSL en SaguiGL 2.0 (D475)
+
+El frontal de `glsl.c` (preprocesador, léxico, parser, tipos y la tabla de funciones embutidas) se copió a
+`userland/libsgl/sgl_glsl.c` y se endureció para el OpenGL ES 2.0 de la `libsgl` (SaguiGL 2.0); allí la
+generación de código es nueva (una representación intermedia para las GPU). Lleva la misma licencia
+(GPL-3.0-only, lista `ROBSON` de `tools/spdx.py`). En la fase «WebGL del Cipó» el Cipó pasará a usar el de la
+`libsgl` y esta copia se retirará.
+
 ### O ficheiro original, em `referencia/`
 
 O `referencia/cipo_robson.c` é o **programa** do Cipó tal como estava no

@@ -38,6 +38,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 
 **Opcional: FFmpeg dentro (D458).** `tools/ffmpeg_fuentes.sh` baja FFmpeg 8.1.3 (SHA-256 fijo; LGPL-2.1 o posterior, sin componentes GPL ni no libres) a `userland/terceros/ffmpeg/fuentes/`; con eso `make` ejecuta su `configure` cruzado y compila `/apps/bin/ffmpeg` y `/apps/bin/ffprobe` (sin ensamblador y con los hilos de SaguiOS; la lista de formatos, códecs y filtros está en `userland/terceros/ffmpeg/configurar.args`). Sin las fuentes se salta con un aviso (`FFMPEG=0` lo desactiva). Va fuera de `SEM_GPL=1`. Ver `docs/ffmpeg.md`.
 
+**Opcional: glmark2 dentro (D481).** `tools/glmark2_fuentes.sh` baja glmark2 2023.01 (SHA-256 fijo; GPL-3.0-or-later) a `userland/terceros/glmark2/fuentes/` y aplica su parche; con eso `make` también compila `/apps/bin/glmark2-es2` (el banco de pruebas de OpenGL ES 2.0 de Linaro, sin meson, sobre la SaguiGL 2.0) y `/apps/glmark2/` (modelos, sombreadores y texturas). Sin las fuentes se salta (`GLMARK2=0` lo desactiva). Va fuera de `SEM_GPL=1`. Para medir lo mismo en el PC con Mesa: `tools/glmark2_pc.sh`. Ver `docs/saguigl2.md`.
+
 **Opcional: git dentro (D400).** `tools/git_fuentes.sh` baja libgit2 1.9.1 (etiqueta fija, SHA-256 comprobado) a `userland/terceros/git/fuentes/`; con eso `make` también compila `/apps/bin/git` (init, clone, fetch, pull, push, status, add, commit, log, diff, branch, checkout, remote y config; HTTP(S) con TLS, y SSH). Sin las fuentes se salta con un aviso (`GIT=0` lo desactiva). Va fuera de `SEM_GPL=1`. Ver `docs/git.md`.
 
 **Opcional: Valkey dentro (D477).** `tools/valkey_fuentes.sh` baja Valkey 8.0.2 (SHA-256 fijo; BSD-3-Clause) a `userland/terceros/valkey/fuentes/`; con eso `make` compila `/apps/bin/valkey-server` y `/apps/bin/valkey-cli` (con su hiredis y su Lua 5.1 incluidos) y los deja en la partición de aplicaciones. Sin las fuentes se salta. `VALKEY_DENTRO=0` lo desactiva. Entra también con `SEM_GPL=1`.
@@ -142,6 +144,7 @@ Se pasan en la línea de `make`: `make NETSURF=0 B=build-mia -j8`. Si cambias un
 | `CAPIBARA` | `1` | Capibara (`/apps/bin/capibara` y los ejemplos de `/apps/capibara`, D452): motor de juegos 2D con guiones en Lua; solo entra si están las fuentes de Lua (`tools/lua_fuentes.sh`). `CAPIBARA=0` lo quita; con `SEM_GPL=1` también entra. Para Linux, `make -C userland/capibara` |
 | `FFMPEG` | `1` | FFmpeg (`/apps/bin/ffmpeg` y `ffprobe`, D458): solo entra si están las fuentes (`tools/ffmpeg_fuentes.sh`, ver 1 y 5). `FFMPEG=0` lo quita; con `SEM_GPL=1` tampoco entra |
 | `VALKEY_DENTRO` | `1` | Valkey (`/apps/bin/valkey-server` y `valkey-cli`, D477): solo entra si están las fuentes (`tools/valkey_fuentes.sh`, ver 1 y 5). `VALKEY_DENTRO=0` lo quita; también entra con `SEM_GPL=1`. |
+| `GLMARK2` | `1` | glmark2-es2 (`/apps/bin/glmark2-es2`, D481): solo entra si están las fuentes (`tools/glmark2_fuentes.sh`, ver 1 y 5). `GLMARK2=0` lo quita; con `SEM_GPL=1` tampoco entra |
 | `GO` | `1` | programas en Go con TinyGo (`/apps/go/`, ver 1). Sin TinyGo instalado se saltan con un aviso; `GO=0` los desactiva |
 | `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | solo para `make priv_descargas`: dónde está el repositorio de OpenTTD (o de dónde clonarlo). Sin él, la imagen privada no lleva OpenTTD (ver 5) |
 
@@ -272,6 +275,7 @@ Desde la v8.5.4.10r2 (D388) el orden en el disco es: arranque, la ESP, y la exte
 | Fuentes de The One True AWK 20261106 (`/bin/awk`, D440) | `bash tools/awk_fuentes.sh [--tarball FICHERO]` | `https://github.com/onetrueawk/awk/archive/refs/tags/20261106.tar.gz` | permisiva de Lucent (tipo HPND) | `userland/terceros/awk/fuentes/` (ignorada por git) |
 | Fuentes de Lua 5.4.9 (`/apps/bin/lua` y `luac`, D440) | `bash tools/lua_fuentes.sh [--tarball FICHERO]` | `https://www.lua.org/ftp/lua-5.4.9.tar.gz` | MIT | `userland/terceros/lua/fuentes/` (ignorada por git) |
 | Fuentes de Valkey 8.0.2 (`/apps/bin/valkey-server` y `valkey-cli`, D477) | `bash tools/valkey_fuentes.sh [--tarball FICHERO]` | `https://github.com/valkey-io/valkey/archive/refs/tags/8.0.2.tar.gz` | BSD-3-Clause | `userland/terceros/valkey/fuentes/` (ignorada por git) |
+| Fuentes de glmark2 2023.01 (`/apps/bin/glmark2-es2`, D481) | `bash tools/glmark2_fuentes.sh [--tarball FICHERO]` | `https://github.com/glmark2/glmark2/archive/refs/tags/2023.01.tar.gz` | GPL-3.0-or-later | `userland/terceros/glmark2/fuentes/` (ignorada por git) |
 | Modelos 3D CC0 para la demo de SaguiGL (`sgldemo -p --modelo`, D404) | `bash tools/modelos3d_datos.sh [--forzar]` | `https://opengameart.org/content/low-poly-biplane`, `https://opengameart.org/content/funky-aircraft` y `https://opengameart.org/content/ww1-wwi-airplane-model-obj` | CC0 1.0 (dominio público) | `userland/terceros/modelos3d/datos/` (ignorada por git); no entran en las imágenes |
 
 Notas:
@@ -425,6 +429,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 
 **Optional: FFmpeg inside (D458).** `tools/ffmpeg_fuentes.sh` downloads FFmpeg 8.1.3 (fixed SHA-256; LGPL-2.1-or-later, no GPL or nonfree components) to `userland/terceros/ffmpeg/fuentes/`; with that, `make` runs its cross `configure` and builds `/apps/bin/ffmpeg` and `/apps/bin/ffprobe` (no assembly, using SaguiOS threads; the list of formats, codecs and filters is in `userland/terceros/ffmpeg/configurar.args`). Without the sources it is skipped with a warning (`FFMPEG=0` disables it). It is left out of `SEM_GPL=1`. See `docs/ffmpeg.md`.
 
+**Optional: glmark2 inside (D481).** `tools/glmark2_fuentes.sh` downloads glmark2 2023.01 (fixed SHA-256; GPL-3.0-or-later) into `userland/terceros/glmark2/fuentes/` and applies its patch; with it, `make` also builds `/apps/bin/glmark2-es2` (Linaro's OpenGL ES 2.0 benchmark, without meson, on top of SaguiGL 2.0) and `/apps/glmark2/` (models, shaders and textures). Without the sources it is skipped (`GLMARK2=0` disables it). It is left out of `SEM_GPL=1`. To measure the same thing on the PC with Mesa: `tools/glmark2_pc.sh`. See `docs/saguigl2.md`.
+
 **Optional: git inside (D400).** `tools/git_fuentes.sh` downloads libgit2 1.9.1 (fixed tag, SHA-256 checked) into `userland/terceros/git/fuentes/`; with it, `make` also builds `/apps/bin/git` (init, clone, fetch, pull, push, status, add, commit, log, diff, branch, checkout, remote and config; HTTP(S) with TLS, and SSH). Without the sources it is skipped with a notice (`GIT=0` disables it). It is left out of `SEM_GPL=1`. See `docs/git.md`.
 
 **Optional: Valkey inside (D477).** `tools/valkey_fuentes.sh` downloads Valkey 8.0.2 (fixed SHA-256; BSD-3-Clause) into `userland/terceros/valkey/fuentes/`; with it, `make` builds `/apps/bin/valkey-server` and `/apps/bin/valkey-cli` (with their hiredis and Lua 5.1 included) and puts them in the applications partition. Without the sources it is skipped. `VALKEY_DENTRO=0` turns it off. It is also included with `SEM_GPL=1`.
@@ -529,6 +535,7 @@ They go on the `make` command line: `make NETSURF=0 B=build-mia -j8`. If you cha
 | `CAPIBARA` | `1` | Capibara (`/apps/bin/capibara` and the examples in `/apps/capibara`, D452): 2D game engine with Lua scripts; only included if the Lua sources are there (`tools/lua_fuentes.sh`). `CAPIBARA=0` removes it; with `SEM_GPL=1` it is included too. For Linux, `make -C userland/capibara` |
 | `FFMPEG` | `1` | FFmpeg (`/apps/bin/ffmpeg` and `ffprobe`, D458): only included if its sources are there (`tools/ffmpeg_fuentes.sh`, see 1 and 5). `FFMPEG=0` removes it; with `SEM_GPL=1` it is not included either |
 | `VALKEY_DENTRO` | `1` | Valkey (`/apps/bin/valkey-server` and `valkey-cli`, D477): only included if its sources are there (`tools/valkey_fuentes.sh`, see 1 and 5). `VALKEY_DENTRO=0` removes it; it is also included with `SEM_GPL=1`. |
+| `GLMARK2` | `1` | glmark2-es2 (`/apps/bin/glmark2-es2`, D481): only included if its sources are there (`tools/glmark2_fuentes.sh`, see 1 and 5). `GLMARK2=0` removes it; with `SEM_GPL=1` it is not included either |
 | `GO` | `1` | programs in Go with TinyGo (`/apps/go/`, see 1). Without TinyGo installed they are skipped with a notice; `GO=0` disables them |
 | `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | only for `make priv_descargas`: where the OpenTTD repository is (or where to clone it from). Without it the private image does not carry OpenTTD (see 5) |
 
@@ -659,6 +666,7 @@ Since v8.5.4.10r2 (D388) the order on the disk is: boot, the ESP, and the extend
 | The One True AWK 20261106 sources (`/bin/awk`, D440) | `bash tools/awk_fuentes.sh [--tarball FILE]` | `https://github.com/onetrueawk/awk/archive/refs/tags/20261106.tar.gz` | Lucent permissive (HPND-style) | `userland/terceros/awk/fuentes/` (ignored by git) |
 | Lua 5.4.9 sources (`/apps/bin/lua` and `luac`, D440) | `bash tools/lua_fuentes.sh [--tarball FILE]` | `https://www.lua.org/ftp/lua-5.4.9.tar.gz` | MIT | `userland/terceros/lua/fuentes/` (ignored by git) |
 | Valkey 8.0.2 sources (`/apps/bin/valkey-server` and `valkey-cli`, D477) | `bash tools/valkey_fuentes.sh [--tarball FILE]` | `https://github.com/valkey-io/valkey/archive/refs/tags/8.0.2.tar.gz` | BSD-3-Clause | `userland/terceros/valkey/fuentes/` (ignored by git) |
+| glmark2 2023.01 sources (`/apps/bin/glmark2-es2`, D481) | `bash tools/glmark2_fuentes.sh [--tarball FILE]` | `https://github.com/glmark2/glmark2/archive/refs/tags/2023.01.tar.gz` | GPL-3.0-or-later | `userland/terceros/glmark2/fuentes/` (ignored by git) |
 | CC0 3D models for the SaguiGL demo (`sgldemo -p --modelo`, D404) | `bash tools/modelos3d_datos.sh [--forzar]` | `https://opengameart.org/content/low-poly-biplane`, `https://opengameart.org/content/funky-aircraft` and `https://opengameart.org/content/ww1-wwi-airplane-model-obj` | CC0 1.0 (public domain) | `userland/terceros/modelos3d/datos/` (ignored by git); not in the images |
 
 Notes:
@@ -812,6 +820,8 @@ sudo apt install build-essential gcc-multilib g++ nasm binutils make python3 \
 
 **Opcional: FFmpeg dentro (D458).** `tools/ffmpeg_fuentes.sh` baixa o FFmpeg 8.1.3 (SHA-256 fixo; LGPL-2.1 ou posterior, sem componentes GPL nem não livres) para `userland/terceros/ffmpeg/fuentes/`; com isso o `make` executa o seu `configure` cruzado e compila `/apps/bin/ffmpeg` e `/apps/bin/ffprobe` (sem assembly e com as threads do SaguiOS; a lista de formatos, codecs e filtros está em `userland/terceros/ffmpeg/configurar.args`). Sem as fontes é pulado com um aviso (`FFMPEG=0` o desativa). Fica fora do `SEM_GPL=1`. Ver `docs/ffmpeg.md`.
 
+**Opcional: glmark2 dentro (D481).** `tools/glmark2_fuentes.sh` baixa o glmark2 2023.01 (SHA-256 fixo; GPL-3.0-or-later) para `userland/terceros/glmark2/fuentes/` e aplica o seu patch; com isso o `make` também compila `/apps/bin/glmark2-es2` (o benchmark de OpenGL ES 2.0 da Linaro, sem meson, sobre a SaguiGL 2.0) e `/apps/glmark2/` (modelos, shaders e texturas). Sem as fontes é pulado (`GLMARK2=0` o desativa). Fica fora do `SEM_GPL=1`. Para medir o mesmo no PC com Mesa: `tools/glmark2_pc.sh`. Ver `docs/saguigl2.md`.
+
 **Opcional: git dentro (D400).** `tools/git_fuentes.sh` baixa o libgit2 1.9.1 (tag fixa, SHA-256 verificado) para `userland/terceros/git/fuentes/`; com isso o `make` também compila `/apps/bin/git` (init, clone, fetch, pull, push, status, add, commit, log, diff, branch, checkout, remote e config; HTTP(S) com TLS, e SSH). Sem as fontes ele é pulado com um aviso (`GIT=0` o desativa). Fica fora de `SEM_GPL=1`. Ver `docs/git.md`.
 
 **Opcional: Valkey dentro (D477).** `tools/valkey_fuentes.sh` baixa o Valkey 8.0.2 (SHA-256 fixo; BSD-3-Clause) para `userland/terceros/valkey/fuentes/`; com isso o `make` compila `/apps/bin/valkey-server` e `/apps/bin/valkey-cli` (com o hiredis e o Lua 5.1 incluídos) e os coloca na partição de aplicações. Sem as fontes é pulado. `VALKEY_DENTRO=0` o desativa. Também entra com `SEM_GPL=1`.
@@ -916,6 +926,7 @@ Vão na linha do `make`: `make NETSURF=0 B=build-mia -j8`. Se mudar uma opção,
 | `CAPIBARA` | `1` | o Capibara (`/apps/bin/capibara` e os exemplos em `/apps/capibara`, D452): motor de jogos 2D com scripts em Lua; só entra se as fontes do Lua estiverem (`tools/lua_fuentes.sh`). `CAPIBARA=0` o remove; com `SEM_GPL=1` também entra. Para Linux, `make -C userland/capibara` |
 | `FFMPEG` | `1` | o FFmpeg (`/apps/bin/ffmpeg` e `ffprobe`, D458): só entra se as fontes estiverem (`tools/ffmpeg_fuentes.sh`, ver 1 e 5). `FFMPEG=0` o tira; com `SEM_GPL=1` também não entra |
 | `VALKEY_DENTRO` | `1` | o Valkey (`/apps/bin/valkey-server` e `valkey-cli`, D477): só entra se as fontes estiverem (`tools/valkey_fuentes.sh`, ver 1 e 5). `VALKEY_DENTRO=0` o remove; também entra com `SEM_GPL=1`. |
+| `GLMARK2` | `1` | o glmark2-es2 (`/apps/bin/glmark2-es2`, D481): só entra se as fontes estiverem (`tools/glmark2_fuentes.sh`, ver 1 e 5). `GLMARK2=0` o tira; com `SEM_GPL=1` também não entra |
 | `GO` | `1` | programas em Go com TinyGo (`/apps/go/`, veja 1). Sem o TinyGo instalado são pulados com um aviso; `GO=0` os desativa |
 | `OPENTTD_REPO`, `OPENTTD_URL` | `../openttd-saguios` | só para `make priv_descargas`: onde está o repositório do OpenTTD (ou de onde cloná-lo). Sem ele, a imagem privada não leva o OpenTTD (veja 5) |
 
@@ -1046,6 +1057,7 @@ Desde a v8.5.4.10r2 (D388) a ordem no disco é: inicialização, a ESP, e a este
 | Fontes do The One True AWK 20261106 (`/bin/awk`, D440) | `bash tools/awk_fuentes.sh [--tarball ARQUIVO]` | `https://github.com/onetrueawk/awk/archive/refs/tags/20261106.tar.gz` | permissiva de Lucent (tipo HPND) | `userland/terceros/awk/fuentes/` (ignorada pelo git) |
 | Fontes do Lua 5.4.9 (`/apps/bin/lua` e `luac`, D440) | `bash tools/lua_fuentes.sh [--tarball ARQUIVO]` | `https://www.lua.org/ftp/lua-5.4.9.tar.gz` | MIT | `userland/terceros/lua/fuentes/` (ignorada pelo git) |
 | Fontes do Valkey 8.0.2 (`/apps/bin/valkey-server` e `valkey-cli`, D477) | `bash tools/valkey_fuentes.sh [--tarball ARQUIVO]` | `https://github.com/valkey-io/valkey/archive/refs/tags/8.0.2.tar.gz` | BSD-3-Clause | `userland/terceros/valkey/fuentes/` (ignorada pelo git) |
+| Fontes do glmark2 2023.01 (`/apps/bin/glmark2-es2`, D481) | `bash tools/glmark2_fuentes.sh [--tarball ARQUIVO]` | `https://github.com/glmark2/glmark2/archive/refs/tags/2023.01.tar.gz` | GPL-3.0-or-later | `userland/terceros/glmark2/fuentes/` (ignorada pelo git) |
 | Modelos 3D CC0 para a demo do SaguiGL (`sgldemo -p --modelo`, D404) | `bash tools/modelos3d_datos.sh [--forzar]` | `https://opengameart.org/content/low-poly-biplane`, `https://opengameart.org/content/funky-aircraft` e `https://opengameart.org/content/ww1-wwi-airplane-model-obj` | CC0 1.0 (domínio público) | `userland/terceros/modelos3d/datos/` (ignorada pelo git); não entram nas imagens |
 
 Notas:

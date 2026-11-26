@@ -136,7 +136,9 @@ def main():
 
 ANCHO, ALTO = 1280, 1024
 # lo que se ignora al comparar dos capturas del mismo estado: el reloj de la barra y la bandeja
-IGNORAR = ((1000, 0, ANCHO, 24),)
+# El botón «Adelante» de Archivos (582..609, 590..617) conserva el realce de «ratón encima» de un paso anterior de la prueba
+# (el ratón pasó por allí al abrir la ventana sin foco) y se repinta normal más tarde: depende del ratón, no del estilo.
+IGNORAR = ((1000, 0, ANCHO, 24), (580, 588, 612, 620))
 
 
 def distintos(a, b):

@@ -27,6 +27,7 @@
 #include "contas.h"
 #include "conf_maquina.h"
 #include "sonidos.h"
+#include "unidades_red.h"   /* D485: la sección RED de la barra lateral */
 
 #define LARG_INICIO 720
 #define ALT_INICIO  440
@@ -233,6 +234,14 @@ static void tamanho_kb(unsigned kb, char *s, size_t max)
 /* El espacio libre del volumen donde está la carpeta actual. */
 static void espaco_livre(char *s, size_t max)
 {
+    if (comeca_com(pasta, "/red/")) {   /* D485: una unidad de red: su estado, no la RAM */
+        char nome[PONTE_NOME_MAX];
+        int k = 0;
+        for (const char *c = pasta + 5; *c && *c != '/' && k < PONTE_NOME_MAX - 1; c++) nome[k++] = *c;
+        nome[k] = 0;
+        formatar_texto(s, max, _("unidad de red %s"), unidade_red_estado_texto(unidade_red_estado(nome, NULL)));
+        return;
+    }
     info_montagem_t montagens[16];
     int n = info_sistema(INFO_MONTAGENS, montagens, 16);
     if (n > 0)
@@ -952,7 +961,7 @@ static int ordem_em(int x, int y)
 /* ---- la barra lateral: Inicio, Favoritos, Unidades y Etiquetas ---- */
 
 enum { LT_SEC, LT_ITEM, LT_UNID, LT_ETQ };
-enum { LUG_INICIO, LUG_FAV, LUG_UNID, LUG_PEN, LUG_CD, LUG_LIXEIRA, LUG_ETQ };
+enum { LUG_INICIO, LUG_FAV, LUG_UNID, LUG_PEN, LUG_CD, LUG_LIXEIRA, LUG_ETQ, LUG_RED, LUG_RED_NOVA };
 typedef struct {
     int tipo, acao;
     const char *icone;
@@ -1012,6 +1021,27 @@ static void construir_lateral(void)
         lado_novo(LT_ITEM, LUG_CD, dentro ? "excluir" : "disco", dentro ? _("Expulsar") : cdrom.rotulo[0] ? cdrom.rotulo : "CD/DVD", NULL, 24);
     }
     if (existe_pasta("/home/.papelera")) lado_novo(LT_ITEM, LUG_LIXEIRA, "excluir", _("Lixeira"), "/home/.papelera", 24);
+    /* D485: las unidades de red de la cuenta con su estado (el punto: verde conectada, rojo sin conexión, gris sin
+     * montar) y «Conectar unidad de red...», que abre su panel de Configuración. Al final: no mueve lo de arriba. */
+    {
+        static unidade_red_t ur[UNIDADES_RED_MAX];
+        static int ur_n;
+        static unsigned ur_cuando;
+        unsigned agora = tempo_ms();
+        if (!ur_cuando || agora - ur_cuando > 3000) { ur_n = unidades_red_ler(ur, UNIDADES_RED_MAX); ur_cuando = agora ? agora : 1; }
+        ponte_info_t pv[PONTE_MAX];
+        int np = ponte_op(PONTE_LISTAR, (unsigned)pv, PONTE_MAX, 0, 0);
+        lado_novo(LT_SEC, 0, NULL, _("RED"), NULL, 20);
+        for (int i = 0; i < ur_n; i++) {
+            int est = -1;
+            for (int k = 0; k < np; k++) if (compara_texto(pv[k].nome, ur[i].nome) == 0) est = (int)pv[k].estado;
+            char cam[40];
+            formatar_texto(cam, sizeof cam, "/red/%s", ur[i].nome);
+            lado_t *l = lado_novo(LT_ITEM, LUG_RED, "globo", ur[i].nome, cam, 24);
+            if (l) l->pct = est;
+        }
+        lado_novo(LT_ITEM, LUG_RED_NOVA, "globo", _("Conectar unidad de red..."), NULL, 24);
+    }
     int y = 6;
     for (int i = 0; i < qtd_lado; i++) { lado[i].y = y; y += lado[i].a; }
     lado_alto_total = y + 4;
@@ -1048,6 +1078,10 @@ static void desenhar_lateral(void)
         lado_t *l = &lado[i];
         int y = y0 + l->y - lado_rolo;
         if (y < y0 || y + l->a > y0 + h) continue;
+        if (l->acao == LUG_PEN) {   /* para las pruebas: dónde queda la fila del pendrive («Retirar»), ya desplazada */
+            static int ult_pen;
+            if (y + l->a / 2 != ult_pen) { ult_pen = y + l->a / 2; registrar("arquivos: lateral pendrive y=%d", ult_pen); }
+        }
         if (l->tipo == LT_SEC) { rotulo(j, 10, y + 2, l->texto, t->texto_fraco); continue; }
         bool at = lado_atual(l);
         int fx = 4, fl = LATERAL - 9;   /* la fila: un rectángulo redondeado */
@@ -1068,6 +1102,11 @@ static void desenhar_lateral(void)
             bool cadeado = l->tipo == LT_UNID && l->cor;   /* D446: unidad de solo lectura */
             g_texto_n(j, 29, y + (l->tipo == LT_UNID ? 1 : 4), l->texto, (LATERAL - (cadeado ? 56 : 36)) / LETRA_L, t->texto);
             if (cadeado) icone_desenhar(j, LATERAL - 28, y + 1, "cadeado", 1);
+            if (l->acao == LUG_RED) {   /* D485: el estado de la unidad de red */
+                uint32_t c = l->pct == PONTE_EST_CONECTADA ? 0x2E9E44 : l->pct == PONTE_EST_DESCONECTADA ? 0xC8372D :
+                             l->pct == PONTE_EST_CONECTANDO ? 0xD9A21B : 0x8A8A8A;
+                g_retangulo_red(j, LATERAL - 24, y + 8, 9, 9, 4, c);
+            }
             if (l->tipo == LT_UNID && l->pct >= 0) barra_uso_desenhar(j, 29, y + 22, LATERAL - 42, 6, l->pct);
         }
     }
@@ -2217,6 +2256,7 @@ static void abrir_arquivo(const char *c, const char *nome, int tipo)
     anotar_reciente(c);
     char *argv[3];
     int pid;
+    if (tipo == TIPO_PROGRAMA && comeca_com(c, "/red/")) tipo = TIPO_ARQUIVO;   /* D485: de una unidad de red no se ejecuta nada */
     if (tipo == TIPO_PROGRAMA) {
         argv[0] = (char *)nome; argv[1] = NULL;
         pid = executar(c, argv);
@@ -3889,6 +3929,26 @@ static void clic_lado(int idx, int x)
         return;
     }
     if (l->acao == LUG_ETQ) { int c = (x - 8) / 20; if (c >= 0 && c < N_CORES) mostrar_etiqueta(c); return; }
+    if (l->acao == LUG_RED_NOVA) {   /* D485: el panel de Configuración > Unidades de red */
+        char *av[] = { "configuracion", "--ventana", "unidades-red", NULL };
+        int pid = executar("/bin/configuracion", av);
+        if (pid > 0) definir_grupo(pid, 0);
+        registrar("arquivos: conectar unidad de red (pid %d)", pid);
+        return;
+    }
+    if (l->acao == LUG_RED) {   /* D485: sin montar, la monta «dav» (el mismo código que en la terminal) */
+        if (l->pct < 0) {
+            desenhar_rodape(_("Conectando la unidad de red..."));
+            char *av[] = { "dav", "montar", l->texto, NULL };
+            int pid = executar("/bin/dav", av), cod = 1;
+            if (pid > 0) esperar(pid, &cod);
+            registrar("arquivos: dav montar %s -> %d", l->texto, cod);
+            if (cod != 0) { mensagem(_("Archivos"), _("No se ha podido conectar la unidad de red (mira «dav probar» en la terminal o su panel en Configuración).")); desenhar_lateral(); return; }
+        } else if (l->pct == PONTE_EST_DESCONECTADA) desenhar_rodape(_("Sin conexión con el servidor: se reconecta sola cuando vuelva"));
+        entrar(l->cam, true);
+        desenhar_lateral();
+        return;
+    }
     acao_lado(l->acao);
 }
 

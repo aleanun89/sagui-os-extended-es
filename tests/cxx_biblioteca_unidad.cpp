@@ -28,6 +28,7 @@
 #include <limits>
 #include <iterator>
 #include <algorithm>
+#include <numeric>
 #include <tuple>
 #include <memory>
 #include <list>
@@ -456,8 +457,36 @@ static void prueba_openttd()
     try { throw std::bad_alloc(); } catch (std::exception &e) { COMPROBAR(std::strcmp(e.what(), "std::bad_alloc") == 0 || e.what() != nullptr, "bad_alloc es una exception"); }
 }
 
+// D481 (glmark2): <numeric>, showpoint/showpos, setbase y std::modf de float.
+static void prueba_glmark2()
+{
+    std::vector<float> v;
+    v.push_back(1.5f); v.push_back(2.5f); v.push_back(4.0f);
+    COMPROBAR(std::accumulate(v.begin(), v.end(), 0.0) == 8.0, "accumulate suma (como en scene-effect-2d de glmark2)");
+    COMPROBAR(std::accumulate(v.begin(), v.end(), 1.0f, [](float a, float b) { return a * b; }) == 15.0f, "accumulate con operación propia");
+    std::vector<int> w(4);
+    std::iota(w.begin(), w.end(), 7);
+    COMPROBAR(w[0] == 7 && w[3] == 10, "iota");
+    COMPROBAR(std::inner_product(w.begin(), w.end(), w.begin(), 0) == 49 + 64 + 81 + 100, "inner_product");
+    std::ostringstream a;
+    a << std::showpoint << 2.0;
+    COMPROBAR(a.str() == "2.00000", "showpoint: 2.00000");
+    std::ostringstream b;
+    b << std::showpos << 3 << ' ' << std::noshowpos << 3;
+    COMPROBAR(b.str() == "+3 3", "showpos y noshowpos");
+    std::ostringstream c;
+    c << std::setbase(16) << 255 << ' ' << std::setbase(8) << 8 << ' ' << std::setbase(10) << 12;
+    COMPROBAR(c.str() == "ff 10 12", "setbase 16, 8 y 10");
+    float entera = 0;
+    float frac = std::modf(3.25f, &entera);
+    COMPROBAR(entera == 3.0f && frac == 0.25f, "modf(float, float*)");
+    double entera2 = 0;
+    COMPROBAR(std::modf(-2.5, &entera2) == -0.5 && entera2 == -2.0, "modf(double, double*) sigue igual");
+}
+
 int main()
 {
+    prueba_glmark2();
     prueba_construir();
     prueba_modificar();
     prueba_buscar();

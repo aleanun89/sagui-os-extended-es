@@ -62,6 +62,7 @@ inline float fabs(float x) { return ::fabsf(x); }
 inline float fmod(float a, float b) { return ::fmodf(a, b); }
 inline float round(float x) { return ::roundf(x); }
 inline float trunc(float x) { return ::truncf(x); }
+inline float modf(float x, float *p) { double i; double f = ::modf((double)x, &i); *p = (float)i; return (float)f; }   // D481
 // isnan e isinf son macros de <math.h>: aquí, funciones.
 #undef isnan
 #undef isinf

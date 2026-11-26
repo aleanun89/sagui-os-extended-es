@@ -1025,3 +1025,27 @@ msgstr "Remover dos Favoritos"
 msgid "%d elementos selecionados"
 msgstr "%d itens selecionados"
 
+#: D485
+msgid "RED"
+msgstr "REDE"
+
+#: D485
+msgid "Conectar unidad de red..."
+msgstr "Conectar unidade de rede..."
+
+#: D485
+msgid "Conectando la unidad de red..."
+msgstr "Conectando a unidade de rede..."
+
+#: D485
+msgid "No se ha podido conectar la unidad de red (mira «dav probar» en la terminal o su panel en Configuración)."
+msgstr "Não foi possível conectar a unidade de rede (veja «dav probar» no terminal ou o painel nas Configurações)."
+
+#: D485
+msgid "Sin conexión con el servidor: se reconecta sola cuando vuelva"
+msgstr "Sem conexão com o servidor: reconecta sozinha quando voltar"
+
+#: D485
+#, c-format
+msgid "unidad de red %s"
+msgstr "unidade de rede %s"

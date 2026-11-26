@@ -33,15 +33,15 @@ función por función, **antes y después** de la D271 (v8.0). «Antes» es el m
 | `10-posicion-caja.html` | Posición y modelo de caja | 14 | 16 | 16 |
 | `11-caja-2.html` | Caja, visibilidad y transformaciones | 11 | 16 | 16 |
 | `12-colores-fondos.html` | Colores, bordes y sombras | 11 | 16 | 16 |
-| `13-fondos-imagenes.html` | Fondos con imagen y object-fit | 10 | 14 | 16 |
+| `13-fondos-imagenes.html` | Fondos con imagen y object-fit | 10 | 15 | 16 |
 | `14-texto.html` | Texto | 8 | 16 | 16 |
 | `15-html5.html` | Elementos HTML5 | 13 | 16 | 16 |
 | `16-html5-medios.html` | Medios y otros elementos | 11 | 16 | 16 |
 | `17-formularios.html` | Formularios | 0 | 16 | 16 |
 | `18-formularios-2.html` | Formularios (2) | 9 | 15 | 16 |
-| `19-js-dom.html` | JavaScript: DOM | 0 | 13 | 16 |
+| `19-js-dom.html` | JavaScript: DOM | 0 | 16 | 16 |
 | `20-js-api.html` | JavaScript: API de la ventana | 0 | 13 | 16 |
-| | **Total** | **188** | **304** | **316** |
+| | **Total** | **188** | **308** | **316** |
 
 Capturas (del Cipó en QEMU): `docs/capturas/H271-01-variables-calc.png`, `H271-03-pseudoclases.png`,
 `H271-07-flex.png`, `H271-09-grid.png`, `H271-12-colores-fondos.png`, `H271-15-html5.png`,
@@ -51,20 +51,22 @@ Capturas (del Cipó en QEMU): `docs/capturas/H271-01-variables-calc.png`, `H271-
 
 | Función | Estado | Qué haría falta |
 | --- | --- | --- |
-| Cambiar la forma del árbol desde el script (`createElement`, `appendChild`, `innerHTML` de un elemento, `insertAdjacentHTML`, `<template>.content`) | falta (`remove()` y `removeChild()` solo esconden el elemento) | Un DOM propio en el puente del QuickJS que se vuelva a serializar hacia el motor; hoy el script solo cambia atributos y texto (D271) y `document.body.innerHTML` (D149) |
-| Medidas de la maquetación en el script (`getBoundingClientRect`, `offsetWidth`, `getComputedStyle`) | falta (devuelven 0 o el estilo en línea) | Pasar al puente las cajas del motor (`motor_caixas`, `motor_estilo_de` ya existen) |
-| `position: sticky` al desplazar | parcial (se queda en su sitio; el motor tiene la capa, sin prueba) | Probarlo con desplazamiento |
-| `overflow: auto/scroll` con desplazamiento propio | parcial (recorta) | Barras y rueda por caja |
-| Bordes `dashed`, `dotted`, `double` | parcial (se pintan sólidos) | Estilo por lado en el comando de borde |
+| Cambiar la forma del árbol desde el script (`createElement`, `appendChild`, `innerHTML` de un elemento, `insertAdjacentHTML`, `<template>.content`) | **hecho (D488)**: el DOM vive en JavaScript (`qjs_dom.js`) y cada cambio llega al motor, que remaqueta solo lo marcado | — |
+| Medidas de la maquetación en el script (`getBoundingClientRect`, `offsetWidth`, `getComputedStyle`) | **hecho (D488)**, con maquetación bajo demanda | — |
+| `position: sticky` al desplazar | **hecho** (D489, h489: la franja se queda pegada arriba) | — |
+| `overflow: auto/scroll` con desplazamiento propio | **hecho** (D489, h489: barras, rueda por bloque más interno, arrastre del pulgar); `scrollTop`/`scrollLeft`/`scrollTo` desde JS (D488) | — |
+| Bordes `dashed`, `dotted`, `double` | **hecho** en los tramos rectos (D489); las esquinas redondeadas siguen sólidas | — |
 | `::placeholder`, `::first-letter`, `::marker`, `::selection` | falta | Estilos de pseudoelementos que no generan caja |
 | `background-clip`, `background-origin`, `background-attachment` | falta | — |
-| Anidamiento de CSS (`&`), `@container`, orden de `@layer`, `color-mix()`, `oklch()` | falta (las reglas se leen sin anidar; `@layer` y `@container` se aplican siempre) | — |
+| Anidamiento de CSS (`&`), `color-mix()`, `oklch()`/`oklab()`, `light-dark()` | **hecho** (D489, h489) | — |
+| `@container`, orden de `@layer`, `lab()`/`lch()`/`hwb()` | falta (`@layer` y `@container` se aplican siempre) | — |
+| Zoom de página | **hecho** (D489): Ctrl++/-/0 y Ctrl+rueda, por sitio | — |
 | Columnas (`columns`), `subgrid`, `writing-mode` | falta | — |
 | `text-shadow` y `box-shadow` con desenfoque real | parcial (anillos; la sombra del texto, sin desenfocar) | — |
 | Medida sin unidad (`width: 10`) | se acepta como px | Validar por propiedad |
-| `<video>`/`<audio>` | marcador (póster o caja, sin reproducir) | Fuera del alcance del navegador |
+| `<video>`/`<audio>` | **hecho** (D276 y D489): MP4 H.264/AAC; audio WAV/MP3/FLAC; barra de controles con `controls`; un medio a la vez | Ogg/Vorbis, Opus, WebM, varios medios a la vez |
 | `localStorage` persistente, `fetch` con POST y cabeceras, `IntersectionObserver` de verdad | parcial (memoria, solo GET, avisa una vez) | — |
-| Reparto de anchos de tabla con `colspan` (infobox de Wikipedia) | fallo anterior | Revisar `tabela()` |
+| Reparto de anchos de tabla con `colspan`, `rowspan`, porcentajes y `table-layout: fixed` | **hecho** (D489, h489: 22 cajas por posición) | `colgroup`/`col`, `border-collapse` real |
 
 ## Tabla completa
 
@@ -455,11 +457,11 @@ Capturas (del Cipó en QEMU): `docs/capturas/H271-01-variables-calc.png`, `H271-
 | 7 | className | no | **sí** |
 | 8 | dataset | no | **sí** |
 | 9 | setAttribute y getAttribute | no | **sí** |
-| 10 | createElement y appendChild | no | no |
+| 10 | createElement y appendChild | no | **sí** (D488) |
 | 11 | textContent de un elemento | no | **sí** |
-| 12 | innerHTML de un elemento | no | no |
+| 12 | innerHTML de un elemento | no | **sí** (D488) |
 | 13 | remove() y removeChild | no | **sí** |
-| 14 | insertAdjacentHTML | no | no |
+| 14 | insertAdjacentHTML | no | **sí** (D488) |
 | 15 | closest y matches | no | **sí** |
 | 16 | style.cssText y style.setProperty | no | **sí** |
 

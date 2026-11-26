@@ -16,6 +16,7 @@
  * archivo» se puede escribir una ruta entera (absoluta o relativa a la carpeta) o un patrón con
  * «*» o «?», que filtra la lista. */
 #include "gui.h"
+#include "unidades_red.h"   /* D485 */
 #include "icones.h"
 
 #define DA_L   560
@@ -609,6 +610,13 @@ static void escolher_pasta_combo(dlg_t *d, int *fim)
             if (!ja) copia_texto(extra[ne++], mt[i].ponto, RUTA_MAX);
         }
         for (int i = 0; i < ne && p->n < 24; i++) {
+            if (comeca_com(extra[i], "/red/")) {   /* D485: una unidad de red, con su estado */
+                int e = unidade_red_estado(extra[i] + 5, NULL);
+                formatar_texto(p->t[p->n], sizeof p->t[0], _("Red: %s (%s)"), extra[i] + 5, unidade_red_estado_texto(e));
+                copia_texto(p->p[p->n], extra[i], sizeof p->p[0]);
+                p->n++;
+                continue;
+            }
             formatar_texto(p->t[p->n], sizeof p->t[0], _("Unidad: %s"), extra[i]);
             copia_texto(p->p[p->n], extra[i], sizeof p->p[0]);
             p->n++;

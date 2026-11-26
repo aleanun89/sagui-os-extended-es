@@ -7,6 +7,7 @@
  * unos segundos antes (para capturar un menú abierto). Impr Pant lo lanza el
  * gestor de ventanas (atalhos.c); Alt+Impr Pant lo lanza con -v. */
 #include "sagui.h"
+#include "sonidos.h"
 #include "imagem.h"
 
 static int numero(const char **s)
@@ -104,6 +105,7 @@ int principal(int argc, char **argv)
         r = imagem_gravar_png(nome, &img);
     }
     if (r < 0) { imprimir("captura: no se pudo guardar\n"); return 1; }
+    sonido_evento("captura");   /* D484: sonido del sistema (si está activado y asignado) */
     if (verificar) {   /* lee el archivo con el lector de la libsagui y compara (pruebas) */
         imagem_t lida;
         int e = imagem_ler(nome, &lida);

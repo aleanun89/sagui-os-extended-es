@@ -26645,3 +26645,601 @@ Python del PC las cifras (suma, media, desviación, correlación, sumas por regi
 
 **Límites.** `.xlsx`/`.mxs`: solo la hoja activa y valores (no fórmulas ni formatos); un valor de texto vacío es «falta». Con muchos datos las listas de Python
 gastan más memoria que los arrays de ulab (`t.columna()` los da). El gráfico admite como mucho 512 puntos y 12 series (D469).
+
+## D482. Cursores del ratón personalizables: tema y tamaño (decidido el 2026-11-26; v8.5.6.5, rama `v8.5.6.5-cursores`)
+
+**Contexto.** El cursor era una flecha fija de 12x19 dibujada por `video.c`, solo negro y blanco. El mantenedor pidió temas y tamaños
+(accesibilidad, pantallas grandes).
+
+**Decisión.**
+1. **Una forma, tres temas, tres tamaños.** `kernel/inc/cursores.h` guarda la flecha base y `cursor_pixel(tema, tamaño, i, j)` (0xAARRGGBB):
+   0 clásico (contorno negro, interior blanco), 1 oscuro (contorno blanco, interior casi negro), 2 moderno (contorno blanco, interior azul con
+   alfa 0xE0). Tamaños x1, x2 y x3 por escalado de píxeles (12x19, 24x38, 36x57), con la punta siempre en el puntero. Todo dibujado por
+   nosotros, sin arte de terceros. Configuración dibuja su vista previa con el mismo `cursor_pixel`.
+2. **Kernel.** `SIS_CURSOR` (152, `CURSOR_OP_LER` / `CURSOR_OP_FIJAR`) cambia el estilo con las interrupciones cerradas (la IRQ del ratón
+   también dibuja). Al cambiar, se marcan el rectángulo viejo (con su tamaño de antes) y el nuevo, de modo que `video_mostrar` rehace y vuelve
+   a dibujar la flecha y avisa de todo el rectángulo a la GPU (`acel_atualizar`, `vg_atualizar` de la virtio-gpu, D472/D474), a las demás
+   cabezas (D290) y a la presentación exclusiva (D432: `video_cursor_exclusiva` usa el tamaño vigente; `gpu3d` consulta
+   `video_cursor_largura/altura` en vez de la constante). `CUR_L`/`CUR_A` pasan de constantes a variables; los píxeles con alfa se mezclan con
+   el búfer de atrás, incluida la copia con la flecha puesta (D424).
+3. **Configuración.** Página «Cursor del ratón» (Escritorio, tras Sonidos del sistema; se añadió a `tests/conf_arbol.py`), de la persona:
+   `cursor_tema=` y `cursor_tamano=` en `sagui.conf`, aplicados al arrancar por `configuracion --aplicar`. Orden:
+   `configuracion cursor [clasico|oscuro|moderno] [normal|grande|muygrande]` y `configuracion cursor mostrar`.
+
+**Límites.** Solo existe la forma de flecha: el sistema no tiene cursores de espera, texto, mano ni redimensionar (los programas que los
+dibujan, como Tzar, lo hacen ellos). El cursor de hardware de las GPU no se usa. No se probó la virtio-gpu con el cursor grande en una máquina real.
+
+**Pruebas.** `tests/h482_cursores.py` (con KVM): orden, página con clics, caja exacta de píxeles de la flecha (12x18, 24x36, 36x54 por escala),
+colores de cada tema, `sagui.conf` y persistencia tras reiniciar; capturas `H482-*`. Repetidas h20, h58, h323 y h472.
+## D484. Sonidos del sistema: un sonido por acción y presets (decidido el 2026-11-26; v8.5.6.5, rama `v8.5.6.5-sonidos`)
+
+**Contexto**: el mantenedor no quiere «temas globales» (los esquemas de D421 fijan los diez sonidos a la vez): quiere elegir un audio
+para cada acción y guardar esa combinación como preset.
+
+**Decisión**:
+- **Un sonido por acción**: `sonidos_conf_t` gana, por acción, `asig[i]` (`""` = el del esquema de base, `"-"` = ninguno, o la ruta de
+  un archivo: de cualquier esquema instalado o propio, en los formatos de `audio_arquivo_*`: WAV, MP3, FLAC, MIDI) y `vol[i]`
+  (0-100, multiplica al volumen general). `sonidos_ruta_accion()` y `sonidos_volumen_accion()` resuelven lo que suena; `sonido_evento()`,
+  `sonido_evento_esperar()` y `sonidos_ruta()` siguen igual para los programas que ya los usan (con la configuración antigua, la
+  asignación vacía cae en el esquema, como antes).
+- **Acciones nuevas** (de 10 a 16; los diez primeros índices no cambian): `ventana_abrir`, `ventana_cerrar`, `minimizar`, `maximizar`
+  (las detecta el servicio `sonidos --vigilar` comparando cada 250 ms la lista de ventanas del kernel, solo si alguna está activada),
+  `correo` (correo nuevo recibido, enganchada en `correo.c`) y `captura` (tras guardar la captura, en `captura.c`). Las de ventana van
+  **apagadas de serie** y no suenan más de ~3 veces por segundo (`min_ms_evento`, 350 ms por acción). Único cambio del kernel (GUI,
+  no el núcleo): `info_janela_t` gana el campo `estado` (`JAN_EST_*`: minimizada, maximizada, pantalla completa, widget) al final de la estructura para
+  poder detectar minimizar y maximizar sin tocar el gestor de ventanas; los widgets no hacen sonar nada.
+- **Presets**: `/home/.config/sonidos/<nombre>.sonidos` (el mismo `clave=valor` que `sonidos.conf`, con `nombre=`); los audios propios se
+  copian a `/home/.config/sonidos/audio/<nombre>.<acción>.<ext>` y se citan con ruta relativa; los de un esquema instalado se citan por su ruta
+  absoluta (no se copian). Los **esquemas instalados son presets de partida de solo lectura** (no se pueden borrar, renombrar ni
+  sobrescribir). Cargar un preset conserva el interruptor general. Renombrar = cargar + guardar + borrar (los audios cambian de nombre).
+  **Exportar** deja el `.sonidos` y sus audios propios al lado (rutas relativas); **importar** copia todo a la carpeta de presets sin pisar
+  uno existente (`mio1_2`). Nombres: letras, cifras, `-` y `_` (hasta 31).
+- **Migración**: un `sonidos.conf` sin `version=2` (el de D421) se lee igual y, la primera vez, se guarda como preset **«anterior»**
+  y se reescribe con `version=2` (sigue valiendo `esquema=` como base).
+- **Interfaz**: Configuración > Sonidos del sistema pasa a tener dos vistas: **Acciones** (casilla, origen, «Elegir...», volumen de la
+  acción que gira 100/75/50/25/0 %, «Probar») y **Presets** (lista, nombre, Cargar, Guardar, Renombrar, Borrar, Exportar, Importar).
+  «Elegir...» ofrece: el del esquema activo, ninguno, el de cada esquema y «Archivo propio...» (diálogo de abrir de la libsagui).
+  Línea de órdenes: `sonidos --asignar EV RUTA|-|esquema`, `--vol-evento`, `--presets`, `--preset-guardar|cargar|borrar|renombrar|exportar|importar`.
+- **No hecho** (pide más que enganchar): sonidos de **notificación**, **bloqueo/desbloqueo de sesión** y **vaciar papelera** (no hay centro de
+  notificaciones ni pantalla de bloqueo de sesión, y Archivos no tiene «vaciar papelera» propio); el esquema «saguios» no define las
+  acciones de ventana (hay que asignarles un archivo); sin traducción de las cadenas nuevas (.po) todavía.
+- **Pruebas**: `tests/h484_sonidos_presets.py` (cli, reinicio, gui); repiten las de D421 (`h421_sonidos.py`).
+## D475. SaguiGL 2.0, fase 1: OpenGL ES 2.0 por la CPU, compilador GLSL ES 1.00 y la representación intermedia común (decidido el 2026-11-26; v8.5.7, rama `v8.5.7-saguigl2`)
+
+**Qué.** Primera fase de **SaguiGL 2.0** (Discusión #51, camino A, «propio, no Mesa»): la API de **OpenGL ES 2.0** en la `libsgl`, un
+compilador de **GLSL ES 1.00** que produce una **representación intermedia común (RI)**, y la ejecución de esa RI por la CPU con un
+rasterizador de ES 2.0. Funciona en todas las máquinas (las mismas que la SaguiGL de siempre: SSE2). Los backends de GPU (VirGL, R5xx,
+R7xx, Evergreen, Gen9...) traducirán la misma RI; aquí solo queda su hueco y lo que necesita cada uno.
+
+**Diseño (escrito antes de implementar).**
+
+1. **Una biblioteca, dos API.** ES 1.1 y ES 2.0 comparten casi 60 nombres (`glDrawArrays`, `glEnable`, `glTexImage2D`...). En la `libsgl`
+   las versiones de ES 1.1 de esos nombres se compilan como `es1_gl*` (`sgl_es1_nomes.h`, solo con `-DSGL_ES2`) y `sgl2_despacho.c` define
+   los `gl*` de verdad: si el contexto actual es de ES 2.0 van a `sgl2_*`, si no a `es1_*` (una rama por llamada). Sin `-DSGL_ES2` (las pruebas
+   antiguas del PC, el ejemplo `/ejemplos/sagui_gl`) la ES 1.1 compila exactamente como antes. El estado de ES 2.0 es **propio**
+   (`sgl2_ctx_t`: texturas, búferes, FBO, programas): no se mezcla con la tubería fija ni con sus garantías de píxel.
+2. **EGL elige.** `EGL_CONTEXT_CLIENT_VERSION` 1 (por defecto) o 2; las configuraciones anuncian `EGL_OPENGL_ES2_BIT`. Un contexto de ES 2.0
+   lleva debajo un `sgl_ctx_t` que solo pone el destino (ventana o pbuffer, búfer propio, `sgl_trocar`); su GPU queda apagada (por ahora el
+   ES 2.0 es por la CPU). El Z (float) y el esténcil (8 bits) del framebuffer por defecto son del contexto de ES 2.0.
+3. **Compilador.** Se parte del de Cipó (`userland/web/glsl.c`, D141, GPL-3.0-only de robson-apk; la licencia lo permite: el proyecto es
+   GPLv3). Se **copia** el frontal (preprocesador, léxico, parser, tipos, tabla de embutidas) a `userland/libsgl/sgl_glsl.c` y se endurece
+   (mensajes en español con línea, sin mezclar int y float, asignar a uniform/attribute/const es error, identificador sin declarar...). La
+   **generación de código es nueva** (`sgl_glsl_ri.h`): no se reutiliza la máquina de Cipó, que guarda cada valor en componentes sueltos de
+   una memoria plana (un `vec4` puede quedar a caballo de dos registros) y no se puede traducir a una GPU. Cipó sigue con su copia; en la
+   fase «WebGL del Cipó» pasará a usar la de la `libsgl` y la suya se retirará.
+4. **La RI** (`sgl_ri.h`), pensada para traducirse 1:1 a TGSI y sin nada que una GPU de la época de ES 2.0 no tenga:
+   - **Registros vec4 de float** en ficheros: `TEMP`, `ENT` (atributos o varyings), `SAI` (salidas), `UNI` (uniformes), `IMED`
+     (inmediatos), `END` (registro de dirección `a0`). Cada fuente lleva *swizzle*, `neg` y `abs`; cada destino máscara de escritura y
+     saturación; fuente y destino pueden ir indexados por `a0.x` (arrays con índice dinámico).
+   - **Disposición alineada a registros**: escalar y vector = 1 registro; `matN` = N registros (columnas); cada elemento de un array y cada
+     campo de una struct empieza en registro propio. Es lo que hacen las GPU y lo que permite indexar con `a0`.
+   - **Un solo tipo numérico**: int y bool se guardan como float (0.0/1.0), como en el hardware de ES 2.0 (R300 no tiene enteros).
+   - **Operaciones**: `MOV ADD MUL MAD MIN MAX FLR FRC TRUNC SLT SGE SEQ SNE CMP DP2 DP3 DP4` (por componente o producto escalar),
+     `RCP RSQ EX2 LG2 SIN COS POW` (escalares: leen `.x` del *swizzle* y replican), `DDX DDY`, `ARL`, `TEX TXB TXL` (2D o cubo, con la unidad
+     de muestreo), y control estructurado `IF ELSE ENDIF BGNLOOP ENDLOOP BRK CONT KILL FIM`. No hay saltos libres ni llamadas: las funciones
+     se expanden en su sitio; `return` antes del final se baja a `BRK` dentro de un bucle de una vuelta (con bandera si está dentro de otro
+     bucle); `continue` en un `for` pone el incremento al principio del bucle. `atan`, `asin`, `acos`, `mod`, `sqrt` (`RCP(RSQ)`),
+     `smoothstep`, `refract`, la división (por `RCP`; la entera con corrección), `texture2DProj`... se bajan a esas operaciones en el
+     compilador, así ningún backend tiene que saberlas.
+   - **Entradas y salidas con semántica** (`POSICAO`, `COR`, `GENERICO n`, `FACE`, `PONTO_TAM`, `PONTO_COORD`): los varyings son `GENERICO`
+     por orden de declaración y el enlace del programa los empareja por nombre (tabla de cada programa).
+   - **Tablas de uniformes, atributos, varyings y samplers** con nombre, tipo, registro base y tamaño (lo que necesitan
+     `glGetUniformLocation`, `glGetActiveUniform`, `glBindAttribLocation`...).
+   - Utilidades comunes: volcado en texto (para depurar y para las pruebas), validación y **compactación de temporales** por vida (los
+     backends con pocos registros, R300 con 32, la necesitan; el CPU la agradece).
+5. **CPU.** Un intérprete de la RI (`sgl_ri_cpu.c`) que ejecuta **4 vías a la vez** (un cuadrado de 2x2 píxeles, o 4 vértices) con los
+   registros en SoA y vectores de 4 float (SSE2 por las extensiones de vector de GCC): las derivadas salen de las vías, como en una GPU, y el
+   control de flujo divergente va por máscaras (como el de Cipó). Las instrucciones se predecodifican al usar el programa (desplazamientos
+   ya calculados, uniformes e inmediatos replicados en las 4 vías una vez por dibujo). Compilar a x86 queda para después de medir.
+6. **Rasterizador de ES 2.0** (`sgl2_desenho.c`): vértices de 4 en 4 por el sombreador (con los índices, solo los que se usan), recorte en
+   el espacio de recorte contra los 6 planos, división, viewport y `glDepthRangef`; triángulos con coordenadas en coma fija 28.4 y la regla
+   de arriba-izquierda, recorridos en cuadrados de 2x2; **varyings con corrección de perspectiva**; prueba temprana de Z y esténcil cuando el
+   sombreador no tiene `discard`; tijera, esténcil por cara, Z (las 8 funciones), `glPolygonOffset`, mezcla completa de ES 2.0 (factores,
+   color constante, ecuaciones separadas) y máscaras. Puntos con `gl_PointSize` y `gl_PointCoord`; líneas como paralelogramos del ancho
+   pedido (GL no exige el rombo).
+7. **Texturas de ES 2.0**: 2D y cubo, `ALPHA`, `LUMINANCE`, `LUMINANCE_ALPHA`, `RGB`, `RGBA` en bytes y 565/4444/5551 (se guardan en
+   `0xAARRGGBB`), mipmaps y `glGenerateMipmap`, los 6 filtros, `REPEAT`, `CLAMP_TO_EDGE` y `MIRRORED_REPEAT`, NPOT sin restricciones
+   (se anuncia `GL_OES_texture_npot`; una textura incompleta da `(0,0,0,1)`), LOD por las derivadas del cuadrado. **FBO**: color en textura (2D o cara de cubo) o renderbuffer
+   (`RGBA4`, `RGB5_A1`, `RGB565`), Z de 16 bits y esténcil de 8 en renderbuffer, estado de completitud y
+   `GL_INVALID_FRAMEBUFFER_OPERATION`. Las filas de un framebuffer van de abajo arriba como en GL (el por defecto apunta a la última fila de
+   los píxeles con paso negativo).
+8. **Límites** (los mismos que podrán dar las GPU más antiguas de la lista): 16 atributos, 256 vectores de uniformes por etapa, 8 varyings,
+   8 unidades de textura por etapa (16 en total), texturas de 2048.
+
+**Lo que necesita cada backend de GPU** (fase 2 en adelante; se enchufa en `sgl2_desenho.c` donde hoy se llama al intérprete, con la misma
+RI enlazada):
+- **VirGL (fase 2)**: traducir la RI a TGSI en texto (casi 1:1: ficheros, *swizzles*, modificadores, `IF/ELSE/BGNLOOP/BRK/CONT`, `ARL` y
+  `TEMP[ADDR[0].x+n]`, `TEX` con `SAMP`/`SVIEW`), `DCL IN/OUT` con las semánticas de la RI, constantes en `SET_CONSTANT_BUFFER`; y en
+  gpu3d una **v4** con «programa» (sombreadores ya traducidos), vértices genéricos (atributos sin significado fijo), varios samplers con
+  vistas y estado de fragmentos completo de ES 2.0. La v3 (D457) ya guarda búferes; falta que el dibujo use programa y atributos genéricos.
+- **R5xx (X1400)**: vértices por el PVS (ya genera sombreadores, D457) y fragmentos por el US de R500 (sí tiene control de flujo); sin
+  enteros ni direcciones en fragmentos: el `a0` solo en vértices. Asignación de registros (la compactación es el primer paso).
+- **R7xx (HD 4500) y Evergreen (HD 7600M)**: ALU VLIW de 5 o 4 ranuras (empaquetar), bloques de control de flujo (CF) y cláusulas de
+  textura; la RI estructurada se traduce sin reordenar saltos.
+- **Gen9 (UHD 620), Gen7 (HD 4000) y Xe**: la RI se escalariza por componente (SIMD8/16 por píxeles); `IF/ELSE/ENDIF/WHILE/BREAK/CONT`
+  existen tal cual en la EU.
+
+**Cómo quedó (lo que cambió respecto al diseño).**
+- La ES 1.1 de siempre **no cambia ni un bit**: sus programas (`SGL_OBJ`, Brumacanto, TCC) siguen con los objetos sin
+  `-DSGL_ES2`; los de ES 2.0 enlazan `SGL2_OBJ` (la misma `libsgl` con `-DSGL_ES2` y el despacho). Con el despacho,
+  `es11conf` y `es11demo` dan las mismas sumas (prueba `h475 es11`). Los tres ficheros del despacho los genera
+  `tools/sgl/gerar_despacho.py` (57 funciones comunes).
+- Seno, coseno, 2^x y log2 de la CPU son **polinomios sobre las 4 vías** (no la x87): la mitad de tiempo en los
+  sombreadores con trigonometría y los mismos bits en el anfitrión y en el SaguiOS.
+- La RI quita además las escrituras muertas de primer nivel (las salidas puestas a cero que se sobrescriben).
+- Extensiones: `GL_OES_standard_derivatives`, `GL_OES_rgb8_rgba8`, `GL_OES_element_index_uint`, `GL_OES_texture_npot`.
+- Tamaño: `es20demo` 320 KB y `es20conf` 365 KB (estáticos; la parte de ES 2.0 son unos 160 KB). `es20demo` va a
+  `/apps/bin`, `es20conf` a `/bin` (como `es11conf`).
+
+**Rendimiento por la CPU** (`es20demo -m`, 320x240): en el PC del mantenedor (Ryzen 9 9900X, x86-64) triángulo
+0,3 ms, cubo con textura y luz por fragmento 1,4 ms, cubo en un FBO con efecto 4,6 ms, plasma (8 senos y 3 cosenos
+por píxel) 13 ms; en el SaguiOS con KVM (código de 32 bits) <1, 3, 6 y 13 ms (unos 75 fps el plasma).
+
+**Pruebas.** `tests/h475_saguigl2.py`: `unidad` (las 156 comprobaciones de `tests/sgl/es20_conformidad.c` en el PC,
+también con ASan/UBSan y la misma suma; la RI de tres sombreadores válida y con pocos temporales), `es11`, `fuentes`,
+`rendimiento`, `qemu` (en el SaguiOS `es20conf` sin fallos y con la misma suma que el PC, `es20demo -c 1..4` con las
+sumas del PC, `es11conf` y `es11demo` como siempre), `janela` (la demo en una ventana del escritorio) y `capturas`
+(`docs/capturas/H475-*.png`). Se repitieron `h424` (ES 1.1) y `h285` (gpu3d de Intel).
+
+**Falta** (anotado en `docs/saguigl2.md`): compilar la RI a x86 si hace falta tras medir en las máquinas viejas;
+`gl_DepthRange` y las reglas del apéndice A de GLSL ES; líneas con la regla del rombo; `-lGLESv2` en TCC y
+`SDL_GL_*` con ES 2.0 en la SDL 2; y las fases 2 a 5 (backends y WebGL).
+
+## D480. SaguiGL 2.0, fase 2: OpenGL ES 2.0 por la GPU con VirGL (traductor RI a TGSI y gpu3d v4) (decidido el 2026-11-26; v8.5.7, rama `v8.5.7-saguigl2`)
+
+**Qué.** Segunda fase de SaguiGL 2.0 (D475): con una virtio-gpu que negocia VirGL (QEMU `virtio-vga-gl`, Proxmox `virtio-gl`) los dibujos de OpenGL
+ES 2.0 los hace la GPU del anfitrión. Tres piezas: (1) `userland/libsgl/sgl_tgsi.c`, el traductor **RI -> TGSI en texto**; (2) **gpu3d v4**
+(`GPU3D_OP_V4_*` en `abi.h`, `gpu3d_v4_driver_t` en `gpu3d.h`, implementada solo en `gpu3d_virgl.c`); (3) `userland/libsgl/sgl2_gpu.c`, el backend de la
+libsgl que se engancha en `sgl2_desenhar()`/`sgl2_limpar()`. Los demás drivers no anuncian v4 (campo `v4` a NULL) y la libsgl sigue por la CPU.
+
+**Decisiones.**
+1. **La RI no cambió** (era casi 1:1 con TGSI). Dos arreglos en el traductor, no en la RI: los arrays locales con índice dinámico (`TEMP[ADDR[0].x+n]`) obligan a
+   declarar todos los temporales como un array TGSI (`DCL TEMP[0..n], ARRAY(1)`; la RI no dice qué registros forman el array y `tarr_base/tarr_n` nunca se
+   rellenaron); y `continue` se traduce con un bucle interior de una vuelta, porque con el anfitrión de las pruebas (Mesa d3d12 de WSLg tras virglrenderer) un
+   `CONT` no salta nada. `gl_FrontFacing` (TGSI da +1/-1) pasa por un temporal; `gl_PointCoord` no se traduce (los puntos van por la CPU).
+2. **Interfaz v4** (solo enteros y bits de float, el kernel no usa coma flotante): `V4_CAPS`, `V4_PROGRAMA` (los dos sombreadores en TGSI), `V4_RECURSO` (textura
+   2D, cubo, destino de color, Z/esténcil), `V4_SUBIR`, `V4_DESENHAR` (atributos con paso, índices, uniformes, samplers con su estado, mezcla, Z, esténcil por cara,
+   cull, polygon offset, tijera, viewport, destino), `V4_LIMPAR`, `V4_LER` (con paso negativo: el framebuffer por defecto va de abajo arriba) y `V4_INFORME`. Se usa tras
+   `GPU3D_OP_ABRIR` (el destino v1 de 8x8 no se usa) y el kernel valida todos los punteros y tamaños. Subidas y lecturas pasan por una zona de paso de 2 MB compartida
+   como respaldo de todos los recursos; los vértices y los índices van con `RESOURCE_INLINE_WRITE` a dos anillos, y todo el estado de un dibujo en un solo `SUBMIT_3D`;
+   los objetos de estado (mezcla, DSA, rasterizador, muestreador, elementos de vértice) se crean una vez y se enlazan por asidero (cachés de 24).
+3. **Coherencia CPU/GPU** (libsgl): cada textura, renderbuffer y el framebuffer por defecto llevan una versión de lo que escribió la CPU (se sube de nuevo si cambia) y
+   una marca «sujo» si la GPU tiene lo más nuevo; cualquier uso del destino por la CPU (dibujo, `glReadPixels`, `glCopyTex*`, `eglSwapBuffers`, `glFinish`, cambio de
+   contexto) lee antes (`sgl2_gpu_sincronizar`). Lo que la GPU no hace cae a la CPU dibujo a dibujo: puntos, líneas, un programa que no se traduce, índices dispersos, destinos
+   que no son el nivel 0, esténcil sin formato Z+esténcil en el anfitrión, un error (entonces se apaga la GPU en el proceso). Limpiezas parciales (tijera o máscaras): un
+   rectángulo con un programa de color constante. Limitación: el Z y el esténcil viven solo en la GPU.
+4. **Autoprueba v4** (primera vez que se abre la GPU en el proceso): la libsgl dibuja una escena (textura, mezcla, Z, varyings) por la CPU y por la GPU en un contexto
+   propio y compara píxeles (hasta un 4 % de distintos), y detecta si la GPU da la vuelta a las caras de frente (WSLg: sí; se compensa en cada dibujo). El resultado va al
+   log (`[GPU3D] autoprueba v4 ...`). `SAGUI_GL_V4=0` o `--cpu` la desactivan.
+5. De `docs/mesa-trucos.md` (ideas, sin código de Mesa) se aplicó: objetos por asidero y un solo `SUBMIT_3D` por dibujo (VG-01/02) y subida de vértices sin esperar a la GPU (ES-05).
+   Quedan para después: una cola por cuadro (el dibujo aún se envía entero), fusión de transferencias y caché de recursos (VG-04/05), VBO residentes y banderas sucias de estado (ES-01).
+
+**Medidas** (QEMU TCG, WSLg, `es20demo -m 20`, 320x240, sin KVM; incluye la lectura final): por VirGL 3 / 1 / 3 / 0 ms por cuadro (triángulo, cubo, FBO, plasma) contra
+12 / 48 / 139 / 269 ms por la CPU. Diferencias con la CPU (`es20demo -d N`): 0, 6, 30 y 0 píxeles de 76800 (máximo 205 en algún borde).
+
+**No toca el núcleo del kernel** (memoria, planificador, VFS, arranque): solo `gpu3d.c` (las operaciones v4), `gpu3d_virgl.c`, `virgl.c` (recursos con niveles y capas) y cabeceras.
+
+**Pruebas.** `tests/h480_saguigl2_virgl.py`: `fuentes`; `tgsi` (en el PC: 45 programas de es20conf y es20demo traducidos, solo se rechaza `gl_PointCoord`, y un validador
+estructural del TGSI); `virgl` (QEMU con GL: `es20conf` 156/0 por la CPU y por la GPU, las cuatro escenas comparadas con la CPU, ms por cuadro; se omite sin GL).
+Se repitieron h475, h474, h472 y h285. **Falta**: R5xx/R7xx/Evergreen/Gen (fases 3-4), puntos y líneas por la GPU, VBO residentes, `glFinish` de ES 2.0 propio, probarlo en un Proxmox.
+
+## D481. glmark2-es2 en SaguiOS: el banco de pruebas de OpenGL ES 2.0 para medir SaguiGL 2.0 (decidido el 2026-11-26; v8.5.7, rama `v8.5.7-glmark2`)
+
+**Qué.** Se porta **glmark2 2023.01** (https://github.com/glmark2/glmark2, GPL-3.0-or-later, el banco de pruebas de OpenGL ES 2.0
+de Linaro) como `/apps/bin/glmark2-es2`, para medir SaguiGL 2.0 (D475) y poder comparar con Linux + Mesa **con el mismo programa en las
+mismas máquinas** (el mantenedor lo pidió el 2026-11-26). Las 33 escenas por defecto de glmark2 son sombreadores de GLSL ES 1.00
+reales (luz por fragmento, normal maps, desenfoque sobre FBO, bucles, condicionales, ruido simplex...): ejercitan el compilador, la RI y
+el rasterizador mucho más que `es20demo`.
+
+**Cómo.**
+1. **Fuentes por descarga** (`tools/glmark2_fuentes.sh`, como `valkey_fuentes.sh` y compañía): el tarball de la etiqueta 2023.01 de
+   GitHub con SHA-256 fijo (`8fece3fc...db3d67`); se quitan las copias internas de libpng, libjpeg-turbo y zlib (solo las usa la
+   compilación de Android) y se aplica `userland/terceros/glmark2/parches/001-sagui.patch`. Las fuentes **no van a git**
+   (`/userland/terceros/glmark2/fuentes`); sin ellas, o sin g++, el sistema se construye igual (`GLMARK2=0` lo deja fuera; tampoco
+   entra con `SEM_GPL=1`, como los demás terceros de GPL).
+2. **Compilación sin meson** (`userland/terceros/glmark2/glmark2.mk`, incluido desde el `Makefile` tras el bloque de `es20demo`): la
+   «flavor» glesv2 + EGL, con el runtime de C++ del sistema (`userland/libcxx`) y la SaguiGL 2.0 enlazada dentro del programa
+   (`$(SGL2_OBJ)`). Todo C++ con `-O2`; `glad` (C) para cargar EGL y GLES2.
+3. **Estado nativo de SaguiOS** (`plataforma/native-state-sagui.cpp`, `janela.c`): implementa `NativeState` de glmark2 sobre
+   `jan_t`: ventana normal de cualquier tamaño (`-s LxA`) y **pantalla completa** (`--fullscreen`: `jan_estilo` +
+   `jan_tela_cheia`, esperando el `EV_REDIMENSIONAR` del kernel); Esc o cerrar la ventana terminan. Las cabeceras de la libsagui no
+   compilan como C++ (inicializadores designados del kernel): por eso `janela.c` es de C y el C++ solo ve punteros opacos.
+   `gl-state-egl.cpp` (el de glmark2, sin cambios) usa la EGL de `sgl_egl.c` con `eglCreateWindowSurface(jan_t *)`.
+4. **Sin `dlopen`** (`plataforma/shared-library.cpp`): glmark2 abre libEGL y libGLESv2 y saca cada función con `dlsym` (glad). Aquí
+   «abrir» siempre funciona y «cargar» es `eglGetProcAddress`, que ya da todas las funciones de EGL y de GLES2 (`sgl_egl.c`).
+5. **Imágenes con `stb_image`** (`plataforma/image-reader.cpp`): sustituye al `image-reader.cpp` (libpng y libjpeg) con el mismo
+   contrato de filas (RGB o RGBA); `userland/terceros/stbimage` ya estaba en el árbol (dominio público o MIT). Sin libpng ni libjpeg.
+6. **Parche de `glmark2`** (4 cambios mínimos): `main.cpp` elige `NativeStateSagui` y fija por defecto `--visual-config alpha=0`
+   (las superficies de EGL de SaguiOS son RGB sin alfa; con el `alpha=1` por defecto de glmark2 no hay configuración); y tres
+   `#include` que glmark2 recibía de libstdc++ sin pedirlos (`<algorithm>`, `<cstdlib>`, `<time.h>`).
+7. **El runtime de C++** crece lo que pidió glmark2 (general, no específico): `<numeric>` (`accumulate`, `iota`, `inner_product`),
+   los manipuladores `showpoint`, `noshowpoint`, `showpos`, `noshowpos` y `setbase`, y `std::modf(float, float*)`.
+8. **Datos** (modelos, sombreadores y texturas, 10 MB): a la partición de apps, `/apps/glmark2/data` (no al ramdisk base);
+   `glmark2-es2` los busca allí (`GLMARK_DATA_PATH`). Junto a ellos, `benchmarks.txt` con la lista usada para medir.
+9. **La referencia en el PC**: `tools/glmark2_pc.sh` compila las mismas fuentes con la flavor X11 + EGL + ES 2.0 contra Mesa (sin
+   meson), para ejecutar el mismo programa con la misma lista en el mismo ordenador.
+
+**Resultado** (detalle y tabla por escena en `docs/saguigl2.md`, «Medidas con glmark2»). **29 de las 33 escenas por defecto funcionan** y
+dan imagen correcta (medusa, terreno, asteroide con 100 000 triángulos, escritorio con desenfoque...). A 320x240, Ryzen 9 9900X, SaguiOS
+en QEMU con KVM (una CPU, SaguiGL 2.0 por la CPU): **glmark2 Score 234** (ventana) y 161 (FBO, `--off-screen`); en el mismo PC, Mesa 25.2.8
+con llvmpipe (20 hilos): **631** (ventana) y 883 (`--off-screen`). Pantalla completa (1024x768): funciona.
+
+**Lo que SaguiGL 2.0 aún no tiene** (información para D475; las escenas se omiten con su opción, no se tapan, y glmark2 las da como
+`Unsupported`): `GL_OES_depth_texture` (`shadow`, `refract`), `GL_OES_mapbuffer` (`buffer` con `update-method=map`, dos escenas),
+`GL_OES_depth24` (`--off-screen` con la configuración por defecto) y configuraciones de EGL con alfa. Además, el camino de FBO va 1,5 a
+2,5 veces más lento que el de la ventana. No se tocó la `libsgl` (otro agente trabaja en ella, fase 2): nada de esto es un fallo, son
+funciones que faltan.
+
+**Licencia.** glmark2 es GPL-3.0-or-later (el proyecto es GPLv3): compatible. Su `libmatrix` es BSD-2-Clause y `glad` MIT/dominio
+público (registrado en `docs/terceros.md`). No se incluyen libpng, libjpeg-turbo ni zlib de glmark2 (stb_image sustituye a las dos primeras).
+
+**Prueba:** `tests/h481_glmark2.py` (`fuentes`, `qemu`, `pc`): la descarga fija, las tres secciones de `compilar_versiones.md`, y en
+QEMU con KVM un subconjunto de ocho escenas que termina, da FPS y puntuación y cuyas capturas a mitad de escena no están negras, las
+escenas que faltan avisando `Unsupported` sin colgarse, y pantalla completa; opcionalmente la puntuación del PC con Mesa.
+
+## D486. SaguiGL 2.0: GL_OES_depth_texture, GL_OES_mapbuffer, GL_OES_depth24 y GL_OES_packed_depth_stencil (decidido el 2026-11-26; v8.5.7, rama `v8.5.7-saguigl2`)
+
+**Qué.** Cuatro extensiones de OpenGL ES 2.0 en la `libsgl` (D475), por la CPU y por VirGL (D480), que glmark2 (D481) pedía: con ellas
+`shadow`, `refract` y `buffer:update-method=map` dejan de salir `Unsupported` y `--off-screen` arranca sin `--visual-config`. Se anuncian en
+`glGetString(GL_EXTENSIONS)`; tokens y prototipos en `userland/inc/GLES2/gl2ext.h`.
+
+**Decisiones.**
+1. **Textura de profundidad = nivel con `z` (floats de 0 a 1), sin `px`** (`s2_nivel_t`). Es el mismo formato del Z del rasterizador, así que adjuntarla a un
+   FBO es dar su puntero y muestrearla es leer el float (`(d, d, d, 1)`). `DEPTH_STENCIL` suma `est` (8 bits). Sin cubos ni mipmaps generados; completitud
+   del FBO por punto (profundidad: textura con `z`; esténcil: solo `DEPTH_STENCIL`). Se acepta además `GL_DEPTH_STENCIL_ATTACHMENT` (como Mesa).
+2. **Renderbuffers**: `DEPTH_COMPONENT24_OES` (Z en float, 24 bits declarados) y `DEPTH24_STENCIL8_OES` (`z` + `est`).
+3. **Mapbuffer de ES 2.0** en `sgl2.c`: `glMapBufferOES` etc. de `sgl_es.c` desvían a `sgl2_glMapBufferOES` si hay un contexto de ES 2.0 actual (la ES 1.1 no cambia).
+   Solo escritura; el puntero es el almacén del búfer.
+4. **EGL**: ya ofrecía Z de 24 (con y sin esténcil, ventana y pbuffer); no se tocó.
+5. **VirGL**: el Z de 24 y el packed (renderbuffers) los dibuja la GPU (el recurso Z/esténcil de v4 ya era de 24 y con esténcil); el mapbuffer también (la GPU recibe
+   los atributos del almacén en cada dibujo). **Cae a la CPU** (como cualquier dibujo que la GPU no puede) todo dibujo en un FBO con textura de profundidad o
+   esténcil y todo dibujo que muestree una textura de profundidad (`gpu_ok = 0` y `tex_gpu` devuelve 0): el Z de la GPU es un recurso propio que no se puede
+   muestrear ni leer. Se anota en `docs/saguigl2.md`; mejora posible: leer el Z de la GPU a la textura al cambiar de destino.
+
+**Prueba:** `tests/h486_ext_oes.py` (`fuentes`, `unidad`, `qemu`, `virgl`, `glmark2`, `medir`) con `tests/sgl/es20_ext486.c` (106 comprobaciones; en el PC y
+en el SaguiOS da la misma suma; con ASan y UBSan limpio; por VirGL compara cada escena GPU contra CPU: 0 píxeles distintos). `h481` actualizada (ya no hay
+`Unsupported`). Glmark2 (320x240, 33 escenas): 257 CPU ventana, 268 CPU FBO, 178 VirGL ventana.
+## D483. Fondo rotativo y acento automático (decidido el 2026-11-26; v8.5.6.5 «Personalización», rama `v8.5.6.5-fondos`)
+
+Pedido del mantenedor. Dos opciones nuevas en **Configuración > Colores y fondo**, que se aplican en vivo y se guardan en `sagui.conf` de la persona.
+
+- **Fondo rotativo.** Una carpeta de imágenes (`fondo_rotar_carpeta=`, por defecto `/imagenes`), un intervalo de 1, 5, 10, 30 o 60 minutos
+  (`fondo_rotar_seg=`, en segundos; la orden acepta `30s` para las pruebas, mínimo 2 s), **en orden** por nombre o **al azar** (nunca el mismo dos veces
+  seguidas; `fondo_rotar_azar=`) y con **fundido** o corte (`fondo_rotar_corte=`). **Quién lo hace:** no cron (no baja del minuto, no sabe de la
+  pantalla de la sesión y no puede fundir) ni el kernel (decodificar imágenes es de la libsagui; el kernel solo recibe líneas ya hechas, como siempre,
+  `SIS_FUNDO`): el propio programa, como un servicio pequeño, **`configuracion --rotar`**. Lo lanza `configuracion --aplicar` al empezar la sesión
+  si hay rotación y la ventana o la orden al activarla; duerme un segundo, vuelve a leer `sagui.conf` (así lo que cambie la persona vale en vivo) y,
+  cuando pasa el intervalo, pone el fondo siguiente; se va solo si se desactiva. Una sola copia: cada una escribe su pid en `/tmp/fondo-rotar.pid` y se
+  retira si ve otro. **Fundido:** el servicio guarda el último fondo entero (una pantalla de RAM) y manda tres pasos mezclados (25, 50 y 75 %) más el final,
+  con 35 ms de pausa que duerme (sin CPU) entre ellos: unos 150 ms y cuatro repintados del escritorio cada N minutos. **El primer cambio tras arrancar el
+  servicio es un corte** (no sabe qué había antes) y lo es siempre el «Siguiente fondo» a mano (proceso de un solo uso). Sin memoria para la mezcla, corte.
+  **Siguiente fondo:** `configuracion fondo-siguiente` y la opción del menú del escritorio (clic derecho; solo una línea en `kernel/gui/area_trabalho.c`
+  que lanza esa orden, sin tocar el núcleo).
+- **Acento automático** (`acento_auto=`). Del **color dominante** de la imagen: histograma de 8x8x8 casillas sobre unos 96x96 puntos, **sin grises**
+  (diferencia entre canales < 40), sin casi negros (canal mayor < 64) ni casi blancos (canal menor > 215), gana la casilla con más puntos (los vivos
+  pesan algo más) y se toma el promedio de sus puntos. **Contraste:** se mezcla con negro de 5 en 5 % hasta que el texto blanco del título tenga 4,5:1
+  (luminancia con gamma 2, algo más exigente que la de WCAG). Si ningún color sirve (foto gris), se deja el acento. Se recalcula con cada fondo (el
+  elegido en la ventana, el de `fondo`, el de `--aplicar` y el rotativo) y se aplica como el acento de siempre (`acento_cor`, EV_TEMA a las ventanas,
+  esquema personalizado si no era «SaguiOS», D428); `conf.acento` lo recuerda y el arranque lo aplica antes que el fondo.
+- **Página reorganizada** (pedido del mantenedor, mismo día): arriba un selector **excluyente** del tipo de fondo, **Color** (el degradado de siempre o
+  un **color sólido** de las 16 muestras), **Imagen** (la lista y su ajuste: centrado, ajustado, rellenar, estirado, mosaico) y **Presentación (rotativo)**
+  (carpeta, intervalo, orden o azar, fundido, «Siguiente fondo»). Debajo solo se dibujan las opciones del tipo elegido (las otras no existen en
+  pantalla, ni deshabilitadas). Cambiar de tipo se aplica en vivo (a presentación: el primer fondo ya y el servicio sigue; fuera de presentación, el servicio
+  se retira solo). **El acento va aparte**, con la casilla «Tomar el color de acento del fondo», válida para los tres tipos (con color sólido sale de
+  ese color; con el degradado de siempre no cambia); apagada, se ven las 16 muestras de siempre. **Un solo campo** en `sagui.conf`: `fondo_tipo=color|imagen|rotativo`
+  (más `fondo_color=` y `fondo_color_solido=`). **Migración:** sin `fondo_tipo` se deduce de lo de antes (con intervalo de rotación: rotativo; con imagen: imagen;
+  si no: color), y el siguiente guardado ya lo escribe. No hay vista previa (la pantalla ya es la vista previa y la página no cabe más). `Predeterminado` vuelve
+  a color degradado y sin acento automático.
+- **Órdenes:** `configuracion fondo-rotar CARPETA MINUTOS [orden|azar] [corte]`, `fondo-rotar no` (se queda con el fondo de ahora: imagen o color), `fondo ARCHIVO [modo]` (tipo imagen), `fondo ninguno` (degradado), `fondo-color RRGGBB|degradado` (tipo color), `fondo-tipo`, `fondo-siguiente` (de color pasa a imagen) y `fondo-acento si|no`.
+
+**Pruebas.** `tests/h483_fondo_rotativo.py`: tres imágenes PPM sintéticas de colores claros (el acento esperado se calcula en Python con el mismo
+algoritmo), una cuarta con grises, blanco y negro; intervalo de 5 s; se leen la serie y los píxeles del escritorio y del título activo; azar sin repetir;
+persistencia tras reiniciar. Capturas `docs/capturas/H483-*.png`.
+
+**Límites.** La ventana usa una caja de texto para la carpeta (no un selector). Solo BMP, PNG y PNM (lo que lee la libsagui); sin subcarpetas.
+## D485. Unidades de red WebDAV: un puente del VFS a un servicio de usuario, `/red/<nombre>` sin ejecución y un llavero cifrado por cuenta (decidido el 2026-11-26; v8.5.6.5, rama `v8.5.6.5-webdav`)
+
+**Pedido del mantenedor** (v8.5.6.5 «Personalización y red»): montar servidores WebDAV como unidades virtuales a nivel de usuario, que se
+vea si hay conexión o no, sin poder ejecutar nada desde ahí, un poco aparte del resto del árbol, pero que las aplicaciones abran y guarden
+en ellas. Ampliado el mismo día: panel propio en Configuración, todo por cuenta (cada una con sus unidades en su `/home`) y **las
+contraseñas cifradas en disco, nunca en claro**. Prueba: `tests/h485_webdav.py`.
+
+**Lo que había y por qué no vale tal cual.** La tabla de montajes (D040) liga un `disco_t` a una carpeta y envuelve cada driver con
+`trava_fs`, un cerrojo global (D095): un driver que esperase a un proceso de usuario con ese cerrojo tomado bloquearía todos los discos, y
+el propio servicio (que lee su configuración y escribe su fichero temporal en `/home`, quizá un ext2 montado o la raíz en disco de D379)
+se quedaría esperándose a sí mismo. ramfs.c (D379) ya monta volúmenes con un `disco_t` de mentira: se sigue ese camino.
+
+**Decisión.**
+1. **Kernel: `kernel/fs/ponte.c`, un puente pequeño al estilo de FUSE.** Un tipo de sistema de archivos `ponte` cuyas operaciones (info,
+   listar, abrir, ler, escrever, truncar, fechar, sincronizar, criar_pasta, remover_pasta, apagar, renomear, datas) se convierten en
+   mensajes a un **proceso servidor de usuario**, que los recoge y contesta con una llamada nueva, `SIS_PONTE` (158; operaciones
+   `PONTE_MONTAR`, `RECEBER`, `RESPONDER`, `ESTADO`, `DESMONTAR`, `LISTAR`). Reglas:
+   - **sin `trava_fs`**: el montaje se registra con `montagem_montar_virtual` (montagem.c), que no crea carpetas, no pide disco y marca
+     el envoltorio «sin cerrojo»; cada unidad tiene su cola y nada del kernel queda tomado mientras se espera;
+   - **toda espera con plazo**: quien llama duerme en su petición (`bloquear` + `acordar_em` + `ceder`, como el DMA del IDE) como mucho
+     `PONTE_PLAZO` (20 s; 6 s para info/listar); vencido, `ERRO_TEMPO` y la petición queda abandonada (la respuesta tardía se tira).
+     **Sin conexión** (el servidor lo publicó con `PONTE_ESTADO`) se contesta `ERRO_SEM_REDE` al momento, sin preguntar al servidor;
+   - **el servidor muere o se cuelga**: cada operación comprueba que su proceso sigue vivo; si no, la unidad se desmonta sola y todo
+     lo pendiente vuelve con error. El servidor que llama a su propia unidad recibe `ERRO_OCUPADO` (no se espera a sí mismo);
+   - **cerrar no espera** (Ctrl+C cierra los ficheros dentro de la IRQ del teclado): el cierre va a una tabla fija de la unidad, sin
+     memoria nueva, y el servidor lo recoge en orden con lo demás. La subida al servidor es al cerrar (o con `sincronizar`, que sí
+     espera); como el servidor atiende en orden, una apertura posterior ya ve el fichero subido;
+   - datos en trozos de 32 KB por mensaje (`ler`/`escrever` mayores se parten dentro); el listado viene por lotes y el kernel guarda el
+     último lote 3 s (no hay un viaje por entrada);
+   - como mucho `PONTE_MAX` (6) unidades; la tabla de montajes pasa de 12 a 20 (D379 dejó una para la raíz).
+2. **Aislamiento.**
+   - Se montan en **`/red/<nombre>`** (letras, números, `-` y `_`, hasta 24); `/red` es a su vez un montaje virtual del puente (de root,
+     0755) que solo lista las unidades de quien pregunta: **otra cuenta no ve ni el nombre**. Los nombres son únicos en la máquina.
+   - Dueño = la cuenta que montó, modo 0700 (máscara 077): los permisos de D282 dejan fuera a las demás cuentas; root puede entrar. Cada
+     operación del puente lo vuelve a comprobar dentro.
+   - **Sin ejecución, comprobado en el kernel**: opción de montaje nueva `MONTAR_SEM_EXEC`. `carregador.c` no carga un programa de un
+     montaje así (los intérpretes ya solo pueden venir de `/lib`), `MEM_COMPARTIR` con `MEM_PROT_EXEC` sobre un fichero de ahí se niega, el
+     `ld-sagui.so.1` y `dlopen` no cargan bibliotecas de `/red`, y los ficheros se ven sin la «x» (para que el shell y Archivos ni lo
+     intenten). Límite honrado (como el `noexec` de Linux): un intérprete del sistema puede *leer* un guion de ahí (`python /red/x/a.py`)
+     igual que lee cualquier dato, y un programa que copie bytes a su memoria puede hacer lo que quiera con ellos; Archivos no lanza nada
+     desde una unidad de red.
+   - Sin enlaces simbólicos (el servidor solo da ficheros y carpetas) y sin «..» (las rutas llegan resueltas y el servicio rechaza lo raro
+     antes de formar la URL; codifica con `%XX`).
+   - El servidor es un proceso de la cuenta (sin privilegios). La sesión que se cierra mata sus servidores y sus unidades desaparecen.
+3. **Servicio `dav`** (`userland/programas/dav.c`, con `http.c` y la libtls; HTTPS con la verificación de siempre y `cacert=` por
+   unidad): un proceso por unidad (`dav servir <nombre>`). PROPFIND (Depth 0 y 1, `getcontentlength`, `getlastmodified`, `resourcetype`),
+   GET con `Range` para leer a trozos, PUT al cerrar desde un fichero temporal local (`/tmp/.dav-…`, borrado al subir), DELETE, MKCOL,
+   MOVE (con `Overwrite: T`), autenticación **Basic** (Digest no: con HTTPS no aporta y complica). Caché pequeña de metadatos con
+   caducidad de 5 s. Mira la conexión cada 10 s cuando está caída (y al primer error de red), publica el estado en el kernel y avisa con una
+   notificación al perderla y al recuperarla. Órdenes: `dav agregar|montar|desmontar|estado|lista|borrar|probar|iniciar` y
+   `dav llavero estado|abrir|contrasena`. `dav iniciar` (lo lanza el escritorio al entrar en la sesión) monta las de «conectar al iniciar».
+4. **Configuración por cuenta**: `~/.config/unidades-red` (0600; nombre, URL, usuario, conectar al iniciar; **sin contraseñas**) y las
+   contraseñas en el **llavero**.
+5. **Llavero de la cuenta** (`userland/libtls/chaveiro.c`, `userland/inc/chaveiro.h`; reutilizable por Correo, la IA... más adelante):
+   - fichero `~/.config/llavero` (0600) con cabecera en claro y el contenido (pares servicio/valor) cifrado con **AES-256-GCM**
+     (nonce aleatorio nuevo en cada guardado, la cabecera como AAD);
+   - clave del fichero = HMAC-SHA256(K, sal del fichero, aleatoria de 16 bytes), con **K = PBKDF2-HMAC-SHA256(contraseña de la cuenta,
+     «SaguiOS-llavero:» + nombre, 20 000)**. K no se guarda en ningún disco: la calcula el gestor de servicios (D255) en el momento de
+     comprobar la contraseña al entrar en la sesión y se la deja al kernel, que la guarda **por uid** en memoria (`SIS_CHAVEIRO`, 159:
+     poner —root para cualquiera o la propia cuenta—, tomar —solo la propia—, olvidar). Al cerrar sesión se olvida;
+   - **cuenta sin contraseña** (sagui de serie, inicio automático): no hay K. Se puede poner una **contraseña propia del llavero**
+     (`dav llavero contrasena`, o el panel), que hay que escribir una vez por arranque (`dav llavero abrir`); si no hay ninguna, se cifra
+     con la K de la contraseña vacía y la interfaz avisa de que **protege poco** (nunca está en claro, pero quien copie el fichero lo abre);
+   - si la contraseña de la cuenta cambia, el llavero no abre con la K nueva: `dav llavero abrir` pide la anterior y lo vuelve a cifrar;
+   - la sal de K sale del nombre: un diccionario precalculado sirve para todas las máquinas con la misma cuenta (la sal aleatoria del
+     fichero no lo evita, porque K es lo caro). Aceptado: protege el fichero copiado de un disco, no de quien ya es la cuenta o root.
+6. **Interfaz**: Configuración > **Unidades de red** (añadir, editar, borrar, URL, usuario, contraseña, nombre, conectar al iniciar,
+   probar, conectar/desconectar, estado, el aviso del llavero); Archivos con la sección **RED** en la barra lateral (cada unidad con su
+   estado, conectada o desconectada) y **«Conectar unidad de red…»**, que abre ese panel; los diálogos de abrir/guardar de la libsagui
+   muestran las unidades con su estado; la notificación al perder o recuperar la conexión.
+
+**Por qué así y no de otra forma.** Un cliente WebDAV dentro del kernel metería HTTP, TLS y XML en el anillo 0, con la red y los
+certificados de la cuenta: un fallo ahí tumba el sistema. Un servicio de usuario se cae solo y el kernel solo tiene que esperar con
+plazo. Tampoco se usa un dispositivo o una tubería para el canal: dos llamadas nuevas son más pequeñas, no tocan el resto de
+`arquivos.c` y el kernel sabe en cada momento quién es el servidor.
+
+**Nada de terceros.** WebDAV (RFC 4918), el XML mínimo del PROPFIND y el llavero son nuestros; las primitivas, de la libtls (D060).
+
+**Hecho (2026-11-26).** Todo lo de arriba, con estos detalles y límites:
+- `/red` no sale en `ls /` (es un montaje virtual sin carpeta en el árbol): se llega por Archivos, los diálogos o `cd /red`. Tampoco
+  sale en la lista de montajes (`montagem_info`); cada unidad, solo para su cuenta (y root).
+- Ejecutar desde la unidad: a una cuenta se lo niegan ya los permisos (los ficheros no tienen «x»); a root, `carregador.c`
+  («no se ejecuta (montaje sin ejecucion)» en el registro). Archivos abre un «programa» de `/red` como fichero.
+- El servicio atiende en orden y de uno en uno: mientras sube un fichero grande al cerrarlo, lo demás de esa unidad espera (y puede
+  vencer su plazo, con `ERRO_TEMPO`). Lo que no se pudo subir se reintenta al volver la conexión y, si la unidad se desmonta antes,
+  queda en `~/.cache/dav-pendientes/<unidad>/`.
+- Los ficheros que se abren para escribir (y los de menos de 8 MB para leer) se descargan enteros a `/tmp` (en la RAM); los grandes
+  de solo lectura se leen por `Range` a trozos de 256 KB.
+- `dav montar` comprueba antes la conexión: usuario o contraseña mal (401) o certificado no válido, no monta; sin red, monta y queda
+  «desconectada» hasta que el servidor conteste.
+- Bandeja: un icono mientras la sesión tenga alguna unidad (verde, o gris con una cruz si alguna está sin conexión), con su texto
+  al pasar el ratón; el clic abre Configuración > Unidades de red.
+- El llavero solo lo usan, de momento, las unidades de red (Correo y la IA siguen con su clave en `~/.config`: queda para después).
+- Sin Digest, sin bloqueos WebDAV (LOCK/UNLOCK), sin cuotas (el espacio libre no se pregunta) y sin fechas al copiar (`fixar_datas`).
+
+**Pruebas.** `tests/h485_webdav.py`: `pc` (el servidor WebDAV de la prueba, en Python, contra sí mismo), `saguios` (43 comprobaciones:
+llavero sin la contraseña en claro y 0600, listar, leer, escribir con el shell, `cp` y Python, carpetas, renombrar, borrar, carpeta no
+vacía, nombre con acento, 9 MB leídos por Range, no ejecutar —tampoco root—, otra cuenta no ve nada, servidor cortado: estado
+desconectado y las órdenes vuelven en ~3 s; vuelve: conectada; HTTPS sin la autoridad no monta y con `--cacert` sí; llavero con
+contraseña propia cerrado y abierto; desmontar) y `gui` (Configuración y Archivos, capturas `H485-*`).
+## D488. Cipó: el DOM de la página en JavaScript, eventos completos, bucle de eventos, medidas, historial y remaquetado incremental (decidido el 2026-11-26; v8.5.6.3, rama `v8.5.6.3-cipo-js`)
+
+**Decisión:** la copia del DOM que ve el script deja de ser una tabla fija en C dentro del puente del QuickJS
+(D160: 512 nodos, 8 atributos y 4 escuchas por elemento, solo lectura) y pasa a ser **JavaScript**
+(`userland/web/quickjs/qjs_dom.js`, que se mete en el puente como cadena con `tools/js2h.py`). El árbol de verdad
+sigue siendo el del motor (`motor.c`): cada cambio del script llega al motor por un gancho, el motor **marca solo lo
+que cambió** y la maquetación siguiente rehace la cascada de eso, guarda las medidas de lo demás y dice qué franja de
+la página hay que volver a pintar.
+
+**Por qué JavaScript y no más C.** Un DOM que cambia de forma (crear, mover, quitar, `innerHTML`, fragmentos,
+clones) con eventos de captura y burbuja, selectores completos y `MutationObserver` son unas 900 líneas de
+JavaScript y serían más de 3000 de C con la API del QuickJS (cada propiedad, un getter en C con su recuento de
+referencias). La parte que cuesta (maquetar y pintar) sigue en C; lo que corre en JavaScript son recorridos de
+árboles pequeños. Los identificadores siguen siendo los del motor (D160): `nos[id]` en JavaScript y una tabla
+id -> nodo nueva en el motor (`dom_tab`), que quita los recorridos de la página entera de cada operación.
+
+**Las piezas.**
+
+- `motor_dom.h` (lo incluye `motor.c` al final, para no mezclarse con D489, que toca CSS y maquetación en el mismo
+  fichero): `motor_dom_criar` (nodo suelto), `motor_dom_inserir` (mete o mueve; respeta los bloques anónimos y el
+  `::after`), `motor_dom_tirar`, `motor_dom_dado` (texto), `motor_dom_html` (innerHTML: el lector de HTML de la
+  página, `ler_html_em`, lee dentro de un elemento), `motor_dom_exportar` (la lista en el formato del puente, en
+  UTF-8 y sin tope de nodos ni de atributos: antes el Cipó mandaba los 256 primeros), `motor_dom_caixa` (también
+  de elementos en línea, por la unión de sus fragmentos), `motor_dom_em` (`elementFromPoint` y el elemento del clic),
+  `motor_dom_estilo` (`getComputedStyle` por id) y la firma de la lista de pintura (`motor_dom_assinatura`).
+- El puente (`qjs_bridge.c`): los nativos de `__sagui_nat`, que llaman a los ganchos nuevos de `qjs_ganchos_t`
+  (puestos **al final** y con designadores en quien los inicializa, para que los de D487 no se crucen), y el bucle
+  de eventos.
+- El navegador (`userland/programas/cipo_js.h`, incluido por `cipo.c`): los ganchos (UTF-8 -> Latin-1), los
+  eventos de la persona y la maquetación y el repintado por franja.
+
+**El bucle de eventos** (lo aprendido de Serenity, #47): una tarea (un temporizador o un evento del navegador) y,
+detrás, todas sus microtareas (las promesas); en cada vuelta, como mucho ~12 ms de tareas y después los
+`requestAnimationFrame` pedidos antes de empezar la vuelta, todos con la misma marca de tiempo y como mucho uno cada
+15 ms; luego una sola maquetación y el repintado. `setInterval` vuelve a contar al acabar el callback (no se
+amontona). `qjs_espera` dice cuánto puede dormir el bucle del Cipó. Un script que no acaba en 20 s se para
+(`JS_SetInterruptHandler`). Para la red (D487): `qjs_chamar(p, "__sagui_resolver", "[id, true, valor]")` resuelve
+la promesa que el JavaScript pidió con `__sagui_pendente()`, como una tarea más.
+
+**Los eventos.** El clic ya no depende de que el elemento tuviera manejador al maquetar (D160 marcaba los elementos y
+volvía a maquetar la página): el navegador busca el elemento bajo el puntero (`motor_dom_em`) y manda `mousedown`,
+`mouseup`, `click` (y `dblclick`); si el script cancela el `click`, el enlace no se sigue. El movimiento del ratón
+(`mouseover`, `mouseout`, `mouseenter`, `mouseleave`, `mousemove`) y las teclas solo se mandan si la página tiene
+oyentes de ese tipo (`qjs_quer`). Teclado en el elemento con foco (`keydown` cancelable: las flechas no desplazan),
+foco al pulsar (`focus`, `blur`, `focusin`, `focusout`), `input` en cada tecla de un campo, `change` al salir o con
+Intro y `submit` cancelable (el formulario no se envía). Orden de un navegador: captura desde `window`, el objetivo y
+burbuja; `once`, `passive`, `signal`, `stopImmediatePropagation`; `onX` y atributos `onX="..."`.
+
+**El remaquetado incremental** (tres niveles, como recomendaba el estudio de Serenity: estilo, maquetación, pintura):
+
+1. *Estilo*: cada cambio marca el nodo (`SJ_PROPRIO`: su estilo; baja a los hijos solo si cambió) o el subárbol
+   (`SJ_ARVORE`), y los antepasados quedan con «hay algo debajo» (`SJ_DESC`). Al meter o quitar un hijo se marcan el
+   padre y sus hijos (`:nth-child`, `:empty`); con `+` o `~` en la hoja, los hermanos con todo lo de dentro. Con
+   `:has()` en la hoja la cascada es siempre completa (el estilo de un antepasado depende de sus hijos).
+2. *Maquetación*: la pasada de cajas sigue siendo de la página entera (el motor coloca floats, absolutos y objetivos
+   del ratón en esa pasada; partirla es trabajo para otra vez), pero guarda las medidas intrínsecas (`medir_max`/
+   `medir_min`, lo que más cuesta en tablas, flex y en línea) de todo lo que no cambió, si la anchura, los recursos
+   y las animaciones son los mismos.
+3. *Pintura*: antes del cambio se guarda la caja del nodo y la de sus antepasados; después, el primer antepasado
+   con la misma caja limita la franja que cambió, y el Cipó pinta solo las filas de esa franja que se ven (sin
+   capas `fixed`/`sticky` ni vídeo; si no, la página entera, como antes).
+
+Los cambios de una misma vuelta se maquetan **una vez**; una medida (`offsetHeight`, `getBoundingClientRect`...)
+maqueta antes solo si hay cambios pendientes.
+
+**Medidas** (h488, KVM): en una página con 300 elementos de lista y 500 reglas, `appendChild` + `offsetHeight`
+cuesta **1,7 ms** con el remaquetado incremental y **5,0 ms** con el completo (de media en 12 veces), y los dos
+pintan lo mismo (misma firma). De 14 repintados del script, 13 fueron de una franja (menos filas que la ventana).
+
+**Al fusionar D487 y D489** (en esta rama, antes de la integración): el sondeo de los WebSocket (D487) corre como
+una tarea del bucle (`qjs_chamar`, con sus microtareas detrás) y `fetch`/XHR de `qjs_rede.js` usan `setTimeout` y
+promesas, así que entran en la misma cola; `qjs_rede.js` se carga después de `qjs_dom.js`, y del prelude se quitó todo
+lo que ya hacen los dos (temporizadores, eventos, observadores, `history`, elementos, `fetch`, XHR, almacenamiento,
+`document.cookie`): queda `matchMedia`, `screen` y `navigator`. Los envíos pasan primero por `submit` (cancelable) y
+después por el envío GET/POST de D487. `scrollTop`/`scrollLeft`/`scrollTo`/`scrollWidth`/`scrollHeight` de un bloque con
+`overflow` usan el desplazamiento propio de D489 (`motor_dom_rolagem`, `motor_dom_rolar`). Tras la fusión el
+incremental dejó de ahorrar: los campos nuevos de D489 movieron las medidas (`medida_t`) a sitios donde su byte de
+relleno, copiado de la pila, tenía basura, y el `memcmp` de estilos veía siempre un cambio (y bajaba a todos los
+hijos). `medida_t` pasa a `packed` (sin relleno). Medido después: **1,7 ms** incremental frente a **5,8 ms** completo.
+
+**El historial.** `pushState`/`replaceState` cambian la dirección de la barra sin navegar y dejan la entrada en el
+historial del Cipó marcada con el documento (`js_geracao`); Atrás/Adelante a una entrada del mismo documento no
+descarga: manda `popstate` (y `hashchange` si solo cambió el `#`). `location` entero (`pathname`, `search`, `hash`,
+`origin`...), `location.hash =` y los enlaces a `#parte` de la misma página: `hashchange` y desplazamiento.
+
+**Errores de antes que salieron.** El puente daba el objeto `location` a `window` y a `document` sin duplicar la
+referencia (se liberaba dos veces) y perdía una referencia del `document.body` sin DOM; con la libc del anfitrión y
+las aserciones del QuickJS encendidas (la prueba en el PC) saltaban al primer recolector.
+
+**Prueba.** `tests/h488_cipo_js_dom.py`: (1) en el PC, el puente con un motor de juguete
+(`tests/web/qjs_anfitriao/`, compila el QuickJS con la libc del anfitrión) y cuatro casos que dicen lo que tienen
+que escribir (árbol, eventos, bucle, historial y medidas) y comprueban que la copia del árbol del JavaScript y la del
+motor son la misma; (2) en QEMU, una página con contador, lista que crece, medidas, SPA con `pushState` y Retroceso,
+y un juego con `requestAnimationFrame` y las flechas, con capturas `H488-*.png`. Siguen en verde h125 (con el bucle
+de verdad: la prueba del motor espera al temporizador), h128 (el `innerHTML` del body ya no recarga la página),
+h132, h135, h137, h271 (la página 19 pasa a 16 de 16: `createElement`, `innerHTML` de un elemento e
+`insertAdjacentHTML`) y h373.
+
+**Límites.** Los nodos que el script suelta siguen en la memoria del motor hasta cambiar de página (no hay
+recolector en el motor; una página que crea miles de nodos por segundo crece). No hay `<canvas>` desde el script de
+la página, Web Workers, Shadow DOM ni `:hover` en los selectores del script. (Al fusionar D489: `scrollTop`,
+`scrollLeft`, `scrollTo` y `scrollWidth/Height` de un bloque con `overflow` usan su desplazamiento propio,
+`motor_dom_rolagem`/`motor_dom_rolar`.) `mousedown`, `mouseup` y `click` salen juntos al
+pulsar (el Cipó trata el clic al apretar el botón).
+
+## D489. Cipó: zoom, overflow con barras, tablas completas, CSS pendiente y controles de `<video>`/`<audio>` (decidido el 2026-11-26; v8.5.6.2-4, rama `v8.5.6.4-cipo-css`)
+
+**Pedido del mantenedor** (discusión #47: «realiza lo que puedas, ya es interesante»), repartido con los trabajos de red (D487) y de JavaScript/DOM (D488).
+Pruebas: `tests/h489_cipo_css_medios.py` (páginas propias en `tests/web489/`; cada parte se lanza por separado: `zoom`, `overflow`, `tablas`, `css`, `video`,
+`audio`) más las del Cipó de siempre (h271 pasa de 304 a 305 de 316 filas, la de los bordes `dashed`/`dotted`; h125, h128, h132, h137, h373).
+
+**Decisión.**
+- **Zoom por sitio** (`Ctrl++`, `Ctrl+-`, `Ctrl+0`, `Ctrl+rueda`, y en el menú ≡): pasos 25 %…500 %. No se estira un mapa de bits: el motor tiene un
+  `zoom_pct` (`motor_zoom()`) que **multiplica al leer** todo lo absoluto (`px`, `pt`, `in`, `cm`, `mm`, `pc`, `Q`, también dentro de `calc()`), el tamaño de letra
+  inicial (y las palabras clave de `font-size`), los bordes (siempre ≥1 px) y el tamaño de las imágenes, el `<video>`, el `<audio>` y las casillas; `em`, `rem`, `%`,
+  `vw` y `vh` siguen su cuenta, así que el texto se reparte en líneas otra vez y las `@media` de anchura (que se evalúan con las medidas ya multiplicadas)
+  cambian de rama solas. Cambiar el zoom fuerza releer las hojas (`forcar_regras`) y rehace la maquetación; la posición de lectura se conserva en proporción.
+  El zoom es **del servidor** (sin puerto) y se guarda en `~/.config/cipo/zoom` (hasta 64 sitios).
+- **overflow `auto`/`scroll`/`hidden`** (`overflow-x` y `overflow-y` por separado): cada bloque con recorte guarda su desplazamiento (`rol_x`, `rol_y`) y el
+  contenido (texto y hijos) se pinta desplazado dentro del recorte. La extensión desplazable se calcula al pintar (`ext_rel`). Barras de 12 px **superpuestas** (no
+  quitan ancho: `auto` solo las dibuja si desborda; `scroll` siempre) con carril y pulgar. La rueda va al bloque desplazable **más interno** que pueda moverse y, si ya
+  está en el tope, pasa al de fuera y al final a la página (`motor_rolar_caixa`); un clic en el carril salta una página y arrastrar el pulgar lo mueve
+  (`motor_barra_pulsar/mover/soltar`). Mover un bloque solo rehace la lista de pintura (`construir_cmds`), no la maquetación. Las regiones del ratón ahora llevan el
+  recorte con que se pintaron: un enlace tapado por el recorte de un `overflow` ya no recibe clics.
+- **Tablas** (`tabela()` rehecha en el reparto): celdas con `colspan` **y `rowspan`** (rejilla de ocupación: las filas siguientes saltan los huecos); las
+  columnas de un hueco se miden primero y, de span en span, lo que le falta a una celda que abarca varias se reparte entre ellas en proporción a su ancho (el
+  ajuste de columnas de CSS; antes se ignoraban estas celdas); `rowspan` reparte su altura sobrante en la última fila que cubre; anchos en **porcentaje** por
+  columna (si la tabla tiene ancho) y `table-layout: fixed` (anchos de la primera fila, el resto en partes iguales, el contenido no los cambia).
+- **CSS**: bordes **`dashed`, `dotted` y `double`** (estilo por lado en el comando de borde; los tramos rectos, las esquinas redondeadas siguen sólidas);
+  **anidamiento** (`.a { color: red; &:hover { … } .b { … } @media (…) { … } }`, con `&`, listas de selectores y `@media`/`@supports`/`@layer`/`@container`
+  dentro de la regla); `color-mix(in … , c1 p%, c2 p%)` (se mezcla siempre en sRGB), `oklch()`, `oklab()` (x87 con raíz cúbica a mano: no hay libm) y `light-dark()`
+  (el claro); `table-layout`. `position: sticky` ya funcionaba: ahora tiene prueba al desplazar. Quedan (en `tests/web/pendientes.txt`, `docs/cipo-compatibilidad.md`):
+  `::first-letter`, `::marker`, `::placeholder`, `background-clip`, medidas sin unidad, `@container` real, columnas, `subgrid`, `lab()`/`lch()`/`hwb()`.
+- **`<audio>`** (nuevo) y controles de **`<video>`**: con el atributo `controls` el navegador pinta sobre la caja una barra (reproducir/pausa, tiempo, progreso con
+  salto al hacer clic, volumen); el vídeo ya se reproducía (D276, H.264/AAC en MP4). El audio se baja entero a `/tmp` y lo decodifica la libsagui (WAV, MP3,
+  FLAC: `audio_arquivo_*`) a la tarjeta de sonido sin bloquear la ventana; `autoplay`, `loop` y `muted` valen. Los medios pasan por el mismo gancho
+  `motor_video` (banderas nuevas `VIDEO_AUDIO` y `VIDEO_CONTROLS`). **Un solo medio activo a la vez** (el decodificador lleva estado estático); sin Ogg/Vorbis
+  ni vídeo que no sea MP4 H.264.
+
+**Pruebas (h489, QEMU con la tarjeta HDA).** Zoom: caja de 100x20 → 200x40 y 50x10, altura del texto ×4 al reflowear, el zoom lo conserva otra página del sitio.
+Overflow: barras (carril y pulgar) de `auto`, `scroll`, `hidden` (sin barra) y `overflow-x`, la rueda desplaza el bloque y pasa a la página en el tope, arrastre del
+pulgar. Tablas: 22 cajas comparadas por posición (colspan, rowspan, fixed, porcentajes, ancho explícito). CSS: bordes por píxeles, anidamiento y colores. Medios:
+barra de controles, progreso que avanza, salto al 75 %, pausa/reanudar, volumen, y la grabación de la tarjeta de sonido a 440 Hz.
+
+**Límites.** El zoom no escala las medidas en `%` del viewport de las imágenes de fondo ni las fuentes de bitmap (todo lo vectorial sí); las barras de overflow no
+reservan ancho (tapan 12 px del contenido); el desplazamiento de un bloque dentro de un elemento `fixed`/`sticky` o transformado no se anota para la rueda; no
+hay `scrollTop`/`scrollLeft` desde JavaScript (lo tiene D488 con las medidas: el motor ofrece `motor_caixa_rolagem`); el ajuste de tablas no modela `colgroup`/`col`
+ni `border-collapse` real.
+
+## D487. Cipó: la red del navegador (cookies, POST, fetch/XHR, almacenamiento, compresión, caché, WebSocket) (v8.5.6.2, rama `v8.5.6.2-cipo-red`)
+
+**Pedido del mantenedor** (discusión #47, filas v8.5.6.2-4 del ROADMAP: «realiza lo que puedas»). Prueba `tests/h487_rede.py` (servidor de pruebas en `tests/h487_servidor.py`).
+Código nuevo, sin terceros: `userland/web/rede.c` (cookies, caché, armado de pedidos, descompresión, CORS), `rede_alm.c` (almacenamiento), `ws.c`
+(WebSocket), `quickjs/qjs_rede.c` + `qjs_rede.js` (nativos y API del navegador para el QuickJS). Se tocó lo mínimo de `cipo.c`, `motor.c`
+(`motor_envio_modo`), el puente (dos llamadas débiles) y `web_compat.c` (se quitó la jarra de cookies vieja).
+
+**Decisión.**
+- **Cookies** (RFC 6265bis): Domain (con rechazo de sufijos públicos y de dominios ajenos), Path, Expires, Max-Age (manda sobre Expires), Secure (no se fija
+  desde http), HttpOnly (invisible y no sobrescribible desde JavaScript), SameSite (Lax por omisión; Strict/Lax/None; None exige Secure), prefijos
+  `__Secure-` y `__Host-`, ruta por defecto, orden de envío (ruta larga primero), límites (4096 bytes por cookie, 50 por dominio, 300 en total, sale la más
+  antigua). Los Set-Cookie de **todas** las respuestas (también las redirecciones) entran en la jarra. Persistencia solo de las no-de-sesión en
+  `<home>/.config/cipo/cookies` (por usuario). Un `fetch` entre orígenes no envía ni guarda cookies sin `credentials: 'include'`; `omit` ni una ni otra.
+- **Pedidos**: `baixar_ex()` (cipo.c) hace cualquier método con cuerpo, Cookie/Origin/Referer, `If-None-Match`/`If-Modified-Since`, `Accept-Encoding: gzip, deflate, br` y
+  seguimiento de redirecciones con la regla de método (301/302 convierten POST en GET, 303 siempre GET, 307/308 conservan método y cuerpo), hasta 15 saltos.
+  **User-Agent único** (`REDE_UA`, el mismo en `navigator.userAgent`). `http_resposta_t.cabecalho` pasa de 4 a 8 KB (muchos Set-Cookie).
+- **Formularios**: `method=post` (y `formmethod`) con `application/x-www-form-urlencoded`, `multipart/form-data` o `text/plain`; Origin y Referer del clic. Los
+  campos `type=file` siguen sin existir en el motor (pendiente de la parte de CSS/maquetación): los ficheros se suben hoy por `fetch`/`XMLHttpRequest` con `FormData`.
+- **fetch y XMLHttpRequest completos**: `Headers`, `Request`, `Response` (text/json/arrayBuffer/bytes/blob/formData/clone/body.getReader), `FormData`, `Blob`, `File`,
+  `URLSearchParams`, `URL`, `AbortController`/`AbortSignal`, `TextEncoder/Decoder`, `redirect` follow/manual/error, `cache`, `credentials`, `mode`; XHR con
+  `readystatechange`, `loadstart`, `progress`, `load`, `error`, `abort`, `loadend`, `upload`, `responseType` (text/json/arraybuffer/blob), síncrono, `getAllResponseHeaders`.
+  **CORS sencillo** (`Access-Control-Allow-Origin`/`-Credentials`/`-Expose-Headers`, petición previa OPTIONS para métodos y cabeceras no simples, `no-cors` opaco).
+  Limitación: el pedido bloquea el hilo del navegador mientras llega (como ya hacía); `abort()` actúa antes de que salga el pedido, no durante.
+- **localStorage / sessionStorage por origen** (esquema+host+puerto): local persistente en `<home>/.config/cipo/storage/` (un archivo por origen, tope 1 MB,
+  `QuotaExceededError`), de sesión en memoria mientras viva el Cipó. `Storage` con `Proxy` (`ls.clave`, `in`, `delete`, `Object.keys`).
+- **Compresión**: gzip, deflate (zlib o crudo) y brotli (el `brotli.c` de D262), también encadenadas; flujo cortado = se usa lo recibido.
+- **Caché HTTP** en memoria (48 recursos, 6 MB, 1 MB por recurso): `Cache-Control` (`max-age`, `no-store`, `no-cache`), `Expires`, `ETag`/`If-None-Match`,
+  `Last-Modified`/`If-Modified-Since` con 304, heurística del 10 % hasta 1 h, `Vary` distinto de Accept-Encoding no se guarda.
+- **WebSocket** real (RFC 6455, `ws://` y `wss://` con la libtls, tramas enmascaradas, fragmentación, ping/pong, cierre con código): API del navegador (`onopen`, `onmessage`,
+  `onclose`, `onerror`, `send` texto/binario, `binaryType`, `close`). Se sondea sin hilos desde el bucle principal (`__sagui_ws_poll`), sin repintar si nada cambia.
+  Las operaciones TLS toman el mismo cerrojo que las descargas HTTPS.
+- **Interfaz**: Privacidad muestra las cookies y la caché y un botón «Borrar cookies y caché»; `sobre:red` da el diagnóstico (`sobre:red?recargar`, solo
+  escrito en la barra, descarta la memoria y relee del disco: lo usa la prueba de persistencia).
+
+**No hecho / pendiente.** HTTP/2 (no hubo tiempo). `<input type=file>` en los formularios. Aislar `sessionStorage` por pestaña (hoy es por origen y proceso). La jarra no
+tiene lista pública de sufijos (aproximación por etiquetas: `co.uk`, `com.br`...). `localStorage` no emite el evento `storage` a otras pestañas. El tope de pedidos
+por página es 400. No se comprueba SameSite en sub-pestañas ni iframes (no hay).

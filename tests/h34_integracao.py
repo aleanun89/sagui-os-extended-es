@@ -76,14 +76,16 @@ def main():
         m.esperar_serial("editor: fechado", 10)
         time.sleep(0.5)
 
-        # La barra lateral de Archivos se desplaza (D423) y «Retirar» queda al final de la lista de unidades:
-        # se baja con la rueda hasta el tope y se pulsa la última fila de la barra.
+        # La barra lateral de Archivos se desplaza (D423) y «Retirar» queda al final de la lista de unidades,
+        # justo encima de la sección RED (D485): se baja con la rueda hasta el tope y se pulsa 48 px sobre el final.
         m.mouse_para(arq["x"] + 60, arq["y"] + 250)
         for _ in range(6):
             m.monitor("mouse_move 0 0 1")
             time.sleep(0.1)
         time.sleep(0.5)
-        m.clique(arq["x"] + 8 + 40, arq["y"] + 396)                  # «Retirar» (pendrive montado)
+        ys = re.findall(r"arquivos: lateral pendrive y=(\d+)", m.serial())   # la fila del pendrive, ya desplazada
+        verificar(bool(ys), "Archivos informa dónde queda la fila «Retirar» de la barra lateral")
+        m.clique(arq["x"] + 8 + 40, arq["y"] + int(ys[-1]))          # «Retirar» (pendrive montado)
         m.esperar_serial("notificacao: Ya puedes retirar el pendrive.", 15)
         time.sleep(0.5)
         m.captura("H34-4-pode-remover")

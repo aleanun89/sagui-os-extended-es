@@ -303,8 +303,19 @@ void glGetBufferParameteriv(GLenum alvo, GLenum nome, GLint *v)
     else erro(GL_INVALID_ENUM);
 }
 
+#ifdef SGL_ES2
+/* D486: con un contexto de ES 2.0 actual, GL_OES_mapbuffer es el de sgl2.c */
+extern void *sgl2_atual;
+void *sgl2_glMapBufferOES(GLenum alvo, GLenum acesso);
+GLboolean sgl2_glUnmapBufferOES(GLenum alvo);
+void sgl2_glGetBufferPointervOES(GLenum alvo, GLenum nome, GLvoid **v);
+#endif
+
 void *glMapBufferOES(GLenum alvo, GLenum acesso)
 {
+#ifdef SGL_ES2
+    if (sgl2_atual) return sgl2_glMapBufferOES(alvo, acesso);
+#endif
     if (!C) return 0;
     if (acesso != GL_WRITE_ONLY_OES) { erro(GL_INVALID_ENUM); return 0; }
     vbo_t *b = vbo_ligado(alvo);
@@ -318,6 +329,9 @@ void *glMapBufferOES(GLenum alvo, GLenum acesso)
 
 GLboolean glUnmapBufferOES(GLenum alvo)
 {
+#ifdef SGL_ES2
+    if (sgl2_atual) return sgl2_glUnmapBufferOES(alvo);
+#endif
     if (!C) return GL_FALSE;
     vbo_t *b = vbo_ligado(alvo);
     if (!b) return GL_FALSE;
@@ -329,6 +343,9 @@ GLboolean glUnmapBufferOES(GLenum alvo)
 
 void glGetBufferPointervOES(GLenum alvo, GLenum nome, GLvoid **v)
 {
+#ifdef SGL_ES2
+    if (sgl2_atual) { sgl2_glGetBufferPointervOES(alvo, nome, v); return; }
+#endif
     if (!C) return;
     if (nome != GL_BUFFER_MAP_POINTER_OES) { erro(GL_INVALID_ENUM); return; }
     vbo_t *b = vbo_ligado(alvo);

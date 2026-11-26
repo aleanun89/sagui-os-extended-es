@@ -160,6 +160,8 @@ static void llamadas(void)
     livre(SIS_FUTEX_ESPERAR, 0, 0, 0);
     livre(SIS_FUTEX_ACORDAR, 0, 0, 0);
     livre(SIS_HILO_ID, 0, 0, 0);
+    livre(SIS_PONTE, 99, 0, 0);       /* D485: unidades de red (cada cuenta las suyas) */
+    livre(SIS_CHAVEIRO, 99, 0, 0);    /* D485: la clave del llavero de la propia cuenta */
     /* No se llaman (son libres, pero tienen efectos): SIS_SAIR, SIS_HILO_SAIR, SIS_HILO_CRIAR,
      * SIS_PRIMEIRO_PLANO; SIS_REINICIAR y SIS_DESLIGAR se prueban desde un servicio. */
 

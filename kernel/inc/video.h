@@ -61,7 +61,10 @@ void video_exclusiva(bool ligar);
 bool video_exclusiva_ativa(void);
 bool video_cursor_exclusiva(int *x, int *y);   /* la flecha sobre el cuadro recién presentado */
 bool video_ler_placa(int x, int y, int l, int a, uint32_t *dest, int passo_px);   /* de la pantalla a la RAM (lento) */
-#define VIDEO_CUR_L 12
-#define VIDEO_CUR_A 19
+/* D482: tema y tamaño del cursor; el rectángulo que ocupa ahora (cambia con el tamaño). */
+bool video_cursor_estilo(int tema, int tamano);
+void video_cursor_estilo_ler(int *tema, int *tamano);
+int  video_cursor_largura(void);
+int  video_cursor_altura(void);
 
 #endif

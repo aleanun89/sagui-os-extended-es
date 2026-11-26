@@ -10,9 +10,9 @@ import re
 BORDA, TITULO = 2, 24
 # El orden del enum de secciones (y de seccoes[]); el árbol las enseña todas desplegadas.
 SECCIONES = ("sistema", "tela", "aceleracion", "energia", "kernel", "zona", "idioma", "usuarios",
-             "escritorio-cat", "escritorio", "estilos", "barra", "widgets", "fuentes", "capturas", "sonidos",
+             "escritorio-cat", "escritorio", "estilos", "barra", "widgets", "fuentes", "capturas", "sonidos", "cursores",
              "dispositivos", "teclado", "mandos", "sonido",
-             "redes", "interfaces", "red", "vpn", "vnc", "ia", "ialocal")
+             "redes", "interfaces", "red", "vpn", "unidades-red", "vnc", "ia", "ialocal")
 
 
 def ventana(m, desde=0):
@@ -103,9 +103,10 @@ LOG = {"tela": "Pantalla", "aceleracion": "Aceleración gráfica", "kernel": "Ke
        "idioma": "Idioma", "usuarios": "Usuarios", "escritorio": "Escritorio", "estilos": "Estilos", "barra": "Barra y menú Inicio", "widgets": "Widgets", "fuentes": "Fuentes", "capturas": "Capturas", "sonidos": "Sonidos del sistema",
        "teclado": "Teclado", "mandos": "Mandos", "sonido": "Sonido", "red": "Red", "vpn": "VPN", "vnc": "Escritorio remoto", "ia": "IA"}
 HOJAS = tuple(LOG)
-# Sección de Colores: las muestras de acento (26 px, paso 32) empiezan en y = 48 (tras la línea de texto)
+# Sección de Colores (D483): arriba el tipo de fondo (Color, con el degradado de siempre) y, debajo, el grupo del acento con su
+# casilla «Tomar el color de acento del fondo» (apagada); las muestras (26 px, paso 32) empiezan en y = 192
 def muestra_acento(i):
-    return (30 + i * 32 + 13, 48 + 13)
+    return (30 + i * 32 + 13, 192 + 13)
 
 
 def al_final(m, v, veces=4):

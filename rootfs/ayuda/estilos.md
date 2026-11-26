@@ -67,6 +67,15 @@ configuracion estilo guardar "Mi estilo"   # guarda el vigente con ese nombre
 configuracion estilo inicio                # lo usa también en la pantalla de inicio de sesión
 ```
 
+## Cursor del ratón
+
+En **Configuración > Escritorio > Cursor del ratón** se elige el **tema** de la flecha (**clásico** negro y blanco,
+**oscuro** o **moderno**, azul translúcido) y su **tamaño** (**normal**, **grande** y **muy grande**, el doble y el triple;
+útil en pantallas grandes o si cuesta ver el cursor). El cambio se ve al momento, hay una vista previa y se guarda en
+la configuración de la cuenta (`cursor_tema=` y `cursor_tamano=` en `sagui.conf`). Por la línea de órdenes:
+`configuracion cursor oscuro grande` (temas `clasico`, `oscuro`, `moderno`; tamaños `normal`, `grande`, `muygrande`) y
+`configuracion cursor mostrar`. Programas: `cursor_op(CURSOR_OP_FIJAR, tema, tamano)` (`kernel/inc/cursores.h`, D482).
+
 ## Para programadores
 
 Los colores viven en una sola estructura (`esquema_t`, `kernel/inc/esquemas.h`): el kernel guarda el vigente

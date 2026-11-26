@@ -1086,7 +1086,7 @@ void area_icone_direito(int i, int x, int y)
  * el Administrador de tareas, la configuración de la pantalla con el submenú de las
  * resoluciones (D066) y el "Acerca de". Cada línea lleva una acción; las de los
  * íconos son el propio índice del ícono. */
-enum { AF_TAREFAS = 100, AF_PANTALLA, AF_WIDGETS, AF_WIDGETS_EDITAR, AF_RESOLUCAO = 200, AF_ORD_NOME = 300, AF_ORD_TIPO, AF_ORD_FECHA, AF_ALINHAR, AF_AUTO };
+enum { AF_TAREFAS = 100, AF_PANTALLA, AF_WIDGETS, AF_WIDGETS_EDITAR, AF_FONDO_SIG, AF_RESOLUCAO = 200, AF_ORD_NOME = 300, AF_ORD_TIPO, AF_ORD_FECHA, AF_ALINHAR, AF_AUTO };
 #define RES_MAX 24
 
 static menu_lista_t menu_fundo;
@@ -1174,6 +1174,11 @@ static void resposta_fundo(int indice, int janela, int dado)
         char *argv[] = { "widgets", NULL };
         gui_abrir_unico("widgets", "/bin/widgets", 1, argv);
     }
+    else if (acao == AF_FONDO_SIG) {   /* D483: el siguiente fondo de la carpeta de rotación (lo hace «configuracion») */
+        char *argv[] = { "configuracion", "fondo-siguiente", NULL };
+        int pid = processo_executar("/bin/configuracion", 2, argv, NULL);
+        klog("[GUI] siguiente fondo -> /bin/configuracion fondo-siguiente (pid %d)\n", pid);
+    }
     else if (acao == AF_WIDGETS_EDITAR) gui_widgets_editar(!gui_widgets_editando());
     else if (area_resposta_resolucao(acao)) {}
     else if (acao >= AF_ORD_NOME && acao <= AF_AUTO) ordenar_por_menu(acao);
@@ -1192,6 +1197,7 @@ void area_menu_fundo(int x, int y)
     menu_lista_linha(ml, "-", MENU_NADA, NULL);
     menu_lista_linha(ml, _("Administrador de tareas"), AF_TAREFAS, NULL);
     menu_lista_linha(ml, _("Configuración de pantalla..."), AF_PANTALLA, NULL);
+    menu_lista_linha(ml, _("Siguiente fondo"), AF_FONDO_SIG, NULL);   /* D483 */
     menu_lista_linha(ml, _("Añadir widgets..."), AF_WIDGETS, NULL);   /* D365 */
     if (gui_widgets_contar() > 0) {
         snformatar(t, sizeof t, "%s%s", gui_widgets_editando() ? "*" : "", _("Editar widgets"));

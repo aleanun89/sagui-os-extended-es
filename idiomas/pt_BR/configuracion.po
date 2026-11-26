@@ -2488,3 +2488,460 @@ msgstr "As mudanças desta seção já estão aplicadas."
 msgid "Sin /home persistente los cambios se aplican, pero no se recordarán."
 msgstr "Sem /home persistente as mudanças são aplicadas, mas não serão lembradas."
 
+
+#: D483
+msgid "Esa carpeta no tiene imágenes (BMP, PNG...)."
+msgstr "Essa pasta não tem imagens (BMP, PNG...)."
+
+#: D483
+msgid "Cambiar de fondo automáticamente"
+msgstr "Trocar o fundo automaticamente"
+
+#: D483
+msgid "Carpeta de imágenes (Intro para usarla):"
+msgstr "Pasta de imagens (Enter para usá-la):"
+
+#: D483
+msgid "Pulsa Intro para usar esta carpeta."
+msgstr "Pressione Enter para usar esta pasta."
+
+#: D483
+msgid "Cada 1 min"
+msgstr "A cada 1 min"
+
+#: D483
+msgid "Cada 5 min"
+msgstr "A cada 5 min"
+
+#: D483
+msgid "Cada 10 min"
+msgstr "A cada 10 min"
+
+#: D483
+msgid "Cada 30 min"
+msgstr "A cada 30 min"
+
+#: D483
+msgid "Cada 60 min"
+msgstr "A cada 60 min"
+
+#: D483
+msgid "En orden"
+msgstr "Em ordem"
+
+#: D483
+msgid "Al azar"
+msgstr "Aleatório"
+
+#: D483
+msgid "Fundido entre un fondo y otro"
+msgstr "Transição suave entre fundos"
+
+#: D483
+msgid "Siguiente fondo"
+msgstr "Próximo fundo"
+
+#: D483
+msgid "Cambiando el fondo..."
+msgstr "Trocando o fundo..."
+
+#: D483
+msgid "Acento automático: el color del fondo"
+msgstr "Destaque automático: a cor do fundo"
+
+#: D483
+msgid "Se recalcula con cada fondo (también con el rotativo)."
+msgstr "Recalculado a cada fundo (também com o rotativo)."
+
+#: D483
+msgid "Fondo rotativo y acento automático"
+msgstr "Fundo rotativo e destaque automático"
+
+#: D483
+msgid "Color"
+msgstr "Cor"
+
+#: D483
+msgid "Imagen"
+msgstr "Imagem"
+
+#: D483
+msgid "Presentación (rotativo)"
+msgstr "Apresentação (rotativo)"
+
+#: D483
+msgid "Presentación"
+msgstr "Apresentação"
+
+#: D483
+msgid "Degradado de siempre"
+msgstr "O degradê de sempre"
+
+#: D483
+msgid "Color sólido"
+msgstr "Cor sólida"
+
+#: D483
+msgid "Tipo de fondo"
+msgstr "Tipo de fundo"
+
+#: D483
+msgid "Tomar el color de acento del fondo"
+msgstr "Tomar a cor de destaque do fundo"
+
+#: D483
+msgid "El acento sale del color dominante de cada fondo (con un color sólido, de ese color) y se recalcula al cambiarlo."
+msgstr "O destaque vem da cor dominante de cada fundo (dessa cor, se for sólida) e é recalculado ao trocá-lo."
+
+#: D485
+msgid "Nombre no válido: letras, números, - y _ (hasta 24)."
+msgstr "Nome inválido: letras, números, - e _ (até 24)."
+
+#: D485
+msgid "La dirección empieza por https:// (o http://)."
+msgstr "O endereço começa com https:// (ou http://)."
+
+#: D485
+msgid "Ya tienes el máximo de unidades."
+msgstr "Você já tem o máximo de unidades."
+
+#: D485
+msgid "El llavero está cerrado: ábrelo abajo."
+msgstr "O chaveiro está fechado: abra-o abaixo."
+
+#: D485
+msgid "No se pudo guardar la contraseña."
+msgstr "Não foi possível salvar a senha."
+
+#: D485
+#, c-format
+msgid "Guardada «%s». Las contraseñas van cifradas en el llavero."
+msgstr "«%s» salva. As senhas ficam cifradas no chaveiro."
+
+#: D485
+msgid "Llavero abierto."
+msgstr "Chaveiro aberto."
+
+#: D485
+msgid "Esa contraseña no abre el llavero."
+msgstr "Essa senha não abre o chaveiro."
+
+#: D485
+msgid "No se pudo cambiar."
+msgstr "Não foi possível alterar."
+
+#: D485
+msgid "El llavero tiene ahora su propia contraseña."
+msgstr "O chaveiro agora tem sua própria senha."
+
+#: D485
+msgid "El llavero vuelve a la contraseña de la cuenta."
+msgstr "O chaveiro volta a usar a senha da conta."
+
+#: D485
+msgid "Todavía no tienes unidades de red. Rellena el formulario de abajo."
+msgstr "Você ainda não tem unidades de rede. Preencha o formulário abaixo."
+
+#: D485
+msgid "Conectar"
+msgstr "Conectar"
+
+#: D485
+msgid "Editar"
+msgstr "Editar"
+
+#: D485
+msgid "Tus unidades"
+msgstr "Suas unidades"
+
+#: D485
+msgid "Nombre"
+msgstr "Nome"
+
+#: D485
+msgid "Dirección (URL)"
+msgstr "Endereço (URL)"
+
+#: D485
+msgid "Usuario"
+msgstr "Usuário"
+
+#: D485
+msgid "Contraseña (vacía: la de antes)"
+msgstr "Senha (vazia: a de antes)"
+
+#: D485
+msgid "Contraseña"
+msgstr "Senha"
+
+#: D485
+msgid "Conectar al iniciar la sesión"
+msgstr "Conectar ao iniciar a sessão"
+
+#: D485
+msgid "Guardar y probar"
+msgstr "Salvar e testar"
+
+#: D485
+msgid "Nueva"
+msgstr "Nova"
+
+#: D485
+msgid "Se montan en /red/<nombre>: solo las ve tu cuenta y desde ellas no se ejecuta nada. Usa https:// salvo en tu red de casa."
+msgstr "São montadas em /red/<nome>: só a sua conta as vê e nada é executado a partir delas. Use https:// exceto na sua rede de casa."
+
+#: D485
+msgid "Unidad"
+msgstr "Unidade"
+
+#: D485
+msgid "Cerrado: escribe su contraseña para abrirlo."
+msgstr "Fechado: digite a senha para abri-lo."
+
+#: D485
+msgid "El fichero del llavero está dañado."
+msgstr "O arquivo do chaveiro está danificado."
+
+#: D485
+msgid "Tu cuenta no tiene contraseña: quien copie el fichero lo abre. Ponle una contraseña propia al llavero."
+msgstr "Sua conta não tem senha: quem copiar o arquivo consegue abri-lo. Dê ao chaveiro uma senha própria."
+
+#: D485
+msgid "Abrir el llavero"
+msgstr "Abrir o chaveiro"
+
+#: D485
+msgid "Contraseña nueva"
+msgstr "Nova senha"
+
+#: D485
+msgid "Repítela"
+msgstr "Repita"
+
+#: D485
+msgid "Cambiar la del llavero"
+msgstr "Alterar a do chaveiro"
+
+#: D485
+msgid "Llavero"
+msgstr "Chaveiro"
+
+#: D485
+msgid "Unidades de red"
+msgstr "Unidades de rede"
+
+#: D485
+msgid "cifrado con la contraseña de la cuenta"
+msgstr "cifrado com a senha da conta"
+
+#: D485
+msgid "cifrado con la contraseña propia del llavero"
+msgstr "cifrado com a senha própria do chaveiro"
+
+#: D485
+msgid "cifrado sin contraseña: protege poco"
+msgstr "cifrado sem senha: protege pouco"
+
+#: D482
+msgid "Clásico (negro y blanco)"
+msgstr "Clássico (preto e branco)"
+
+#: D482
+msgid "Moderno (azul translúcido)"
+msgstr "Moderno (azul translúcido)"
+
+#: D482
+msgid "Normal"
+msgstr "Normal"
+
+#: D482
+msgid "Grande"
+msgstr "Grande"
+
+#: D482
+msgid "Muy grande"
+msgstr "Muito grande"
+
+#: D482
+msgid "Elige el aspecto y el tamaño de la flecha del ratón. El cambio se ve al momento; los tamaños grandes ayudan en pantallas grandes o si cuesta ver el cursor."
+msgstr "Escolha o aspecto e o tamanho da seta do mouse. A mudança aparece na hora; os tamanhos grandes ajudam em telas grandes ou se o cursor for difícil de ver."
+
+#: D482
+msgid "Tema"
+msgstr "Tema"
+
+#: D482
+msgid "Tamaño"
+msgstr "Tamanho"
+
+#: D484
+msgid "Borrar archivos"
+msgstr "Apagar arquivos"
+
+#: D484
+msgid "Abrir una ventana"
+msgstr "Abrir uma janela"
+
+#: D484
+msgid "Cerrar una ventana"
+msgstr "Fechar uma janela"
+
+#: D484
+msgid "Minimizar una ventana"
+msgstr "Minimizar uma janela"
+
+#: D484
+msgid "Maximizar una ventana"
+msgstr "Maximizar uma janela"
+
+#: D484
+msgid "Correo nuevo"
+msgstr "E-mail novo"
+
+#: D484
+msgid "Captura de pantalla"
+msgstr "Captura de tela"
+
+#: D484
+msgid "   (esquema, solo lectura)"
+msgstr "   (esquema, somente leitura)"
+
+#: D484
+msgid "Del esquema activo"
+msgstr "Do esquema de sons ativo"
+
+#: D484
+#, c-format
+msgid "Esquema %s"
+msgstr "Esquema de sons %s"
+
+#: D484
+msgid "Archivo propio..."
+msgstr "Arquivo próprio..."
+
+#: D484
+msgid "Elegir un sonido"
+msgstr "Escolher um som"
+
+#: D484
+msgid "Nombre no válido: solo letras, cifras, - y _."
+msgstr "Nome inválido: somente letras, números, - e _."
+
+#: D484
+msgid "Ese nombre es de un esquema (solo lectura)."
+msgstr "Esse nome é de um esquema de sons (somente leitura)."
+
+#: D484
+msgid "Ya existe un preset con ese nombre."
+msgstr "Já existe um preset com esse nome."
+
+#: D484
+msgid "No se pudo."
+msgstr "Não foi possível."
+
+#: D484
+#, c-format
+msgid "Volumen general: %d %%"
+msgstr "Volume geral: %d %%"
+
+#: D484
+msgid "Elegir..."
+msgstr "Escolher..."
+
+#: D484
+msgid "Acciones: sonido, volumen y prueba"
+msgstr "Ações: som, volume e teste"
+
+#: D484
+msgid "«[esquema]» = el sonido del esquema; «Elegir...» pone el de otro esquema o un archivo propio (WAV, MP3, FLAC, MIDI). Las acciones de ventana van desactivadas de serie y no suenan más de 3 veces por segundo."
+msgstr "«[esquema]» = o som do esquema; «Escolher...» põe o de outro esquema ou um arquivo próprio (WAV, MP3, FLAC, MIDI). As ações de janela vêm desativadas de fábrica e não tocam mais de 3 vezes por segundo."
+
+#: D484
+#, c-format
+msgid "Sonido para: %s"
+msgstr "Som para: %s"
+
+#: D484
+msgid "Un preset guarda la combinación actual: el sonido, el volumen y el interruptor de cada acción. Los esquemas instalados son presets de partida (solo lectura)."
+msgstr "Um preset guarda a combinação atual: o som, o volume e a chave de cada ação. Os esquemas de sons instalados são presets iniciais (somente leitura)."
+
+#: D484
+msgid "Preset cargado."
+msgstr "Preset carregado."
+
+#: D484
+msgid "Nombre:"
+msgstr "Nome:"
+
+#: D484
+msgid "Cargar"
+msgstr "Carregar"
+
+#: D484
+msgid "Preset guardado."
+msgstr "Preset salvo."
+
+#: D484
+msgid "Renombrar"
+msgstr "Renomear"
+
+#: D484
+msgid "Preset renombrado."
+msgstr "Preset renomeado."
+
+#: D484
+msgid "Borrar preset"
+msgstr "Apagar preset"
+
+#: D484
+msgid "¿Borrar este preset y sus audios propios?"
+msgstr "Apagar este preset e seus áudios próprios?"
+
+#: D484
+msgid "Preset borrado."
+msgstr "Preset apagado."
+
+#: D484
+msgid "Exportar..."
+msgstr "Exportar..."
+
+#: D484
+msgid "Exportar preset"
+msgstr "Exportar preset"
+
+#: D484
+msgid "Preset exportado (los audios propios, junto al archivo)."
+msgstr "Preset exportado (os áudios próprios, junto ao arquivo)."
+
+#: D484
+msgid "Importar..."
+msgstr "Importar..."
+
+#: D484
+msgid "Importar preset"
+msgstr "Importar preset"
+
+#: D484
+msgid "Preset importado."
+msgstr "Preset importado."
+
+#: D484
+#, c-format
+msgid "Preset en uso: %s"
+msgstr "Preset em uso: %s"
+
+#: D484
+msgid "(ninguno; combinación propia)"
+msgstr "(nenhum; combinação própria)"
+
+#: D484
+msgid "Acciones"
+msgstr "Ações"
+
+#: D484
+msgid "Presets"
+msgstr "Presets"
+
+#: D482
+msgid "Cursor del ratón"
+msgstr "Cursor do mouse"

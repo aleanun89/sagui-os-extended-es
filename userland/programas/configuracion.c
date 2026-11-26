@@ -14,6 +14,11 @@
  *   configuracion acento RRGGBB      color de acento (barra de título y barra de tareas)
  *   configuracion fondo ARCHIVO [centrado|ajustado|rellenar|estirado|mosaico]
  *   configuracion fondo ninguno      vuelve al degradado
+ *   configuracion fondo-siguiente    el fondo que sigue en la carpeta de rotación (D483)
+ *   configuracion fondo-rotar CARPETA MINUTOS [orden|azar] [corte]   cambia de fondo cada N minutos (con «30s», segundos:
+ *                                    para pruebas); «fondo-rotar no» lo apaga; lo hace «configuracion --rotar»
+ *   configuracion fondo-color RRGGBB|degradado   fondo de color sólido o el degradado (tipo «color»); «fondo-tipo» dice el tipo
+ *   configuracion fondo-acento si|no el acento sale del color dominante del fondo (D483)
  *   configuracion barra CLAVE=N...   la barra y el menú Inicio (D361), con las claves del archivo (barra_posicion=1,
  *                                    inicio_menu=2...); «barra restablecer» vuelve a lo de serie; «barra mostrar»
  *   La Configuración tiene, dentro de «Escritorio», la vista «Barra y menú Inicio» (posición, altura, ocultar sola,
@@ -52,11 +57,19 @@ bool sou_root(void);
 #include "opcoes_kernel.h"   /* D353: Pantalla > Kernel */
 #include "conf_maquina.h"    /* D371: la configuración de la máquina en /etc */
 #include "conf_reglas.h"      /* D367: dependencias entre opciones */
+#include "cursores.h"     /* D482: temas y tamaños del cursor del ratón */
 #include "pcinomes.h"      /* nombres PCI de la tarjeta (solo lectura, como infopc) */
+#include "cripto.h"
+#include "chaveiro.h"      /* D485: el llavero de la cuenta (contraseñas de las unidades de red) */
+#include "unidades_red.h"  /* D485: Red > Unidades de red */
 
 #define DIR_CONF   "/home/.config"
 #define ARQ_CONF   "/home/.config/sagui.conf"
 #define NOME_MAX_F 120
+
+/* D483: el tipo de fondo (un solo campo, excluyente): color (sólido o el degradado de siempre), imagen o presentación. */
+enum { T_COLOR, T_IMAGEN, T_ROT };
+static const char *const nomes_tipo[3] = { "color", "imagen", "rotativo" };
 
 /* Modos del fondo. */
 enum { M_DEGRADE, M_CENTRADO, M_AJUSTADO, M_RELLENAR, M_ESTIRADO, M_MOSAICO, M_QTD };
@@ -71,6 +84,15 @@ typedef struct {
     uint32_t acento;           /* 0xFFFFFFFF = no elegido */
     char     fundo[NOME_MAX_F];
     int      modo;
+    /* D483: fondo rotativo (carpeta, cada cuántos segundos, al azar, con fundido) y acento sacado del fondo */
+    char     rot_pasta[NOME_MAX_F];
+    int      rot_seg;                /* 0 = no rota */
+    int      rot_azar;
+    int      rot_corte;              /* 1 = sin fundido */
+    int      acento_auto;
+    int      tipo, tipo_def;         /* T_*; tipo_def = la clave fondo_tipo está en el archivo (si no, se deduce de lo de antes) */
+    int      color_solido;           /* en T_COLOR: 1 = color sólido (color), 0 = el degradado */
+    uint32_t color;
     char     capturas[NOME_MAX_F];   /* carpeta de las capturas (D125); vacía = /home/capturas */
     int      cap_sonido;             /* clic al capturar */
     char     fuente_doc[96];         /* fuente por defecto para documentos (D196); vacía = ninguna */
@@ -92,9 +114,10 @@ typedef struct {
     /* D407: el panel táctil (CP_* abajo). pnl_def = 1 si alguna clave está en el archivo. */
     int      pnl_def;
     int      pnl[8];
+    int      cur_tema, cur_tam;      /* D482: cursor del ratón; -1 = la clave no está en el archivo */
 } conf_t;
 
-static conf_t conf = { -1, -1, 0, "", 0xFFFFFFFF, "", M_AJUSTADO, "", 1, .a_2d = -1, .a_3d = -1, .a_sdl = -1, .a_disco = -1 };
+static conf_t conf = { -1, -1, 0, "", 0xFFFFFFFF, "", M_AJUSTADO, .cap_sonido = 1, .a_2d = -1, .a_3d = -1, .a_sdl = -1, .a_disco = -1, .cur_tema = -1, .cur_tam = -1 };
 
 /* Colores de acento (D367). Todos dan al menos 3:1 de contraste con el texto blanco de la barra de título y de
  * tareas (lo vigila h369): por eso no hay amarillos ni grises claros. */
@@ -202,11 +225,22 @@ static bool conf_ler_arq(const char *arq, int modo);
 /* Lee el archivo; false = no existe. Las claves desconocidas se ignoran.
  * D371: con la configuración de la máquina separada (/etc/sistema.conf), las claves de la máquina salen de
  * ahí y no de sagui.conf; el teclado es de los dos: el de la persona manda y, si no tiene, el del sistema. */
+/* D483: sin «fondo_tipo» (archivos de antes) el tipo se deduce: presentación si había rotación, imagen si había imagen, color si no. */
+static void tipo_derivar(void)
+{
+    if (conf.tipo_def) return;
+    conf.tipo = conf.rot_seg > 0 ? T_ROT : (conf.fundo[0] && conf.modo != M_DEGRADE) ? T_IMAGEN : T_COLOR;
+}
+
 static bool conf_ler(void)
 {
-    if (!maquina_separada()) return conf_ler_arq(ARQ_CONF, CL_TODO);
-    bool tem = conf_ler_arq(ARQ_CONF, CL_PERSONA);
-    conf_ler_arq(MAQ_ARQ_CONF, CL_MAQUINA);
+    bool tem;
+    if (!maquina_separada()) tem = conf_ler_arq(ARQ_CONF, CL_TODO);
+    else {
+        tem = conf_ler_arq(ARQ_CONF, CL_PERSONA);
+        conf_ler_arq(MAQ_ARQ_CONF, CL_MAQUINA);
+    }
+    tipo_derivar();
     return tem;   /* si existe el de la persona (lo de la máquina, aplicar_tudo lo mira aparte) */
 }
 
@@ -253,7 +287,17 @@ static bool conf_ler_arq(const char *arq, int modo)
             else if (compara_texto(k, "fuente_documentos") == 0) copia_texto(conf.fuente_doc, v, sizeof conf.fuente_doc);
             else if (compara_texto(k, "fuente_titulos") == 0) copia_texto(conf.fuente_tit, v, sizeof conf.fuente_tit);
             else if (compara_texto(k, "capturas_sonido") == 0) conf.cap_sonido = texto_para_int(v) != 0;
+            else if (compara_texto(k, "fondo_rotar_carpeta") == 0) copia_texto(conf.rot_pasta, v, sizeof conf.rot_pasta);
+            else if (compara_texto(k, "fondo_rotar_seg") == 0) { int x = texto_para_int(v); conf.rot_seg = x < 0 ? 0 : x > 86400 ? 86400 : x; }
+            else if (compara_texto(k, "fondo_rotar_azar") == 0) conf.rot_azar = texto_para_int(v) != 0;
+            else if (compara_texto(k, "fondo_rotar_corte") == 0) conf.rot_corte = texto_para_int(v) != 0;
+            else if (compara_texto(k, "fondo_tipo") == 0) { for (int t = 0; t < 3; t++) if (compara_texto(v, nomes_tipo[t]) == 0) { conf.tipo = t; conf.tipo_def = 1; } }
+            else if (compara_texto(k, "fondo_color") == 0) { if (ler_cor(v, &c)) conf.color = c; }
+            else if (compara_texto(k, "fondo_color_solido") == 0) conf.color_solido = texto_para_int(v) != 0;
+            else if (compara_texto(k, "acento_auto") == 0) conf.acento_auto = texto_para_int(v) != 0;
             else if (compara_texto(k, "fondo_modo") == 0) { int m = indice_modo(v); if (m >= 0) conf.modo = m; }
+            else if (compara_texto(k, "cursor_tema") == 0) { int x = texto_para_int(v); conf.cur_tema = x < 0 || x >= CURSOR_TEMAS ? 0 : x; }
+            else if (compara_texto(k, "cursor_tamano") == 0) { int x = texto_para_int(v); conf.cur_tam = x < 0 || x >= CURSOR_TAMANOS ? 0 : x; }
             else if (compara_texto(k, "acel2d") == 0) conf.a_2d = tri_texto(v);
             else if (compara_texto(k, "gpu3d") == 0) conf.a_3d = tri_texto(v);
             else if (compara_texto(k, "sdl2_gpu") == 0) conf.a_sdl = tri_texto(v);
@@ -299,7 +343,7 @@ static int conf_gravar(void)
     }
     if (!home_persistente()) return 1;
     criar_pasta(DIR_CONF);
-    char t[3072];
+    char t[3584];
     char cap[NOME_MAX_F + 60];
     formatar_texto(cap, sizeof cap, "capturas_carpeta=%s\ncapturas_sonido=%d\n", conf.capturas, conf.cap_sonido);
     char tec[24] = "";
@@ -341,6 +385,9 @@ static int conf_gravar(void)
         int u = 0;
         for (int b = 0; b < CP_N; b++) u += formatar_texto(pnl + u, sizeof pnl - (unsigned)u, "%s=%d\n", claves_panel[b], conf.pnl[b]);
     }
+    char cur[48] = "";   /* D482 */
+    if (conf.cur_tema >= 0 || conf.cur_tam >= 0)
+        formatar_texto(cur, sizeof cur, "cursor_tema=%d\ncursor_tamano=%d\n", conf.cur_tema < 0 ? 0 : conf.cur_tema, conf.cur_tam < 0 ? 0 : conf.cur_tam);
     char zon[80] = "";
     if (conf.zona[0]) formatar_texto(zon, sizeof zon, "zona=%s\n", conf.zona);
     char idi[32] = "";
@@ -349,10 +396,14 @@ static int conf_gravar(void)
     if (conf.acento != 0xFFFFFFFFu) formatar_texto(ace, sizeof ace, "acento=%06x\n", conf.acento);
     char fun[NOME_MAX_F + 40] = "";
     if (conf.fundo[0]) formatar_texto(fun, sizeof fun, "fondo=%s\nfondo_modo=%s\n", conf.fundo, nomes_modo[conf.modo]);
+    char rot[NOME_MAX_F + 260] = "";   /* D483 */
+    if (conf.tipo != T_COLOR || conf.color_solido || conf.rot_pasta[0] || conf.rot_seg || conf.acento_auto)
+        formatar_texto(rot, sizeof rot, "fondo_tipo=%s\nfondo_color=%06x\nfondo_color_solido=%d\nfondo_rotar_carpeta=%s\nfondo_rotar_seg=%d\nfondo_rotar_azar=%d\nfondo_rotar_corte=%d\nacento_auto=%d\n",
+                       nomes_tipo[conf.tipo], conf.color, conf.color_solido, conf.rot_pasta, conf.rot_seg, conf.rot_azar, conf.rot_corte, conf.acento_auto);
     formatar_texto(t, sizeof t,
                    "# Configuración de SaguiOS (la escribe el programa \"configuracion\"; D112).\n"
-                   "# El kernel la aplica al arrancar con \"configuracion --aplicar\".\n%s%s%s%s%s%s%s%s%s%s%s%s%s",
-                   tec, vol, ecu, son, zon, ace, fun, cap, fnt, idi, ace2, bar, pnl);
+                   "# El kernel la aplica al arrancar con \"configuracion --aplicar\".\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
+                   tec, vol, ecu, son, zon, ace, fun, rot, cap, fnt, idi, ace2, bar, pnl, cur);
     int fd = abrir(ARQ_CONF, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
     if (fd < 0) return fd;
     int r = escrever_tudo(fd, t, (unsigned)tam_texto(t));
@@ -688,6 +739,113 @@ static void barra_fundo_porcento(int feito, int total)
     }
 }
 
+/* ------------------------------------------------------------ acento automático (D483) */
+
+/* El color dominante de la imagen para la barra de título: histograma de 8x8x8 casillas sobre unos 96x96 puntos,
+ * sin grises (diferencia entre canales < 40), sin casi negros (canal mayor < 64) ni casi blancos (canal menor > 215);
+ * gana la casilla con más puntos, contando algo más los colores vivos, y se toma el promedio de sus puntos. Después se
+ * oscurece (mezcla con negro, de 5 en 5 %) hasta que el texto blanco del título tenga 4,5:1 de contraste (WCAG, con la
+ * luminancia aproximada con gamma 2: siempre algo más exigente que la real). -1 = ningún color sirve (foto gris). */
+static uint32_t cor_mistura_negro(uint32_t c, int pct)
+{
+    uint32_t r = 0;
+    for (int sh = 0; sh <= 16; sh += 8) r |= (uint32_t)((int)((c >> sh) & 255) * (100 - pct) / 100) << sh;
+    return r;
+}
+
+/* Luminancia relativa por 1000 (0 = negro, 1000 = blanco). */
+static int lum_mil(uint32_t c)
+{
+    unsigned r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+    return (int)((2126u * r * r + 7152u * g * g + 722u * b * b) / 650250u);
+}
+
+/* Contraste del blanco sobre c >= 4,5: 1050 / (lum + 50) >= 4,5 */
+static bool contraste_blanco_ok(uint32_t c) { return 2100 >= 9 * (lum_mil(c) + 50); }
+
+static uint32_t acento_do_fundo(const imagem_t *im)
+{
+    static unsigned cnt[512], sr[512], sg[512], sb[512];
+    memset(cnt, 0, sizeof cnt); memset(sr, 0, sizeof sr); memset(sg, 0, sizeof sg); memset(sb, 0, sizeof sb);
+    int sx = im->larg / 96 > 1 ? im->larg / 96 : 1, sy = im->alt / 96 > 1 ? im->alt / 96 : 1;
+    for (int y = 0; y < im->alt; y += sy)
+        for (int x = 0; x < im->larg; x += sx) {
+            uint32_t p = im->px[(size_t)y * im->larg + x];
+            int r = (int)(p >> 16 & 255), g = (int)(p >> 8 & 255), b = (int)(p & 255);
+            int mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+            if (mx - mn < 40 || mx < 64 || mn > 215) continue;
+            int k = (r >> 5) << 6 | (g >> 5) << 3 | (b >> 5);
+            cnt[k]++; sr[k] += (unsigned)r; sg[k] += (unsigned)g; sb[k] += (unsigned)b;
+        }
+    int mejor = -1;
+    unsigned long long pm = 0;
+    for (int k = 0; k < 512; k++) {
+        if (!cnt[k]) continue;
+        int r = (int)(sr[k] / cnt[k]), g = (int)(sg[k] / cnt[k]), b = (int)(sb[k] / cnt[k]);
+        int mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+        unsigned long long pt = (unsigned long long)cnt[k] * (unsigned)(mx - mn + 64);
+        if (pt > pm) { pm = pt; mejor = k; }
+    }
+    if (mejor < 0) return 0xFFFFFFFFu;
+    uint32_t c = (sr[mejor] / cnt[mejor]) << 16 | (sg[mejor] / cnt[mejor]) << 8 | (sb[mejor] / cnt[mejor]);
+    int pct = 0;
+    while (pct < 100 && !contraste_blanco_ok(cor_mistura_negro(c, pct))) pct += 5;
+    return cor_mistura_negro(c, pct);
+}
+
+/* Con «acento automático», el acento de la barra de título sale de la imagen del fondo. */
+static void acento_auto_aplicar(const imagem_t *im, const char *caminho)
+{
+    if (!conf.acento_auto) return;
+    uint32_t c = acento_do_fundo(im);
+    if (c == 0xFFFFFFFFu) { registrar("configuracion: acento automatico: %s no tiene un color que sirva, se deja el acento", caminho); return; }
+    acento_cor((int)c);
+    conf.acento = c;
+    est_leer_vigente();
+    est_gravar_arq(&est_vigente);   /* como al elegir un color: con otro esquema pasa a personalizado y se recuerda entero */
+    registrar("configuracion: acento automatico %06x (fondo %s)", c, caminho);
+}
+
+/* Con color sólido, el acento sale de ese color (con el mismo contraste). */
+static void acento_auto_solido(uint32_t cor)
+{
+    uint32_t px = cor;
+    imagem_t im = { 1, 1, &px, "" };
+    acento_auto_aplicar(&im, "color");
+}
+
+/* Un color sólido de fondo. */
+static int fundo_solido(uint32_t cor)
+{
+    if (fundo_enviar(3, NULL, 0, 0) == ERRO_ACESSO) return ERRO_ACESSO;
+    info_aparencia_t ap;
+    if (info_sistema(INFO_APARENCIA, &ap, sizeof ap) < 0 || !ap.largura || !ap.altura) return ERRO_INVALIDO;
+    int L = (int)ap.largura, A = (int)ap.altura, r = 0;
+    enum { TANDA = 32 };
+    uint32_t *buf = aloca((size_t)L * TANDA * 4);
+    if (!buf) return ERRO_SEM_MEMORIA;
+    for (int k = 0; k < L * TANDA; k++) buf[k] = cor;
+    for (int y0 = 0; y0 < A && r >= 0; y0 += TANDA) r = fundo_enviar(FUNDO_LINHAS, buf, y0, A - y0 < TANDA ? A - y0 : TANDA);
+    libera(buf);
+    if (r >= 0) r = fundo_enviar(FUNDO_FIM, NULL, 0, 0);
+    if (r >= 0) acento_auto_solido(cor);
+    return r < 0 ? r : 0;
+}
+
+/* Pinta n líneas desde y0 del fondo en dst (dst[y * L] es la línea y de la pantalla). */
+static void fondo_pintar(uint32_t *dst, int L, int y0, int n, const imagem_t *im, int modo, const caixa_img_t *c, bool suave)
+{
+    if (modo == M_MOSAICO) {
+        int oy = -(y0 % im->alt);
+        for (int ty = y0 + oy; ty < y0 + n; ty += im->alt)
+            for (int tx = 0; tx < L; tx += im->larg)
+                imagem_desenhar(dst, L, 0, y0, L, n, im, tx, ty, im->larg, im->alt, false);
+    } else {
+        imagem_desenhar(dst, L, 0, y0, L, n, im, c->ox, c->oy, c->l, c->a, suave);
+    }
+}
+
+static int fundo_aplicar(const char *caminho, int modo);
 /* Aplica el fondo: 0 = ok. */
 static int fundo_aplicar(const char *caminho, int modo)
 {
@@ -700,6 +858,7 @@ static int fundo_aplicar(const char *caminho, int modo)
     int r = imagem_ler(caminho, &im);
     if (r < 0) return r;
     if (im.larg > 16000 || im.alt > 16000) { imagem_liberar(&im); return IMG_ERRO_GRANDE; }
+    acento_auto_aplicar(&im, caminho);
     caixa_img_t c;
     geometria(modo, &im, L, A, &c);
     enum { TANDA = 32 };
@@ -709,15 +868,7 @@ static int fundo_aplicar(const char *caminho, int modo)
     for (int y0 = 0; y0 < A; y0 += TANDA) {
         int n = A - y0 < TANDA ? A - y0 : TANDA;
         for (int k = 0; k < L * n; k++) buf[k] = 0x000000;
-        uint32_t *dst = buf - (size_t)y0 * L;   /* las coordenadas de imagem_desenhar son de la pantalla */
-        if (modo == M_MOSAICO) {
-            int oy = -(y0 % im.alt);
-            for (int ty = y0 + oy; ty < y0 + n; ty += im.alt)
-                for (int tx = 0; tx < L; tx += im.larg)
-                    imagem_desenhar(dst, L, 0, y0, L, n, &im, tx, ty, im.larg, im.alt, false);
-        } else {
-            imagem_desenhar(dst, L, 0, y0, L, n, &im, c.ox, c.oy, c.l, c.a, suave);
-        }
+        fondo_pintar(buf - (size_t)y0 * L, L, y0, n, &im, modo, &c, suave);   /* las coordenadas de imagem_desenhar son de la pantalla */
         r = fundo_enviar(FUNDO_LINHAS, buf, y0, n);
         if (r < 0) break;
         barra_fundo_porcento(y0 + n, A);
@@ -729,10 +880,202 @@ static int fundo_aplicar(const char *caminho, int modo)
     return r < 0 ? r : 0;
 }
 
+/* Fondo rotativo (D483): el servicio guarda aquí el último fondo entero (pantalla completa) para fundir con el siguiente. */
+static uint32_t *fd_ant;
+static int fd_ant_l, fd_ant_a;
+#define FUNDIDO_PASOS 4
+#define FUNDIDO_PAUSA_MS 35
+
+static int fondo_enviar_todo(const uint32_t *px, int L, int A)
+{
+    enum { TANDA = 64 };
+    int r = 0;
+    for (int y0 = 0; y0 < A && r >= 0; y0 += TANDA) r = fundo_enviar(FUNDO_LINHAS, px + (size_t)y0 * L, y0, A - y0 < TANDA ? A - y0 : TANDA);
+    return r;
+}
+
+/* Como fundo_aplicar, pero entero en memoria y con un fundido corto desde el fondo anterior (si el servicio lo tiene y
+ * no hay «corte»): 3 pasos intermedios y el final, con una pausa que duerme entre ellos (sin gastar CPU). */
+static int fundo_aplicar_fundido(const char *caminho, int modo, bool fundir)
+{
+    if (modo == M_DEGRADE || !caminho[0]) return fundo_aplicar(caminho, modo);
+    if (fundo_enviar(3, NULL, 0, 0) == ERRO_ACESSO) return ERRO_ACESSO;
+    info_aparencia_t ap;
+    if (info_sistema(INFO_APARENCIA, &ap, sizeof ap) < 0 || !ap.largura || !ap.altura) return ERRO_INVALIDO;
+    int L = (int)ap.largura, A = (int)ap.altura;
+    imagem_t im;
+    int r = imagem_ler(caminho, &im);
+    if (r < 0) return r;
+    if (im.larg > 16000 || im.alt > 16000) { imagem_liberar(&im); return IMG_ERRO_GRANDE; }
+    uint32_t *novo = aloca((size_t)L * A * 4);
+    if (!novo) { imagem_liberar(&im); return fundo_aplicar(caminho, modo); }
+    acento_auto_aplicar(&im, caminho);
+    caixa_img_t c;
+    geometria(modo, &im, L, A, &c);
+    for (size_t k = 0; k < (size_t)L * A; k++) novo[k] = 0;
+    fondo_pintar(novo, L, 0, A, &im, modo, &c, c.l != im.larg || c.a != im.alt);
+    imagem_liberar(&im);
+    bool com_fundido = fundir && fd_ant && fd_ant_l == L && fd_ant_a == A;
+    if (com_fundido) {
+        uint32_t *mix = aloca((size_t)L * A * 4);
+        if (mix) {
+            registrar("configuracion: fundido de %d pasos", FUNDIDO_PASOS);
+            for (int p = 1; p < FUNDIDO_PASOS && r >= 0; p++) {
+                for (size_t k = 0; k < (size_t)L * A; k++) {
+                    uint32_t a = fd_ant[k], b = novo[k], o = 0;
+                    for (int sh = 0; sh <= 16; sh += 8) {
+                        int x = (int)(a >> sh & 255), y = (int)(b >> sh & 255);
+                        o |= (uint32_t)(x + (y - x) * p / FUNDIDO_PASOS) << sh;
+                    }
+                    mix[k] = o;
+                }
+                r = fondo_enviar_todo(mix, L, A);
+                if (r >= 0) r = fundo_enviar(FUNDO_FIM, NULL, 0, 0);
+                dormir(FUNDIDO_PAUSA_MS);
+            }
+            libera(mix);
+        }
+    }
+    if (r >= 0) r = fondo_enviar_todo(novo, L, A);
+    if (r >= 0) r = fundo_enviar(FUNDO_FIM, NULL, 0, 0);
+    if (fd_ant) libera(fd_ant);
+    fd_ant = novo; fd_ant_l = L; fd_ant_a = A;
+    return r < 0 ? r : 0;
+}
+
 static const char *texto_erro(int r)
 {
     if (r <= -200 && r >= -204) return imagem_erro(r);
     return nome_erro(r);
+}
+
+/* ------------------------------------------------------------ fondo rotativo (D483) */
+
+/* Lo hace un servicio pequeño del propio programa («configuracion --rotar»), que lanza «aplicar» al empezar la sesión
+ * y la ventana o la orden al activarlo: duerme un segundo, vuelve a leer sagui.conf (así los cambios valen en vivo) y,
+ * cuando pasa el intervalo, pone el fondo siguiente de la carpeta con un fundido. Una sola copia: cada una escribe
+ * su pid en ARQ_ROTAR y se va si ve otro. Termina sola cuando se desactiva. No es un servicio del supervisor ni de
+ * cron porque cron no baja del minuto, no sabe de la pantalla de la sesión y no podría fundir los fondos. */
+#define ARQ_ROTAR "/tmp/fondo-rotar.pid"
+#define ROT_MAX 128
+#define ROT_NOMBRE 72
+#define ROT_CARPETA_DEF "/imagenes"
+
+static char rot_nombres[ROT_MAX][ROT_NOMBRE];
+static int rot_n;
+
+/* Las imágenes de la carpeta (sin entrar en subcarpetas), ordenadas por nombre. */
+static int rot_listar(const char *pasta)
+{
+    rot_n = 0;
+    entrada_pasta_t *v = NULL;
+    int n = listar_tudo(pasta[0] ? pasta : ROT_CARPETA_DEF, &v);
+    if (n < 0) return n;
+    for (int i = 0; i < n && rot_n < ROT_MAX; i++) {
+        if (v[i].tipo != TIPO_ARQUIVO || !imagem_extensao(v[i].nome) || tam_texto(v[i].nome) >= ROT_NOMBRE) continue;
+        int k = rot_n++;
+        while (k > 0 && compara_texto(rot_nombres[k - 1], v[i].nome) > 0) { copia_texto(rot_nombres[k], rot_nombres[k - 1], ROT_NOMBRE); k--; }
+        copia_texto(rot_nombres[k], v[i].nome, ROT_NOMBRE);
+    }
+    if (v) libera(v);
+    return rot_n;
+}
+
+/* Pone el fondo siguiente (en orden, o al azar distinto del actual) y lo guarda. 0 = ok. */
+static int fondo_siguiente(bool fundir)
+{
+    const char *pasta = conf.rot_pasta[0] ? conf.rot_pasta : ROT_CARPETA_DEF;
+    int n = rot_listar(pasta);
+    if (n < 0) return n;
+    if (n == 0) return ERRO_NAO_EXISTE;
+    int i_atual = -1;
+    for (int i = 0; i < n; i++) {
+        char c[NOME_MAX_F];
+        caminho_juntar(c, sizeof c, pasta, rot_nombres[i]);
+        if (compara_texto(c, conf.fundo) == 0) i_atual = i;
+    }
+    int i;
+    if (n == 1) i = 0;
+    else if (conf.rot_azar) {
+        unsigned al = 0;
+        bytes_aleatorios(&al, sizeof al);
+        i = (int)(al % (unsigned)(n - 1));
+        if (i_atual >= 0 && i >= i_atual) i++;   /* uno cualquiera salvo el actual */
+    } else i = i_atual < 0 ? 0 : (i_atual + 1) % n;
+    char ruta[NOME_MAX_F];
+    caminho_juntar(ruta, sizeof ruta, pasta, rot_nombres[i]);
+    if (tam_texto(ruta) >= sizeof conf.fundo) return ERRO_INVALIDO;
+    int m = conf.modo == M_DEGRADE ? M_ESTIRADO : conf.modo;
+    int r = fundo_aplicar_fundido(ruta, m, fundir && !conf.rot_corte);
+    registrar("configuracion: fondo siguiente %s (%s) -> %d", ruta, conf.rot_azar ? "azar" : "orden", r);
+    if (r < 0) return r;
+    copia_texto(conf.fundo, ruta, sizeof conf.fundo);
+    conf.modo = m;
+    return 0;
+}
+
+static int rot_pid_ler(void)
+{
+    int fd = abrir(ARQ_ROTAR, ABRIR_LER);
+    if (fd < 0) return 0;
+    char t[16];
+    int n = ler(fd, t, sizeof t - 1);
+    fechar(fd);
+    if (n <= 0) return 0;
+    t[n] = 0;
+    return texto_para_int(t);
+}
+
+/* «configuracion --rotar»: el servicio. Intervalo mínimo de 2 s (las pruebas); la ventana ofrece de 1 a 60 minutos. */
+static int rotar_servicio(void)
+{
+    char meu[16];
+    formatar_texto(meu, sizeof meu, "%d", meu_pid());
+    int fd = abrir(ARQ_ROTAR, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) { registrar("configuracion: rotar: sin %s: %s", ARQ_ROTAR, nome_erro(fd)); return 1; }
+    escrever_tudo(fd, meu, (unsigned)tam_texto(meu));
+    fechar(fd);
+    registrar("configuracion: fondo rotativo en marcha (pid %s)", meu);
+    unsigned ultimo = tempo_ms();
+    int seg_ant = 0;
+    for (;;) {
+        dormir(1000);
+        if (rot_pid_ler() != meu_pid()) { registrar("configuracion: fondo rotativo: otra copia ha tomado el relevo"); return 0; }
+        conf.rot_seg = 0; conf.rot_azar = 0; conf.rot_corte = 0; conf.acento_auto = 0; conf.rot_pasta[0] = 0; conf.tipo_def = 0; conf.tipo = 0;   /* lo que ya no esté en el archivo, apagado */
+        conf_ler();
+        if (conf.tipo != T_ROT || conf.rot_seg <= 0) { registrar("configuracion: fondo rotativo desactivado: termina"); return 0; }
+        if (conf.rot_seg != seg_ant) { seg_ant = conf.rot_seg; ultimo = tempo_ms(); }   /* otro intervalo: se cuenta desde ahora */
+        if (tempo_ms() - ultimo < (unsigned)conf.rot_seg * 1000u) continue;
+        ultimo = tempo_ms();
+        int r = fondo_siguiente(true);
+        if (r >= 0) conf_gravar();
+    }
+}
+
+/* Recalcula el acento con el fondo de ahora (al activar «acento automático»): imagen, color sólido o la imagen en curso de la presentación. */
+static void acento_del_fondo(void)
+{
+    if (conf.tipo == T_COLOR) { if (conf.color_solido) acento_auto_solido(conf.color); return; }
+    if (!conf.fundo[0] || conf.modo == M_DEGRADE) return;
+    imagem_t im;
+    if (imagem_ler(conf.fundo, &im) >= 0) { acento_auto_aplicar(&im, conf.fundo); imagem_liberar(&im); }
+}
+
+/* Pone el fondo que dice el tipo (D483): al empezar la sesión y al cambiar de tipo. 0 = ok. */
+static int fondo_aplicar_tipo(void)
+{
+    if (conf.tipo == T_COLOR) return conf.color_solido ? fundo_solido(conf.color) : fundo_aplicar("", M_DEGRADE);
+    if (conf.fundo[0] && conf.modo != M_DEGRADE) return fundo_aplicar(conf.fundo, conf.modo);
+    return conf.tipo == T_IMAGEN ? fundo_aplicar("", M_DEGRADE) : 0;
+}
+
+/* Lanza el servicio si hace falta (hay carpeta o intervalo activo) sin esperar por él. */
+static void rotar_lanzar(void)
+{
+    if (conf.tipo != T_ROT || conf.rot_seg <= 0) return;
+    char *av[] = { "configuracion", "--rotar", NULL };
+    int pid = executar("/bin/configuracion", av);
+    registrar("configuracion: lanzo el fondo rotativo -> %d", pid);
 }
 
 /* Lo de la aceleración va antes de aplicar_tudo, y la orden y la ventana más abajo (necesitan aviso_persistencia). */
@@ -1024,13 +1367,19 @@ static int aplicar_tudo(int argc, char **argv)
         esquema_op(ESQ_OP_LER, &cur, sizeof cur);
         if (cur.id == ESQ_SAGUIOS) registrar("configuracion: acento %06x -> %d", conf.acento, acento_cor((int)conf.acento) < 0);
     }
+    if (conf.cur_tema >= 0 || conf.cur_tam >= 0)   /* D482 */
+        registrar("configuracion: cursor tema %d tamano %d -> %d", conf.cur_tema < 0 ? 0 : conf.cur_tema, conf.cur_tam < 0 ? 0 : conf.cur_tam,
+                  cursor_op(CURSOR_OP_FIJAR, (unsigned)(conf.cur_tema < 0 ? 0 : conf.cur_tema), (unsigned)(conf.cur_tam < 0 ? 0 : conf.cur_tam)) < 0);
     if (conf.pnl_def) registrar("configuracion: panel tactil toque %d dos dedos %d borde %d natural %d sensibilidad %d escribir %d ms sin usb %d ps2 %d -> %d",
                                 conf.pnl[CP_TOQUE], conf.pnl[CP_DOS_DEDOS], conf.pnl[CP_BORDE], conf.pnl[CP_NATURAL], conf.pnl[CP_SENSIB],
                                 conf.pnl[CP_ESCRIBIR], conf.pnl[CP_SIN_USB], conf.pnl[CP_PS2], aplicar_panel());
     if (conf.barra_def) registrar("configuracion: barra posicion %d altura %d menu %d tema %d -> %d", conf.barra[BC_POSICION], conf.barra[BC_ALTURA],
                                   conf.barra[BC_MENU], conf.barra[BC_TEMA], aplicar_barra());
-    if (conf.fundo[0] && conf.modo != M_DEGRADE)
-        registrar("configuracion: fondo %s (%s) -> %d", conf.fundo, nomes_modo[conf.modo], fundo_aplicar(conf.fundo, conf.modo));
+    if (conf.tipo == T_COLOR) {
+        if (conf.color_solido) registrar("configuracion: fondo de color %06x -> %d", conf.color, fondo_aplicar_tipo());
+    } else if (conf.fundo[0] && conf.modo != M_DEGRADE)
+        registrar("configuracion: fondo %s (%s) -> %d", conf.fundo, nomes_modo[conf.modo], fondo_aplicar_tipo());
+    rotar_lanzar();   /* D483 */
     return 0;
 }
 
@@ -1374,6 +1723,28 @@ static int linha_de_comandos(int argc, char **argv)
         if (r < 0) { imprimir_em(ERROS, "configuracion: no se pudo cambiar el idioma: %s\n", nome_erro(r)); return 1; }
     } else if (compara_texto(c, "estilo") == 0) {   /* D428 */
         return estilo_cli(argc, argv);
+    } else if (compara_texto(c, "cursor") == 0) {   /* D482: configuracion cursor [mostrar | clasico|oscuro|moderno] [normal|grande|muygrande] */
+        static const char *const nt[CURSOR_TEMAS] = { "clasico", "oscuro", "moderno" };
+        static const char *const nz[CURSOR_TAMANOS] = { "normal", "grande", "muygrande" };
+        int v = cursor_op(CURSOR_OP_LER, 0, 0), t = v & 255, z = (v >> 8) & 255;
+        for (int i = 2; i < argc; i++) {
+            int k;
+            for (k = 0; k < CURSOR_TEMAS && compara_texto(argv[i], nt[k]) != 0; k++) ;
+            if (k < CURSOR_TEMAS) { t = k; continue; }
+            for (k = 0; k < CURSOR_TAMANOS && compara_texto(argv[i], nz[k]) != 0; k++) ;
+            if (k < CURSOR_TAMANOS) { z = k; continue; }
+            if (compara_texto(argv[i], "mostrar") == 0) continue;
+            imprimir_em(ERROS, "configuracion: cursor [clasico|oscuro|moderno] [normal|grande|muygrande]\n");
+            return 2;
+        }
+        if (argc > 2 && compara_texto(argv[2], "mostrar") != 0) {
+            if (cursor_op(CURSOR_OP_FIJAR, (unsigned)t, (unsigned)z) < 0) { imprimir_em(ERROS, "configuracion: cursor: no se pudo aplicar\n"); return 1; }
+            conf.cur_tema = t; conf.cur_tam = z;
+        } else {
+            imprimir("cursor: tema %s tamano %s (%dx%d)\n", nt[t], nz[z], cursor_ancho(z), cursor_alto(z));
+            return 0;
+        }
+        imprimir("cursor: tema %s tamano %s (%dx%d)\n", nt[t], nz[z], cursor_ancho(z), cursor_alto(z));
     } else if (compara_texto(c, "acento") == 0 && argc == 3) {
         uint32_t cor;
         if (!ler_cor(argv[2], &cor)) { imprimir_em(ERROS, "configuracion: acento RRGGBB (por ejemplo 2A6FD8)\n"); return 2; }
@@ -1381,14 +1752,60 @@ static int linha_de_comandos(int argc, char **argv)
         conf.acento = cor;
     } else if (compara_texto(c, "fondo") == 0 && argc >= 3) {
         int modo = M_AJUSTADO;
-        if (compara_texto(argv[2], "ninguno") == 0) { modo = M_DEGRADE; conf.fundo[0] = 0; }
+        if (compara_texto(argv[2], "ninguno") == 0) { modo = M_DEGRADE; conf.fundo[0] = 0; conf.tipo = T_COLOR; conf.color_solido = 0; conf.tipo_def = 1; }
         else {
             if (argc >= 4 && (modo = indice_modo(argv[3])) <= 0) { imprimir_em(ERROS, "configuracion: modo no válido\n"); return 2; }
             copia_texto(conf.fundo, argv[2], sizeof conf.fundo);
+            conf.tipo = T_IMAGEN; conf.tipo_def = 1;   /* D483: una imagen fija; si había presentación, el servicio se retira solo */
         }
         conf.modo = modo;
         r = fundo_aplicar(conf.fundo, modo);
         if (r < 0) { imprimir_em(ERROS, "configuracion: fondo: %s\n", texto_erro(r)); if (r == ERRO_ACESSO) imprimir("(sin escritorio gráfico)\n"); }
+    } else if (compara_texto(c, "fondo-color") == 0 && argc == 3) {   /* D483: color sólido o el degradado */
+        conf.tipo = T_COLOR; conf.tipo_def = 1;
+        if (compara_texto(argv[2], "degradado") == 0) { conf.color_solido = 0; r = fundo_aplicar("", M_DEGRADE); }
+        else {
+            uint32_t cor;
+            if (!ler_cor(argv[2], &cor)) { imprimir_em(ERROS, "configuracion: fondo-color RRGGBB | degradado\n"); return 2; }
+            conf.color = cor; conf.color_solido = 1;
+            r = fundo_solido(cor);
+        }
+        if (r < 0) imprimir_em(ERROS, "configuracion: fondo-color: %s\n", texto_erro(r));
+    } else if (compara_texto(c, "fondo-tipo") == 0 && argc == 2) {   /* D483: el tipo vigente */
+        imprimir("Tipo de fondo: %s\n", nomes_tipo[conf.tipo]);
+        return 0;
+    } else if (compara_texto(c, "fondo-siguiente") == 0 && argc == 2) {   /* D483 */
+        if (conf.tipo == T_COLOR) { conf.tipo = T_IMAGEN; conf.tipo_def = 1; }   /* pedir otra imagen es pasar a imagen */
+        r = fondo_siguiente(false);
+        if (r < 0) { imprimir_em(ERROS, "configuracion: fondo-siguiente: %s\n", texto_erro(r)); return 1; }
+        imprimir("Fondo: %s\n", conf.fundo);
+    } else if (compara_texto(c, "fondo-rotar") == 0 && argc >= 3) {   /* D483 */
+        if (compara_texto(argv[2], "no") == 0) { conf.tipo = conf.fundo[0] ? T_IMAGEN : T_COLOR; conf.tipo_def = 1; }   /* se queda con el fondo de ahora */
+        else {
+            int seg = argc >= 4 ? texto_para_int(argv[3]) : 0;
+            size_t tn = argc >= 4 ? tam_texto(argv[3]) : 0;
+            if (tn && argv[3][tn - 1] == 's') { if (seg < 2) seg = 0; }   /* «30s»: segundos (para pruebas) */
+            else seg = seg * 60;                                          /* minutos: 1, 5, 10, 30, 60 */
+            if (seg <= 0 || seg > 86400) { imprimir_em(ERROS, "configuracion: fondo-rotar CARPETA MINUTOS [orden|azar] [corte] | fondo-rotar no\n"); return 2; }
+            if (tam_texto(argv[2]) >= sizeof conf.rot_pasta) { imprimir_em(ERROS, "configuracion: carpeta demasiado larga\n"); return 2; }
+            if (rot_listar(argv[2]) <= 0) { imprimir_em(ERROS, "configuracion: %s no tiene imágenes (BMP, PNG...)\n", argv[2]); return 1; }
+            copia_texto(conf.rot_pasta, argv[2], sizeof conf.rot_pasta);
+            conf.rot_seg = seg;
+            conf.tipo = T_ROT; conf.tipo_def = 1;
+            conf.rot_azar = 0; conf.rot_corte = 0;
+            for (int i = 4; i < argc; i++) {
+                if (compara_texto(argv[i], "azar") == 0) conf.rot_azar = 1;
+                else if (compara_texto(argv[i], "corte") == 0) conf.rot_corte = 1;
+                else if (compara_texto(argv[i], "orden") != 0) { imprimir_em(ERROS, "configuracion: fondo-rotar: «%s» no vale (orden, azar, corte)\n", argv[i]); return 2; }
+            }
+        }
+        aviso_persistencia(conf_gravar());
+        rotar_lanzar();
+        return 0;
+    } else if (compara_texto(c, "fondo-acento") == 0 && argc == 3) {   /* D483 */
+        bool si = compara_texto(argv[2], "si") == 0 || compara_texto(argv[2], "1") == 0 || compara_texto(argv[2], "on") == 0;
+        conf.acento_auto = si;
+        if (si) acento_del_fondo();
     } else if (compara_texto(c, "panel") == 0 || compara_texto(c, "touchpad") == 0) {   /* D407 */
         int r = panel_cli(argc, argv);
         if (r < 0) return 0;
@@ -1411,7 +1828,9 @@ static int linha_de_comandos(int argc, char **argv)
         imprimir_em(ERROS, "uso: configuracion [--aplicar | mostrar | teclado es|abnt2 | idioma es|pt_BR|en [--sistema] | volumen N | zona NOMBRE |\n"
                            "                      salida N | balance -100..100 | latencia MS | microfono entrada N|ganancia N|silencio|activar |\n"
                            "                      acento RRGGBB | estilo [lista | NOMBRE | color N RRGGBB | guardar NOMBRE | inicio] |\n"
-                           "                      fondo ARCHIVO [modo] | fondo ninguno |\n"
+                           "                      fondo ARCHIVO [modo] | fondo ninguno | fondo-siguiente |\n"
+                           "                      fondo-rotar CARPETA MINUTOS [orden|azar] [corte] | fondo-rotar no | fondo-color RRGGBB|degradado |\n"
+                           "                      fondo-tipo | fondo-acento si|no |\n"
                            "                      fuente documentos|titulos RUTA|ninguna | aceleracion [2d|3d|sdl|disco VALOR | restablecer] |\n"
                            "                      barra mostrar | restablecer | CLAVE=N... | panel [mostrar | restablecer | CLAVE=N...]]\n");
         return 2;
@@ -1505,7 +1924,7 @@ static const evento_t *ui_ev;
 static bool ui_mudou;
 static bool ui_gris;         /* lo que se dibuja a continuación está deshabilitado (texto gris, sin respuesta al ratón) */
 static int ui_n;
-static botao_t ui_bt[40];
+static botao_t ui_bt[64];
 
 static void ui_inicio(const evento_t *e) { ui_ev = e; ui_n = 0; ui_mudou = false; }
 
@@ -1517,7 +1936,7 @@ static bool ui_clic(int x, int y, int l, int a)
 /* Botón; `premido` lo dibuja hundido (un valor elegido). true = pulsado (al soltar). */
 static bool ui_boton(int x, int y, int l, const char *t, bool premido)
 {
-    botao_t *b = &ui_bt[ui_n < 39 ? ui_n++ : 39];
+    botao_t *b = &ui_bt[ui_n < 63 ? ui_n++ : 63];
     b->x = x; b->y = y; b->l = l; b->a = 26; b->texto = t;
     if (!ui_ev) {
         bool ap = b->apertado;
@@ -1593,9 +2012,9 @@ static int ui_parrafo(int x, int y, int l, const char *t, uint32_t cor)
 
 /* El registro de secciones. Está más abajo (seccoes[]); aquí los índices. */
 enum { S_SISTEMA, S_TELA, S_ACEL, S_ENERGIA, S_KERNEL, S_ZONA, S_IDIOMA, S_USUARIOS,
-       S_ESCRITORIO, S_COLORES, S_ESTILOS, S_BARRA, S_WIDGETS, S_FUENTES, S_CAPTURAS, S_SONIDOS,
+       S_ESCRITORIO, S_COLORES, S_ESTILOS, S_BARRA, S_WIDGETS, S_FUENTES, S_CAPTURAS, S_SONIDOS, S_CURSORES,
        S_DISPOSITIVOS, S_TECLADO, S_MANDOS, S_SONIDO,
-       S_REDES, S_INTERFACES, S_BLOQUEO, S_VPN, S_VNC,
+       S_REDES, S_INTERFACES, S_BLOQUEO, S_VPN, S_UNIDADES_RED, S_VNC,
        S_IA, S_IA_LOCAL, S_QTD };
 
 static int pagina = S_TELA;      /* la sección abierta (índice de la tabla) */
@@ -3300,8 +3719,30 @@ static bool fondo_pedido(void)
 }
 
 static void desenhar(void);
+
+/* D483: la página Colores y fondo. Arriba un selector excluyente del tipo de fondo (Color, Imagen, Presentación); debajo solo las
+ * opciones del tipo elegido (las de los otros no se dibujan) y, aparte, el acento (con la casilla «tomar el color de acento del
+ * fondo», válida para los tres tipos). Se guarda un solo campo, fondo_tipo. */
+static caixa_t c_rot;          /* carpeta de las imágenes de la presentación */
+static bool rot_pend;          /* la carpeta escrita aún no se ha aplicado */
+
+static void rot_pasta_aplicar(void)
+{
+    char *t = c_rot.texto;
+    if (!t[0]) t = ROT_CARPETA_DEF;
+    int n = rot_listar(t);
+    if (n <= 0) { dizer(_("Esa carpeta no tiene imágenes (BMP, PNG...).")); return; }
+    copia_texto(conf.rot_pasta, t, sizeof conf.rot_pasta);
+    rot_pend = false;
+    dizer_gravado(conf_gravar());
+}
+
 static void colores_predet(void)
 {
+    conf.rot_seg = 0; conf.rot_azar = 0; conf.rot_corte = 0; conf.acento_auto = 0; conf.rot_pasta[0] = 0;
+    conf.tipo = T_COLOR; conf.tipo_def = 1; conf.color_solido = 0;
+    caixa_definir(&c_rot, "");
+    rot_pend = false;
     conf.acento = cores[0].cor;
     acento_cor((int)conf.acento);
     fundo_aplicar("", M_DEGRADE);
@@ -3311,83 +3752,205 @@ static void colores_predet(void)
     dizer_gravado(conf_gravar());
 }
 
+/* Cambia el tipo de fondo y lo pone en vivo. */
+static void fondo_tipo_poner(int t)
+{
+    conf.tipo = t;
+    conf.tipo_def = 1;
+    if (t == T_ROT) {
+        if (!conf.rot_pasta[0]) copia_texto(conf.rot_pasta, ROT_CARPETA_DEF, sizeof conf.rot_pasta);
+        if (conf.rot_seg <= 0) conf.rot_seg = 300;
+        caixa_definir(&c_rot, conf.rot_pasta);
+        rot_pend = false;
+        int r = fondo_siguiente(false);   /* el primero ya, y el servicio sigue */
+        if (r < 0) formatar_texto(estado, sizeof estado, _("No se pudo: %s"), texto_erro(r));
+        else dizer_gravado(conf_gravar());
+        rotar_lanzar();
+        return;
+    }
+    if (t == T_IMAGEN) {
+        if (conf.modo == M_DEGRADE) conf.modo = M_AJUSTADO;
+        if (conf.fundo[0]) fondo_aplicar_tipo();
+        else dizer(_("Elige una imagen de la lista."));
+    } else fondo_aplicar_tipo();
+    if (conf.acento_auto) acento_del_fondo();
+    dizer_gravado(conf_gravar());
+}
+
+/* Cuadrícula de colores: dibuja las 16 muestras desde (XL, sy) y devuelve la elegida con un clic (-1 = ninguna);
+ * *alto = lo que ocupa. */
+static int ui_paleta(int sy, uint32_t sel, int *alto)
+{
+    int paso = 32, cols = (XR - XL + 6) / paso, clic = -1;
+    if (cols < 1) cols = 1;
+    for (int i = 0; i < CORES_QTD; i++) {
+        int x = XL + (i % cols) * paso, yy = sy + (i / cols) * paso;
+        if (ui_ev) {
+            if (ui_clic(x, yy, 26, 26)) clic = i;
+            continue;
+        }
+        g_retangulo(jn, x, yy, 26, 26, cores[i].cor);
+        g_moldura(jn, x, yy, 26, 26, cores[i].cor == sel ? 0x000000 : COR_BORDA);
+        if (cores[i].cor == sel) { g_moldura(jn, x + 1, yy + 1, 24, 24, 0xFFFFFF); g_moldura(jn, x + 2, yy + 2, 22, 22, 0x000000); }
+    }
+    *alto = ((CORES_QTD + cols - 1) / cols) * paso;
+    return clic;
+}
+
 static void pg_colores(void)
 {
     info_aparencia_t ap;
     memset(&ap, 0, sizeof ap);
     info_sistema(INFO_APARENCIA, &ap, sizeof ap);
     int y = 26;
-    y = ui_parrafo(XL, y, XR - XL, _("Color de la barra de título y de la barra de tareas."), COR_TEXTO_FRACO);
-    int sy = y + 4, paso = 32, cols = (XR - XL + 6) / paso, sel = -1;
-    if (cols < 1) cols = 1;
-    for (int i = 0; i < CORES_QTD; i++) {
-        int x = XL + (i % cols) * paso, yy = sy + (i / cols) * paso;
-        if (cores[i].cor == ap.acento) sel = i;
-        if (ui_ev) {
-            if (ui_clic(x, yy, 26, 26)) {
-                acento_cor((int)cores[i].cor);
-                conf.acento = cores[i].cor;
-                est_leer_vigente();
-                est_gravar_arq(&est_vigente);   /* D428: con otro esquema, el acento lo vuelve personalizado: se recuerda entero */
+    /* --- el tipo de fondo (excluyente) */
+    static const char *const rot_tipo[3] = { N_("Color"), N_("Imagen"), N_("Presentación (rotativo)") };
+    static const int tipo_x[3] = { 0, 110, 230 };
+    for (int i = 0; i < 3; i++)
+        if (ui_opcion(XL + tipo_x[i], y + 6, rot_tipo[i], conf.tipo == i)) { fondo_tipo_poner(i); ui_mudou = true; return; }
+    y += 28;
+    if (!ui_ev) ui_grupo(0, y - 0, N_("Tipo de fondo"));
+    y += 10;
+    int g2 = y;
+    y += 22;
+    if (conf.tipo == T_COLOR) {
+        if (ui_opcion(XL, y, N_("Degradado de siempre"), !conf.color_solido)) {
+            conf.color_solido = 0;
+            fondo_aplicar_tipo();
+            dizer_gravado(conf_gravar());
+            ui_mudou = true;
+            return;
+        }
+        if (ui_opcion(XL + 200, y, N_("Color sólido"), conf.color_solido)) {
+            conf.color_solido = 1;
+            if (!conf.color) conf.color = cores[2].cor;
+            fondo_aplicar_tipo();
+            if (conf.acento_auto) acento_del_fondo();
+            dizer_gravado(conf_gravar());
+            ui_mudou = true;
+            return;
+        }
+        y += 28;
+        if (conf.color_solido) {
+            int alto;
+            int k = ui_paleta(y, conf.color, &alto);
+            if (k >= 0) {
+                conf.color = cores[k].cor;
+                fondo_aplicar_tipo();
                 dizer_gravado(conf_gravar());
                 ui_mudou = true;
             }
-            continue;
+            y += alto + 4;
         }
-        g_retangulo(jn, x, yy, 26, 26, cores[i].cor);
-        g_moldura(jn, x, yy, 26, 26, i == sel ? 0x000000 : COR_BORDA);
-        if (i == sel) { g_moldura(jn, x + 1, yy + 1, 24, 24, 0xFFFFFF); g_moldura(jn, x + 2, yy + 2, 22, 22, 0x000000); }
-    }
-    y = sy + ((CORES_QTD + cols - 1) / cols) * paso + 2;
-    if (!ui_ev) {
-        char nt[80];
-        formatar_texto(nt, sizeof nt, _("Elegido: %s"), sel >= 0 ? _(cores[sel].nome) : _("otro"));
-        g_texto(jn, XL, y, nt, COR_TEXTO);
-    }
-    y += 22;
-    if (!ui_ev) ui_grupo(0, y, N_("Color de acento"));
-    int g2 = y + 10, c = g2 + 26;
-    for (int i = 0; i < M_QTD; i++) {
-        if (ui_opcion(XL + (i % 3) * 150, c + (i / 3) * 24, rotulos_modo[i], conf.modo == i)) {
-            conf.modo = i;
-            if (i == M_DEGRADE) {
-                fundo_aplicar("", M_DEGRADE);
-                conf.fundo[0] = 0;
-                lista_img.sel = -1;
-                dizer_gravado(conf_gravar());
+    } else if (conf.tipo == T_IMAGEN) {
+        for (int i = 1; i < M_QTD; i++) {
+            if (ui_opcion(XL + ((i - 1) % 3) * 150, y + ((i - 1) / 3) * 24, rotulos_modo[i], conf.modo == i)) {
+                conf.modo = i;
+                if (conf.fundo[0]) { fundo_aplicar(conf.fundo, conf.modo); dizer_gravado(conf_gravar()); }
+                ui_mudou = true;
             }
+        }
+        int ly = y + 52;
+        if (!ui_ev) g_texto(jn, XL, ly, _("Imagen (BMP o PNG de /imagenes y de /home):"), COR_TEXTO_FRACO);
+        int la = ALT - 100 - ly - 120;   /* la lista ocupa lo que sobra, entre 90 y 130 */
+        if (la < 90) la = 90;
+        if (la > 130) la = 130;
+        lista_img.x = XL; lista_img.y = ly + 20; lista_img.l = XR - XL; lista_img.a = la;
+        int by = lista_img.y + la + 8;
+        if (!ui_ev) lista_desenhar(jn, &lista_img);
+        else {
+            int at = lista_tratar(jn, &lista_img, ui_ev);
+            if (at) ui_mudou = true;
+            if (at == LISTA_ATIVOU) goto aplicar;
+        }
+        if (ui_boton(XL, by, 140, N_("Aplicar fondo"), false)) {
+aplicar:
+            ui_mudou = true;
+            if (!fondo_pedido()) {
+                desenhar();
+                int r = fundo_aplicar(itens_img[lista_img.sel], conf.modo);
+                mostrando_barra = false;
+                if (r < 0) formatar_texto(estado, sizeof estado, _("No se pudo: %s"), texto_erro(r));
+                else {
+                    copia_texto(conf.fundo, itens_img[lista_img.sel], sizeof conf.fundo);
+                    dizer_gravado(conf_gravar());
+                }
+            }
+        }
+        y = by + 34;
+    } else {
+        if (!ui_ev) g_texto(jn, XL, y, _("Carpeta de imágenes (Intro para usarla):"), COR_TEXTO_FRACO);
+        c_rot.x = XL; c_rot.y = y + 20; c_rot.l = XR - XL; c_rot.foco = true;
+        if (!ui_ev) caixa_desenhar(jn, &c_rot);
+        else {
+            char antes[NOME_MAX_F];
+            copia_texto(antes, c_rot.texto, sizeof antes);
+            bool enter = caixa_tratar(jn, &c_rot, ui_ev);
+            if (compara_texto(antes, c_rot.texto) != 0) { rot_pend = true; ui_mudou = true; }
+            if (enter) { rot_pasta_aplicar(); ui_mudou = true; }
+        }
+        y += 52;
+        if (rot_pend && !ui_ev) g_texto(jn, XL, y - 18, _("Pulsa Intro para usar esta carpeta."), 0xB03000);
+        static const int minutos[5] = { 1, 5, 10, 30, 60 };
+        static const char *const rot_min[5] = { N_("Cada 1 min"), N_("Cada 5 min"), N_("Cada 10 min"), N_("Cada 30 min"), N_("Cada 60 min") };
+        for (int i = 0; i < 5; i++)
+            if (ui_opcion(XL + (i % 3) * 150, y + (i / 3) * 24, rot_min[i], conf.rot_seg == minutos[i] * 60)) {
+                conf.rot_seg = minutos[i] * 60;
+                dizer_gravado(conf_gravar());
+                ui_mudou = true;
+            }
+        y += 56;
+        if (ui_opcion(XL, y, N_("En orden"), !conf.rot_azar)) { conf.rot_azar = 0; dizer_gravado(conf_gravar()); ui_mudou = true; }
+        if (ui_opcion(XL + 150, y, N_("Al azar"), conf.rot_azar)) { conf.rot_azar = 1; dizer_gravado(conf_gravar()); ui_mudou = true; }
+        y += 24;
+        if (ui_casilla(XL, y, N_("Fundido entre un fondo y otro"), !conf.rot_corte)) { conf.rot_corte = !conf.rot_corte; dizer_gravado(conf_gravar()); ui_mudou = true; }
+        y += 28;
+        if (ui_boton(XL, y, 160, N_("Siguiente fondo"), false)) {
+            dizer(_("Cambiando el fondo..."));
+            int r = fondo_siguiente(false);
+            if (r < 0) formatar_texto(estado, sizeof estado, _("No se pudo: %s"), texto_erro(r));
+            else dizer_gravado(conf_gravar());
             ui_mudou = true;
         }
+        y += 34;
     }
-    int ly = c + 56;
-    if (!ui_ev) g_texto(jn, XL, ly, _("Imagen (BMP o PNG de /imagenes y de /home):"), COR_TEXTO_FRACO);
-    int la = ALT - 100 - ly - 60;   /* la lista ocupa lo que sobra, entre 90 y 150 */
-    if (la < 90) la = 90;
-    if (la > 150) la = 150;
-    lista_img.x = XL; lista_img.y = ly + 20; lista_img.l = XR - XL; lista_img.a = la;
-    int by = lista_img.y + la + 8;
-    if (!ui_ev) lista_desenhar(jn, &lista_img);
-    else {
-        int at = lista_tratar(jn, &lista_img, ui_ev);
-        if (at) ui_mudou = true;
-        if (at == LISTA_ATIVOU) goto aplicar;
-    }
-    if (ui_boton(XL, by, 140, N_("Aplicar fondo"), false)) {
-aplicar:
+    if (!ui_ev) ui_grupo(g2, y - g2, conf.tipo == T_COLOR ? N_("Color") : conf.tipo == T_IMAGEN ? N_("Imagen") : N_("Presentación"));
+    /* --- el acento, aparte */
+    y += 12;
+    int g3 = y;
+    y += 20;
+    if (ui_casilla(XL, y, N_("Tomar el color de acento del fondo"), conf.acento_auto)) {
+        conf.acento_auto = !conf.acento_auto;
+        if (conf.acento_auto) acento_del_fondo();
+        dizer_gravado(conf_gravar());
         ui_mudou = true;
-        if (!fondo_pedido()) {
-            desenhar();
-            int r = fundo_aplicar(itens_img[lista_img.sel], conf.modo);
-            mostrando_barra = false;
-            if (r < 0) formatar_texto(estado, sizeof estado, _("No se pudo: %s"), texto_erro(r));
-            else {
-                copia_texto(conf.fundo, itens_img[lista_img.sel], sizeof conf.fundo);
-                dizer_gravado(conf_gravar());
-            }
-        }
+        return;
     }
-    y = by + 36;
-    if (!ui_ev) ui_grupo(g2, y - g2, N_("Fondo del escritorio"));
+    y += 24;
+    if (conf.acento_auto) {
+        y = ui_parrafo(XL, y, XR - XL, _("El acento sale del color dominante de cada fondo (con un color sólido, de ese color) y se recalcula al cambiarlo."), COR_TEXTO_FRACO);
+    } else {
+        y = ui_parrafo(XL, y, XR - XL, _("Color de la barra de título y de la barra de tareas."), COR_TEXTO_FRACO);
+        int alto, sel = -1;
+        for (int i = 0; i < CORES_QTD; i++) if (cores[i].cor == ap.acento) sel = i;
+        int k = ui_paleta(y + 4, ap.acento, &alto);
+        if (k >= 0) {
+            acento_cor((int)cores[k].cor);
+            conf.acento = cores[k].cor;
+            est_leer_vigente();
+            est_gravar_arq(&est_vigente);   /* D428: con otro esquema, el acento lo vuelve personalizado: se recuerda entero */
+            dizer_gravado(conf_gravar());
+            ui_mudou = true;
+        }
+        y += alto + 6;
+        if (!ui_ev) {
+            char nt[80];
+            formatar_texto(nt, sizeof nt, _("Elegido: %s"), sel >= 0 ? _(cores[sel].nome) : _("otro"));
+            g_texto(jn, XL, y, nt, COR_TEXTO);
+        }
+        y += 22;
+    }
+    if (!ui_ev) ui_grupo(g3, y - g3, N_("Color de acento"));
     cont_h = y + 8;
 }
 
@@ -4352,6 +4915,252 @@ static void pg_vpn(void)
     cont_h = y + 12;
 }
 
+
+/* ------------------------------------------------ Red > Unidades de red (D485) */
+
+/* Las unidades WebDAV de la cuenta (~/.config/unidades-red) y sus contraseñas en el llavero (~/.config/llavero,
+ * cifrado). Conectar y probar lo hace la orden «dav» (el mismo código que en la terminal); aquí, la lista con su
+ * estado, el formulario y el llavero. */
+static unidade_red_t ur_v[UNIDADES_RED_MAX];
+static int ur_n, ur_sel = -1, ur_cx = -1;
+static int ur_est[UNIDADES_RED_MAX];
+static caixa_t ur_c[4];            /* nombre, dirección, usuario, contraseña */
+static caixa_t ur_ll[2];           /* llavero: contraseña nueva (o la de abrir) y repetirla */
+static bool ur_auto;
+static char ur_msg[200];
+static int ur_ll_estado;           /* CHAV_ABERTO, CHAV_FECHADO... */
+static int ur_ll_modo;
+
+static void ur_ler_estados(void)
+{
+    for (int i = 0; i < ur_n; i++) ur_est[i] = unidade_red_estado(ur_v[i].nome, NULL);
+}
+
+static void ur_ler_llavero(void)
+{
+    chaveiro_t *c = aloca(sizeof *c);
+    if (!c) return;
+    ur_ll_estado = chaveiro_abrir(c);
+    ur_ll_modo = c->modo;
+    chaveiro_fechar(c);
+    libera(c);
+}
+
+static void ur_formulario(int i)
+{
+    ur_sel = i;
+    caixa_definir(&ur_c[0], i >= 0 ? ur_v[i].nome : "");
+    caixa_definir(&ur_c[1], i >= 0 ? ur_v[i].url : "https://");
+    caixa_definir(&ur_c[2], i >= 0 ? ur_v[i].usuario : "");
+    caixa_definir(&ur_c[3], "");
+    ur_auto = i >= 0 && ur_v[i].automatica;
+    ur_c[3].oculta = true;
+    for (int k = 0; k < 4; k++) ur_c[k].foco = false;
+    ur_cx = -1;
+}
+
+static void p_unidades(void)
+{
+    ur_n = unidades_red_ler(ur_v, UNIDADES_RED_MAX);
+    ur_ler_estados();
+    ur_ler_llavero();
+    ur_formulario(-1);
+    ur_ll[0].oculta = ur_ll[1].oculta = true;
+    caixa_definir(&ur_ll[0], "");
+    caixa_definir(&ur_ll[1], "");
+    ur_msg[0] = 0;
+    registrar("configuracion: unidades de red %d, llavero %d modo %d", ur_n, ur_ll_estado, ur_ll_modo);
+}
+
+static int iv_unidades(void) { return 1000; }
+static bool tq_unidades(void)
+{
+    int antes[UNIDADES_RED_MAX];
+    memcpy(antes, ur_est, sizeof antes);
+    ur_ler_estados();
+    return memcmp(antes, ur_est, sizeof antes) != 0;
+}
+
+/* Lanza «dav ...» y espera; la salida (una línea) va a ur_msg. */
+static int ur_dav(const char *a1, const char *a2)
+{
+    char orden[160], arq[48];
+    formatar_texto(arq, sizeof arq, "/tmp/.dav-conf-%d", meu_pid());
+    formatar_texto(orden, sizeof orden, "dav %s %s > %s 2>&1", a1, a2 ? a2 : "", arq);
+    char *av[] = { "sh", "-c", orden, NULL };
+    int pid = executar("/bin/sh", av), cod = 1;
+    if (pid > 0) esperar(pid, &cod);
+    ur_msg[0] = 0;
+    int fd = abrir(arq, ABRIR_LER);
+    if (fd >= 0) {
+        int n = ler(fd, ur_msg, sizeof ur_msg - 1);
+        fechar(fd);
+        ur_msg[n > 0 ? n : 0] = 0;
+        for (int i = 0; ur_msg[i]; i++) if (ur_msg[i] == '\n') { ur_msg[i] = ur_msg[i + 1] ? ' ' : 0; }
+    }
+    apagar(arq);
+    ur_ler_estados();
+    return cod;
+}
+
+static void ur_guardar(void)
+{
+    unidade_red_t u;
+    memset(&u, 0, sizeof u);
+    copia_texto(u.nome, ur_c[0].texto, sizeof u.nome);
+    copia_texto(u.url, ur_c[1].texto, sizeof u.url);
+    copia_texto(u.usuario, ur_c[2].texto, sizeof u.usuario);
+    u.automatica = ur_auto;
+    if (!unidade_red_nome_valido(u.nome)) { copia_texto(ur_msg, _("Nombre no válido: letras, números, - y _ (hasta 24)."), sizeof ur_msg); return; }
+    if (!comeca_com(u.url, "http://") && !comeca_com(u.url, "https://")) { copia_texto(ur_msg, _("La dirección empieza por https:// (o http://)."), sizeof ur_msg); return; }
+    int i = unidade_red_achar(ur_v, ur_n, u.nome);
+    if (ur_sel >= 0 && compara_texto(ur_v[ur_sel].nome, u.nome) != 0 && i < 0) i = ur_sel;   /* renombrada */
+    if (i >= 0) { copia_texto(u.cacert, ur_v[i].cacert, sizeof u.cacert); u.inseguro = ur_v[i].inseguro; }
+    if (i < 0) {
+        if (ur_n >= UNIDADES_RED_MAX) { copia_texto(ur_msg, _("Ya tienes el máximo de unidades."), sizeof ur_msg); return; }
+        i = ur_n++;
+    }
+    if (ur_c[3].texto[0]) {   /* la contraseña, al llavero (nunca a unidades-red) */
+        chaveiro_t *c = aloca(sizeof *c);
+        int r = c ? chaveiro_abrir(c) : ERRO_SEM_MEMORIA;
+        if (r == CHAV_ABERTO) {
+            char sv[96];
+            formatar_texto(sv, sizeof sv, "webdav:%s", u.nome);
+            r = chaveiro_por(c, sv, ur_c[3].texto);
+        }
+        if (c) { chaveiro_fechar(c); libera(c); }
+        cripto_apagar(ur_c[3].texto, sizeof ur_c[3].texto);
+        caixa_definir(&ur_c[3], "");
+        if (r != 0) { copia_texto(ur_msg, r == CHAV_FECHADO ? _("El llavero está cerrado: ábrelo abajo.") : _("No se pudo guardar la contraseña."), sizeof ur_msg); return; }
+    }
+    ur_v[i] = u;
+    int r = unidades_red_gravar(ur_v, ur_n);
+    if (r < 0) formatar_texto(ur_msg, sizeof ur_msg, _("No se pudo guardar: %s"), nome_erro(r));
+    else formatar_texto(ur_msg, sizeof ur_msg, _("Guardada «%s». Las contraseñas van cifradas en el llavero."), u.nome);
+    ur_sel = i;
+    ur_ler_estados();
+    ur_ler_llavero();
+}
+
+static void ur_borrar(int i)
+{
+    if (i < 0 || i >= ur_n) return;
+    ur_dav("borrar", ur_v[i].nome);
+    ur_n = unidades_red_ler(ur_v, UNIDADES_RED_MAX);
+    ur_ler_estados();
+    ur_formulario(-1);
+}
+
+static void ur_llavero_accion(void)
+{
+    chaveiro_t *c = aloca(sizeof *c);
+    if (!c) return;
+    if (ur_ll_estado == CHAV_FECHADO) {
+        int r = chaveiro_abrir_com(c, ur_ll[0].texto);
+        copia_texto(ur_msg, r == CHAV_ABERTO ? _("Llavero abierto.") : _("Esa contraseña no abre el llavero."), sizeof ur_msg);
+    } else if (compara_texto(ur_ll[0].texto, ur_ll[1].texto) != 0) {
+        copia_texto(ur_msg, _("Las dos contraseñas no coinciden."), sizeof ur_msg);
+    } else if (chaveiro_abrir(c) == CHAV_ABERTO) {
+        int r = chaveiro_mudar_senha(c, ur_ll[0].texto);
+        copia_texto(ur_msg, r < 0 ? _("No se pudo cambiar.") : ur_ll[0].texto[0] ? _("El llavero tiene ahora su propia contraseña.")
+                                                              : _("El llavero vuelve a la contraseña de la cuenta."), sizeof ur_msg);
+    }
+    chaveiro_fechar(c);
+    libera(c);
+    for (int k = 0; k < 2; k++) { cripto_apagar(ur_ll[k].texto, sizeof ur_ll[k].texto); caixa_definir(&ur_ll[k], ""); ur_ll[k].foco = false; }
+    if (ur_cx >= 4) ur_cx = -1;
+    ur_ler_llavero();
+}
+
+/* Una casilla de texto con su rótulo; el clic le da el foco (idx 0-3 el formulario, 4-5 el llavero). */
+static int ur_campo(int y, const char *rot, caixa_t *c, int idx)
+{
+    ui_texto(XL, y + 4, idioma_traducir_sl(rot), COR_TEXTO);
+    c->x = XL + 150; c->y = y; c->l = XR - XL - 150;
+    if (!ui_ev) caixa_desenhar(jn, c);
+    else if (ui_ev->tipo == EV_CLIQUE && dentro(ui_ev, c->x, c->y, c->l, LETRA_A + 8)) {
+        ur_cx = idx;
+        for (int k = 0; k < 4; k++) ur_c[k].foco = (k == idx);
+        for (int k = 0; k < 2; k++) ur_ll[k].foco = (k + 4 == idx);
+        caixa_tratar(jn, c, ui_ev);
+        ui_mudou = true;
+    } else if (ui_ev->tipo == EV_TECLA && ur_cx == idx) {
+        caixa_tratar(jn, c, ui_ev);
+        ui_mudou = true;
+    }
+    return y + 30;
+}
+
+static void pg_unidades(void)
+{
+    int y = 0, gy = 0;
+    /* la lista */
+    gy = y; y += 28;
+    if (!ur_n) { ui_texto(XL, y, _("Todavía no tienes unidades de red. Rellena el formulario de abajo."), COR_TEXTO_FRACO); y += 24; }
+    for (int i = 0; i < ur_n; i++) {
+        char t[160], rot[PONTE_ROTULO_MAX];
+        unidade_red_rotulo(ur_v[i].url, rot, sizeof rot);
+        int e = ur_est[i];
+        formatar_texto(t, sizeof t, "/red/%s  %s", ur_v[i].nome, rot);
+        uint32_t cor = e == PONTE_EST_CONECTADA ? 0x2E9E44 : e == PONTE_EST_DESCONECTADA ? 0xC8372D : COR_TEXTO_FRACO;
+        if (!ui_ev) {
+            g_retangulo(jn, XL, y + 4, 10, 10, cor);
+            g_texto_n(jn, XL + 18, y + 1, t, (XR - XL - 360) / LETRA_L, i == ur_sel ? COR_DESTAQUE : COR_TEXTO);
+            g_texto_n(jn, XR - 340, y + 1, unidade_red_estado_texto(e), 14, cor);
+        }
+        if (ui_boton(XR - 220, y - 3, 100, e >= 0 ? N_("Desconectar") : N_("Conectar"), false)) {
+            if (e >= 0) ur_dav("desmontar", ur_v[i].nome); else ur_dav("montar", ur_v[i].nome);
+            ui_mudou = true;
+        }
+        if (ui_boton(XR - 114, y - 3, 56, N_("Editar"), i == ur_sel)) { ur_formulario(i); ui_mudou = true; }
+        if (ui_boton(XR - 54, y - 3, 54, N_("Borrar"), false)) { ur_borrar(i); ui_mudou = true; return; }
+        y += 30;
+    }
+    if (!ui_ev) ui_grupo(gy, y - gy, N_("Tus unidades"));
+    y += 8;
+    /* el formulario */
+    gy = y; y += 28;
+    y = ur_campo(y, N_("Nombre"), &ur_c[0], 0);
+    y = ur_campo(y, N_("Dirección (URL)"), &ur_c[1], 1);
+    y = ur_campo(y, N_("Usuario"), &ur_c[2], 2);
+    y = ur_campo(y, ur_sel >= 0 ? N_("Contraseña (vacía: la de antes)") : N_("Contraseña"), &ur_c[3], 3);
+    if (ui_casilla(XL, y, N_("Conectar al iniciar la sesión"), ur_auto)) { ur_auto = !ur_auto; ui_mudou = true; }
+    y += 26;
+    if (ui_boton(XL, y, 110, N_("Guardar"), false)) { ur_guardar(); ui_mudou = true; }
+    if (ui_boton(XL + 118, y, 150, N_("Guardar y probar"), false)) {
+        ur_guardar();
+        if (ur_sel >= 0) ur_dav("probar", ur_v[ur_sel].nome);
+        ui_mudou = true;
+    }
+    if (ui_boton(XL + 276, y, 110, N_("Nueva"), false)) { ur_formulario(-1); ur_msg[0] = 0; ui_mudou = true; }
+    y += 34;
+    if (ur_msg[0]) y = ui_parrafo(XL, y, XR - XL, ur_msg, COR_DESTAQUE) + 4;
+    y = ui_parrafo(XL, y, XR - XL, _("Se montan en /red/<nombre>: solo las ve tu cuenta y desde ellas no se ejecuta nada. "
+                                    "Usa https:// salvo en tu red de casa."), COR_TEXTO_FRACO);
+    if (!ui_ev) ui_grupo(gy, y + 6 - gy, N_("Unidad"));
+    y += 14;
+    /* el llavero */
+    gy = y; y += 28;
+    const char *est = ur_ll_estado == CHAV_FECHADO ? _("Cerrado: escribe su contraseña para abrirlo.")
+                    : ur_ll_estado == CHAV_DANADO ? _("El fichero del llavero está dañado.") : chaveiro_modo_texto(ur_ll_modo);
+    y = ui_parrafo(XL, y, XR - XL, est, ur_ll_modo == CHAV_MODO_VAZIA || ur_ll_estado ? 0xC8372D : COR_TEXTO);
+    if (ur_ll_estado == CHAV_ABERTO && ur_ll_modo == CHAV_MODO_VAZIA)
+        y = ui_parrafo(XL, y, XR - XL, _("Tu cuenta no tiene contraseña: quien copie el fichero lo abre. Ponle una contraseña propia al llavero."),
+                       COR_TEXTO_FRACO);
+    y += 4;
+    if (ur_ll_estado == CHAV_FECHADO) {
+        y = ur_campo(y, N_("Contraseña"), &ur_ll[0], 4);
+        if (ui_boton(XL, y, 150, N_("Abrir el llavero"), false)) { ur_llavero_accion(); ui_mudou = true; }
+    } else {
+        y = ur_campo(y, N_("Contraseña nueva"), &ur_ll[0], 4);
+        y = ur_campo(y, N_("Repítela"), &ur_ll[1], 5);
+        if (ui_boton(XL, y, 230, N_("Cambiar la del llavero"), false)) { ur_llavero_accion(); ui_mudou = true; }
+    }
+    y += 34;
+    if (!ui_ev) ui_grupo(gy, y - gy, N_("Llavero"));
+    cont_h = y + 12;
+}
+
 /* ------------------------------------------------ IA > IA local: modelos (D380, fase 2) */
 
 /* La lista sale de /etc/ia/modelos.lista. La descarga la hace `ia descargar ID --estado FICHERO` en otro
@@ -4763,38 +5572,123 @@ PAGINA_UI(interfaces)
 PAGINA_UI(barra)
 PAGINA_UI(widgets)
 PAGINA_UI(vpn)
+PAGINA_UI(unidades)
 PAGINA_UI(ialocal)
 PAGINA_UI(energia)
 
-#include "sonidos.h"   /* D421 */
-/* Escritorio > Sonidos del sistema (D421): esquema, eventos y volumen. Es de la persona: /home/.config/sonidos.conf
- * (lo lee también el servicio «sonidos»). Todo apagado por defecto. */
+/* Escritorio > Cursor del ratón (D482): tema y tamaño, aplicados al momento y guardados en sagui.conf (cursor_tema=,
+ * cursor_tamano=). Es de la persona. La vista previa dibuja con cursor_pixel(), lo mismo que usa el kernel. */
+static const char *const nomes_cur_tema[CURSOR_TEMAS] = { N_("Clásico (negro y blanco)"), N_("Oscuro"), N_("Moderno (azul translúcido)") };
+static const char *const nomes_cur_tam[CURSOR_TAMANOS] = { N_("Normal"), N_("Grande"), N_("Muy grande") };
+
+static void cur_aplicar(int t, int z)
+{
+    int r = cursor_op(CURSOR_OP_FIJAR, (unsigned)t, (unsigned)z);
+    registrar("configuracion: cursor tema %d tamano %d -> %d", t, z, r < 0);
+    conf.cur_tema = t; conf.cur_tam = z;
+    dizer_gravado(conf_gravar());
+    ui_mudou = true;
+}
+
+static bool cur_registrado;   /* las coordenadas de las opciones, al serie, para la prueba h482 */
+static void cur_predet(void) { cur_aplicar(0, 0); }
+
+static void pg_cursores(void)
+{
+    int v = cursor_op(CURSOR_OP_LER, 0, 0);
+    int t = v < 0 ? 0 : v & 255, z = v < 0 ? 0 : (v >> 8) & 255;
+    int w = XR - XL;
+    int y = ui_parrafo(XL, 26, w, _("Elige el aspecto y el tamaño de la flecha del ratón. El cambio se ve al momento; los tamaños grandes ayudan en pantallas grandes o si cuesta ver el cursor."), COR_TEXTO);
+    int g1 = y + 6;
+    int c = g1 + 26;
+    for (int i = 0; i < CURSOR_TEMAS; i++)
+        if (ui_opcion(XL, c + i * 24, nomes_cur_tema[i], t == i)) cur_aplicar(i, z);
+    if (!ui_ev) ui_grupo(g1, 26 + CURSOR_TEMAS * 24, N_("Tema"));
+    int g2 = g1 + 26 + CURSOR_TEMAS * 24 + 14;
+    c = g2 + 26;
+    if (!ui_ev && !cur_registrado) { cur_registrado = true; registrar("configuracion: cursores opciones x=%d tema_y=%d tam_y=%d", XL, g1 + 26, c); }
+    for (int i = 0; i < CURSOR_TAMANOS; i++)
+        if (ui_opcion(XL, c + i * 24, nomes_cur_tam[i], z == i)) cur_aplicar(t, i);
+    if (!ui_ev) ui_grupo(g2, 26 + CURSOR_TAMANOS * 24, N_("Tamaño"));
+    int g3 = g2 + 26 + CURSOR_TAMANOS * 24 + 14;
+    int px = XL, py = g3 + 26, pl = 150, pa = cursor_alto(CURSOR_TAMANOS - 1) + 24;
+    if (!ui_ev) {   /* la vista previa, sobre un gris medio donde se ven los dos contornos */
+        const uint32_t fondo = 0x8A93A0;
+        g_retangulo(jn, px, py, pl, pa, fondo);
+        g_moldura(jn, px, py, pl, pa, COR_BORDA);
+        int cl = cursor_ancho(z), ca = cursor_alto(z);
+        int ox = px + (pl - cl) / 2, oy = py + (pa - ca) / 2;
+        for (int j = 0; j < ca; j++)
+            for (int i = 0; i < cl; i++) {
+                uint32_t p = cursor_pixel(t, z, i, j), al = p >> 24;
+                if (!al) continue;
+                uint32_t r = 0;
+                for (int sh = 0; sh <= 16; sh += 8) r |= (((p >> sh & 255) * al + (fondo >> sh & 255) * (255 - al) + 127) / 255) << sh;
+                g_retangulo(jn, ox + i, oy + j, 1, 1, r);
+            }
+        ui_grupo(g3, 26 + pa + 12, N_("Vista previa"));
+    }
+    cont_h = g3 + 26 + pa + 24;
+}
+
+#include "sonidos.h"   /* D421, D484 */
+/* Escritorio > Sonidos del sistema (D421, D484): un sonido por acción (del esquema que se quiera o un archivo propio),
+ * volumen general y por acción, y presets (guardar, cargar, renombrar, borrar, exportar e importar). Es de la persona:
+ * /home/.config/sonidos.conf y /home/.config/sonidos/ (lo lee también el servicio «sonidos»). Todo apagado por defecto. */
 static sonidos_conf_t sn_conf;
 static sonidos_esquema_t sn_esq[12];
 static int sn_nesq;
 static const char *const sn_nombres[SON_EV_N] = {
     N_("Arranque del sistema"), N_("Apagar el equipo"), N_("Reiniciar el equipo"), N_("Aviso"), N_("Error"),
-    N_("Pregunta o confirmación"), N_("Conectar un USB"), N_("Desconectar un USB"), N_("Batería baja"), N_("Vaciar la papelera"),
+    N_("Pregunta o confirmación"), N_("Conectar un USB"), N_("Desconectar un USB"), N_("Batería baja"), N_("Borrar archivos"),
+    N_("Abrir una ventana"), N_("Cerrar una ventana"), N_("Minimizar una ventana"), N_("Maximizar una ventana"),
+    N_("Correo nuevo"), N_("Captura de pantalla"),
 };
+static int sn_vista;                   /* 0 acciones, 1 presets, 2 elegir el sonido de una acción */
+static int sn_ev;                      /* la acción que se está eligiendo */
+static lista_t sn_lista, sn_lpre;
+static char sn_items[16][64], sn_items_pre[48][64];
+static char sn_opc[16][SON_RUTA_MAX];  /* lo que asigna cada opción de la lista: "" esquema, "-" ninguno, ruta */
+static int sn_nopc;
+static sonidos_preset_t sn_pre[48];
+static int sn_npre;
+static caixa_t sn_nombre;
+
+static void sn_leer_presets(void)
+{
+    sn_npre = sonidos_presets(sn_pre, 48);
+    sn_lpre.qtd = sn_npre;
+    sn_lpre.itens = sn_items_pre;
+    for (int i = 0; i < sn_npre; i++)
+        formatar_texto(sn_items_pre[i], 64, "%s%s", sn_pre[i].nombre, sn_pre[i].esquema ? _("   (esquema, solo lectura)") : "");
+    if (sn_lpre.sel >= sn_npre) sn_lpre.sel = -1;
+}
 
 static void p_sonidos(void)
 {
     sonidos_conf_ler(&sn_conf);
     sn_nesq = sonidos_esquemas(sn_esq, 12);
+    sn_vista = 0;
+    sn_lpre.sel = -1;
+    sn_leer_presets();
     registrar("configuracion: escritorio vista sonidos esquemas=%d activo=%d", sn_nesq, sn_conf.activo);
 }
 
 static void sn_guardar(void) { dizer_gravado(sonidos_conf_gravar(&sn_conf)); ui_mudou = true; }
 
-/* El botón «Probar»: toca el evento con lo elegido ahora, aunque los sonidos estén apagados. */
-static void sn_probar(int ev)
+/* El botón «Probar»: toca la acción con lo elegido ahora (o con un archivo dado), aunque los sonidos estén apagados. */
+static void sn_probar(int ev, const char *archivo)
 {
     char vol[8];
-    formatar_texto(vol, sizeof vol, "%d", sn_conf.volumen);
-    const char *esq = sn_conf.esquema[0] ? sn_conf.esquema : "ninguno";
-    char *av[] = { "sonidos", "--tocar", (char *)sonidos_evento_id(ev), "--siempre", "--esquema", (char *)esq, "--volumen", vol, NULL };
+    formatar_texto(vol, sizeof vol, "%d", sonidos_volumen_accion(&sn_conf, ev));
+    char *av[10];
+    int n = 0;
+    av[n++] = "sonidos"; av[n++] = "--tocar"; av[n++] = (char *)sonidos_evento_id(ev); av[n++] = "--siempre";
+    av[n++] = "--volumen"; av[n++] = vol;
+    if (archivo) { av[n++] = "--archivo"; av[n++] = (char *)archivo; }
+    av[n] = NULL;
     int pid = executar("/bin/sonidos", av);
-    registrar("configuracion: sonidos probar %s (%s) pid=%d", sonidos_evento_id(ev), esq, pid);
+    registrar("configuracion: sonidos probar %s (%s) pid=%d", sonidos_evento_id(ev), archivo ? archivo : "configuracion", pid);
 }
 
 static void sn_predet(void)
@@ -4804,58 +5698,240 @@ static void sn_predet(void)
     sn_guardar();
 }
 
-static void pg_sonidos(void)
+/* Lo que se muestra como origen de la acción i. */
+static void sn_origen(int i, char *dst, int max)
+{
+    const char *a = sn_conf.asig[i];
+    if (compara_texto(a, "-") == 0) copia_texto(dst, _("Ninguno"), (size_t)max);
+    else if (a[0]) {
+        const char *b = acha_ultimo_char(a, '/');
+        copia_texto(dst, b ? b + 1 : a, (size_t)max);
+    } else if (!sn_conf.esquema[0] || compara_texto(sn_conf.esquema, "ninguno") == 0) copia_texto(dst, _("Ninguno"), (size_t)max);
+    else formatar_texto(dst, (size_t)max, "[%s]", sn_conf.esquema);
+}
+
+/* Prepara la lista de opciones para la acción i: del esquema activo, ninguno, el de cada esquema y un archivo propio. */
+static void sn_abrir_elegir(int i)
+{
+    char ruta[SON_RUTA_MAX];
+    sn_ev = i;
+    sn_nopc = 0;
+    copia_texto(sn_items[sn_nopc], _("Del esquema activo"), 64); sn_opc[sn_nopc++][0] = 0;
+    copia_texto(sn_items[sn_nopc], _("Ninguno"), 64); copia_texto(sn_opc[sn_nopc++], "-", SON_RUTA_MAX);
+    for (int k = 0; k < sn_nesq && sn_nopc < 14; k++) {
+        if (sonidos_ruta(sn_esq[k].id, sonidos_evento_id(i), ruta, sizeof ruta) < 0) continue;
+        formatar_texto(sn_items[sn_nopc], 64, _("Esquema %s"), sn_esq[k].nombre);
+        copia_texto(sn_opc[sn_nopc++], ruta, SON_RUTA_MAX);
+    }
+    copia_texto(sn_items[sn_nopc], _("Archivo propio..."), 64); sn_opc[sn_nopc++][0] = 1;   /* marca: abre el diálogo */
+    sn_lista.itens = sn_items;
+    sn_lista.qtd = sn_nopc;
+    sn_lista.sel = 0;
+    sn_lista.topo = 0;
+    const char *a = sn_conf.asig[i];
+    for (int k = 0; k < sn_nopc; k++) if (a[0] ? compara_texto(a, sn_opc[k]) == 0 : k == 0) sn_lista.sel = k;
+    if (compara_texto(a, "-") == 0) sn_lista.sel = 1;
+    sn_vista = 2;
+    ui_mudou = true;
+}
+
+/* Aplica la opción k de la lista a la acción sn_ev; «Archivo propio» abre el diálogo de abrir. */
+static void sn_aplicar_opcion(int k)
+{
+    if (k < 0 || k >= sn_nopc) return;
+    if (sn_opc[k][0] == 1) {
+        char arq[SON_RUTA_MAX];
+        if (!dialogo_abrir(_("Elegir un sonido"), "Sonidos (WAV, MP3, FLAC, MIDI)|*.wav;*.mp3;*.flac;*.mid;*.kar|Todos|*",
+                           "/home", arq, sizeof arq)) return;
+        copia_texto(sn_conf.asig[sn_ev], arq, SON_RUTA_MAX);
+    } else copia_texto(sn_conf.asig[sn_ev], sn_opc[k], SON_RUTA_MAX);
+    sn_conf.preset[0] = 0;   /* ya no es exactamente el preset cargado */
+    sn_vista = 0;
+    sn_guardar();
+}
+
+static void sn_preset_msg(int r, const char *ok)
+{
+    if (r == 0) dizer(ok);
+    else if (r == -1) dizer(_("Nombre no válido: solo letras, cifras, - y _."));
+    else if (r == -2) dizer(_("Ese nombre es de un esquema (solo lectura)."));
+    else if (r == -4) dizer(_("Ya existe un preset con ese nombre."));
+    else dizer(_("No se pudo."));
+}
+
+static void pg_sonidos_acciones(void)
 {
     int w = XR - XL;
+    int y = 62;
+    char tv[40];
+    formatar_texto(tv, sizeof tv, _("Volumen general: %d %%"), sn_conf.volumen);
+    ui_texto(XL, y + 5, tv, COR_TEXTO);
+    if (ui_boton(XR - 110, y, 50, "-", false) && sn_conf.volumen > 0) { sn_conf.volumen = sn_conf.volumen < 10 ? 0 : sn_conf.volumen - 10; sn_guardar(); }
+    if (ui_boton(XR - 54, y, 50, "+", false) && sn_conf.volumen < 100) { sn_conf.volumen = sn_conf.volumen > 90 ? 100 : sn_conf.volumen + 10; sn_guardar(); }
+    y += 34;
+    int g3 = y;
+    int cy = g3 + 28;
+    for (int i = 0; i < SON_EV_N; i++) {
+        static char vts[SON_EV_N][12];   /* el botón guarda el puntero al texto: no puede ir en la pila */
+        char ruta[SON_RUTA_MAX], org[24];
+        char *vt = vts[i];
+        if (ui_casilla(XL, cy + 4, sn_nombres[i], sn_conf.ev[i] != 0)) { sn_conf.ev[i] = !sn_conf.ev[i]; sn_guardar(); }
+        sn_origen(i, org, sizeof org);
+        ui_texto(XL + 215, cy + 5, org, COR_TEXTO_FRACO);
+        if (ui_boton(XR - 250, cy, 78, N_("Elegir..."), false)) sn_abrir_elegir(i);
+        formatar_texto(vt, sizeof vts[0], "%d %%", sn_conf.vol[i]);
+        if (ui_boton(XR - 168, cy, 76, vt, false)) {   /* el volumen de la acción da la vuelta: 100, 75, 50, 25, 0 */
+            sn_conf.vol[i] = sn_conf.vol[i] > 75 ? 75 : sn_conf.vol[i] > 50 ? 50 : sn_conf.vol[i] > 25 ? 25 : sn_conf.vol[i] > 0 ? 0 : 100;
+            sn_conf.preset[0] = 0;
+            sn_guardar();
+        }
+        bool tiene = sonidos_ruta_accion(&sn_conf, i, ruta, sizeof ruta) == 0;
+        ui_gris = !tiene;
+        if (ui_boton(XR - 88, cy, 84, N_("Probar"), false) && tiene) { sn_probar(i, NULL); ui_mudou = true; }
+        ui_gris = false;
+        cy += 28;
+    }
+    if (!ui_ev) ui_grupo(g3, cy - g3 + 4, N_("Acciones: sonido, volumen y prueba"));
+    int fin = ui_parrafo(XL, cy + 12, w, _("«[esquema]» = el sonido del esquema; «Elegir...» pone el de otro esquema o un archivo propio (WAV, MP3, FLAC, MIDI). Las acciones de ventana van desactivadas de serie y no suenan más de 3 veces por segundo."), COR_TEXTO_FRACO);
+    cont_h = fin + 12;
+}
+
+static void pg_sonidos_elegir(void)
+{
+    int w = XR - XL;
+    char t[80];
+    formatar_texto(t, sizeof t, _("Sonido para: %s"), _(sn_nombres[sn_ev]));
+    ui_texto(XL, 62, t, COR_TEXTO);
+    sn_lista.x = XL; sn_lista.y = 84; sn_lista.l = w; sn_lista.a = 184;
+    if (!ui_ev) lista_desenhar(jn, &sn_lista);
+    else {
+        int at = lista_tratar(jn, &sn_lista, ui_ev);
+        if (at == LISTA_ATIVOU) { sn_aplicar_opcion(sn_lista.sel); return; }
+        if (at != LISTA_NADA) ui_mudou = true;
+    }
+    int by = 84 + 184 + 12;
+    if (ui_boton(XL, by, 90, N_("Aceptar"), false)) { sn_aplicar_opcion(sn_lista.sel); return; }
+    if (ui_boton(XL + 98, by, 90, N_("Cancelar"), false)) { sn_vista = 0; ui_mudou = true; return; }
+    int k = sn_lista.sel;
+    bool puede = k >= 2 && k < sn_nopc && sn_opc[k][0] > 1;
+    if (k == 0) { char r[SON_RUTA_MAX]; puede = sn_conf.esquema[0] && sonidos_ruta(sn_conf.esquema, sonidos_evento_id(sn_ev), r, sizeof r) == 0; }
+    ui_gris = !puede;
+    if (ui_boton(XR - 90, by, 90, N_("Probar"), false) && puede) {
+        if (k == 0) {
+            char r[SON_RUTA_MAX];
+            sonidos_ruta(sn_conf.esquema, sonidos_evento_id(sn_ev), r, sizeof r);
+            sn_probar(sn_ev, r);
+        } else sn_probar(sn_ev, sn_opc[k]);
+        ui_mudou = true;
+    }
+    ui_gris = false;
+    cont_h = by + 40;
+    (void)w;
+}
+
+static void pg_sonidos_presets(void)
+{
+    int w = XR - XL;
+    ui_parrafo(XL, 62, w, _("Un preset guarda la combinación actual: el sonido, el volumen y el interruptor de cada acción. Los esquemas instalados son presets de partida (solo lectura)."), COR_TEXTO);
+    sn_lpre.x = XL; sn_lpre.y = 104; sn_lpre.l = w; sn_lpre.a = 150;
+    if (!ui_ev) lista_desenhar(jn, &sn_lpre);
+    else {
+        int at = lista_tratar(jn, &sn_lpre, ui_ev);
+        if (at != LISTA_NADA) {
+            if (sn_lpre.sel >= 0 && sn_lpre.sel < sn_npre) caixa_definir(&sn_nombre, sn_pre[sn_lpre.sel].nombre);
+            ui_mudou = true;
+        }
+        if (at == LISTA_ATIVOU && sn_lpre.sel >= 0) {
+            sn_preset_msg(sonidos_preset_cargar(sn_pre[sn_lpre.sel].nombre, &sn_conf), _("Preset cargado."));
+            sn_guardar();
+            return;
+        }
+    }
+    int y = 104 + 150 + 10;
+    ui_texto(XL, y + 5, _("Nombre:"), COR_TEXTO);
+    sn_nombre.x = XL + 70; sn_nombre.y = y; sn_nombre.l = 240; sn_nombre.foco = true;
+    if (!ui_ev) caixa_desenhar(jn, &sn_nombre);
+    else if (caixa_tratar(jn, &sn_nombre, ui_ev)) ui_mudou = true;
+    char *nm = sn_nombre.texto;
+    int sel = sn_lpre.sel;
+    const char *selnom = sel >= 0 && sel < sn_npre ? sn_pre[sel].nombre : "";
+    bool sel_usuario = sel >= 0 && sel < sn_npre && !sn_pre[sel].esquema;
+    y += 36;
+    ui_gris = sel < 0;
+    if (ui_boton(XL, y, 90, N_("Cargar"), false) && sel >= 0) {
+        sn_preset_msg(sonidos_preset_cargar(selnom, &sn_conf), _("Preset cargado."));
+        sn_guardar();
+        return;
+    }
+    ui_gris = false;
+    if (ui_boton(XL + 98, y, 90, N_("Guardar"), false)) {
+        copia_texto(sn_conf.preset, nm, sizeof sn_conf.preset);
+        int r = sonidos_preset_guardar(nm, &sn_conf);
+        sn_preset_msg(r, _("Preset guardado."));
+        if (r < 0) sn_conf.preset[0] = 0; else sonidos_conf_gravar(&sn_conf);
+        sn_leer_presets();
+        ui_mudou = true;
+    }
+    ui_gris = !sel_usuario;
+    if (ui_boton(XL + 196, y, 100, N_("Renombrar"), false) && sel_usuario) {
+        int r = sonidos_preset_renombrar(selnom, nm);
+        if (r == 0 && compara_texto(sn_conf.preset, selnom) == 0) { copia_texto(sn_conf.preset, nm, sizeof sn_conf.preset); sonidos_conf_gravar(&sn_conf); }
+        sn_preset_msg(r, _("Preset renombrado."));
+        sn_leer_presets();
+        ui_mudou = true;
+    }
+    if (ui_boton(XL + 304, y, 90, N_("Borrar"), false) && sel_usuario) {
+        if (confirmar(_("Borrar preset"), _("¿Borrar este preset y sus audios propios?"))) {
+            sn_preset_msg(sonidos_preset_borrar(selnom), _("Preset borrado."));
+            sn_lpre.sel = -1;
+            sn_leer_presets();
+        }
+        ui_mudou = true;
+    }
+    ui_gris = sel < 0;
+    if (ui_boton(XL + 402, y, 100, N_("Exportar..."), false) && sel >= 0) {
+        char dst[SON_RUTA_MAX], ini[SON_RUTA_MAX];
+        formatar_texto(ini, sizeof ini, "/home/%s.sonidos", selnom);
+        if (dialogo_guardar(_("Exportar preset"), "Presets de sonidos|*.sonidos", ini, dst, sizeof dst)) {
+            int r = sonidos_preset_exportar(selnom, dst);
+            sn_preset_msg(r, _("Preset exportado (los audios propios, junto al archivo)."));
+        }
+        ui_mudou = true;
+    }
+    ui_gris = false;
+    if (ui_boton(XL + 510, y, 100, N_("Importar..."), false)) {
+        char org[SON_RUTA_MAX], nuevo[40];
+        if (dialogo_abrir(_("Importar preset"), "Presets de sonidos|*.sonidos", "/home", org, sizeof org)) {
+            int r = sonidos_preset_importar(org, nuevo, sizeof nuevo);
+            sn_preset_msg(r, _("Preset importado."));
+            sn_leer_presets();
+        }
+        ui_mudou = true;
+    }
+    char act[96];
+    formatar_texto(act, sizeof act, _("Preset en uso: %s"), sn_conf.preset[0] ? sn_conf.preset : _("(ninguno; combinación propia)"));
+    ui_texto(XL, y + 40, act, COR_TEXTO_FRACO);
+    cont_h = y + 70;
+    (void)w;
+}
+
+static void pg_sonidos(void)
+{
     int y = 26;
     int cod;
     while (recolher(&cod) > 0) { }   /* los «Probar» ya terminados */
     if (ui_casilla(XL, y, N_("Activar los sonidos del sistema"), sn_conf.activo != 0)) { sn_conf.activo = !sn_conf.activo; sn_guardar(); }
-    y = ui_parrafo(XL + 22, y + 20, w - 22, _("Apagados de serie. Suenan al arrancar y apagar, en avisos, errores, preguntas, USB y batería baja."), COR_TEXTO_FRACO);
-    /* Esquema */
-    int g1 = y + 6;
-    int ey = g1 + 26;
-    bool ning = !sn_conf.esquema[0] || compara_texto(sn_conf.esquema, "ninguno") == 0;
-    if (ui_opcion(XL, ey, N_("Ninguno"), ning) && !ning) { copia_texto(sn_conf.esquema, "ninguno", sizeof sn_conf.esquema); sn_guardar(); }
-    ey += 22;
-    const char *creditos = "";
-    for (int i = 0; i < sn_nesq; i++) {
-        bool el = compara_texto(sn_conf.esquema, sn_esq[i].id) == 0;
-        if (el) creditos = sn_esq[i].creditos;
-        char rot[64];
-        formatar_texto(rot, sizeof rot, "%s%s", sn_esq[i].nombre, sn_esq[i].privado ? " (privado)" : "");
-        if (ui_opcion(XL, ey, rot, el) && !el) { copia_texto(sn_conf.esquema, sn_esq[i].id, sizeof sn_conf.esquema); sn_guardar(); }
-        ey += 22;
+    if (sn_vista != 2) {
+        if (ui_boton(XR - 190, y - 4, 90, N_("Acciones"), sn_vista == 0) && sn_vista != 0) { sn_vista = 0; ui_mudou = true; return; }
+        if (ui_boton(XR - 94, y - 4, 90, N_("Presets"), sn_vista == 1) && sn_vista != 1) { sn_vista = 1; sn_leer_presets(); ui_mudou = true; return; }
     }
-    if (creditos[0]) { ui_texto(XL, ey, creditos, COR_TEXTO_FRACO); ey += 20; }
-    if (!ui_ev) ui_grupo(g1, ey - g1 + 2, N_("Esquema de sonidos"));
-    /* Volumen */
-    int g2 = ey + 10;
-    int vy = g2 + 24;
-    char tv[40];
-    formatar_texto(tv, sizeof tv, _("Volumen de los sonidos: %d %%"), sn_conf.volumen);
-    ui_texto(XL, vy + 5, tv, COR_TEXTO);
-    if (ui_boton(XR - 110, vy, 50, "-", false) && sn_conf.volumen > 0) { sn_conf.volumen = sn_conf.volumen < 10 ? 0 : sn_conf.volumen - 10; sn_guardar(); }
-    if (ui_boton(XR - 54, vy, 50, "+", false) && sn_conf.volumen < 100) { sn_conf.volumen = sn_conf.volumen > 90 ? 100 : sn_conf.volumen + 10; sn_guardar(); }
-    if (!ui_ev) ui_grupo(g2, 58, N_("Volumen"));
-    /* Eventos */
-    int g3 = g2 + 70;
-    int cy = g3 + 28;
-    for (int i = 0; i < SON_EV_N; i++) {
-        if (ui_casilla(XL, cy + 4, sn_nombres[i], sn_conf.ev[i] != 0)) { sn_conf.ev[i] = !sn_conf.ev[i]; sn_guardar(); }
-        char ruta[128];
-        bool tiene = !ning && sonidos_ruta(sn_conf.esquema, sonidos_evento_id(i), ruta, sizeof ruta) == 0;
-        ui_gris = !tiene;
-        if (ui_boton(XR - 84, cy, 80, N_("Probar"), false) && tiene) { sn_probar(i); ui_mudou = true; }
-        ui_gris = false;
-        cy += 28;
-    }
-    if (!ui_ev) ui_grupo(g3, cy - g3 + 4, N_("Eventos"));
-    int fin = ui_parrafo(XL, cy + 12, w, _("Arranque, apagado y reinicio van desactivados de serie: el apagado espera hasta 3 s a que termine el sonido."), COR_TEXTO_FRACO);
-    cont_h = fin + 12;
+    if (sn_vista == 0) pg_sonidos_acciones();
+    else if (sn_vista == 1) pg_sonidos_presets();
+    else pg_sonidos_elegir();
 }
 
 PAGINA_UI(sonidos)
+PAGINA_UI(cursores)
 
 /* Escritorio > Estilos (D428): los esquemas de apariencia de todo el sistema. Elegir uno lo aplica al momento (el kernel
  * redibuja y las ventanas abiertas reciben EV_TEMA); «Personalizar» deja cambiar el color de cada elemento y guardar el
@@ -5073,7 +6149,7 @@ static int iv_energia(void) { return en.salva_efecto ? 100 : 0; }   /* la vista 
 static bool tq_energia(void) { return en.salva_efecto != 0; }
 static void p_kernel(void) { kc_preparar(); registrar("configuracion: pantalla vista kernel"); }
 static void p_sonido(void) { mic_abrir(); }
-static void p_colores(void) { listar_imagens(); }
+static void p_colores(void) { listar_imagens(); caixa_definir(&c_rot, conf.rot_pasta); rot_pend = false; }
 static void p_fuentes(void) { fuentes_preparar(); }
 static void p_ia(void) { ia_preparar(); }
 static void p_barra(void) { barra_ler(); registrar("configuracion: escritorio vista barra"); }
@@ -5134,6 +6210,7 @@ static const seccao_t seccoes[S_QTD] = {
     [S_FUENTES]   = { "fuentes", N_("Fuentes"), "Fuentes", 1, p_fuentes, NULL, d_fuentes, t_fuentes, fuentes_predet, NULL, NULL, NULL },
     [S_CAPTURAS]  = { "capturas", N_("Capturas"), "Capturas", 1, p_capturas, cap_sair, d_capturas, t_capturas, cap_predet, cap_aplicar, NULL, NULL },
     [S_SONIDOS]   = { "sonidos", N_("Sonidos del sistema"), "Sonidos del sistema", 1, p_sonidos, NULL, d_sonidos, t_sonidos, sn_predet, NULL, NULL, NULL },
+    [S_CURSORES]  = { "cursores", N_("Cursor del ratón"), "Cursor del ratón", 1, NULL, NULL, d_cursores, t_cursores, cur_predet, NULL, NULL, NULL },
     [S_DISPOSITIVOS] = { "dispositivos", N_("Dispositivos"), "Dispositivos", 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
     [S_TECLADO]   = { "teclado", N_("Teclado"), "Teclado", 1, NULL, NULL, d_teclado, t_teclado, predet_teclado, NULL, NULL, NULL },
     [S_MANDOS]    = { "mandos", N_("Mandos"), "Mandos", 1, p_mandos, s_mandos, d_mandos, t_mandos, NULL, NULL, iv_mandos, tq_mandos },
@@ -5142,6 +6219,7 @@ static const seccao_t seccoes[S_QTD] = {
     [S_INTERFACES] = { "interfaces", N_("Interfaces"), "Red", 1, NULL, NULL, d_interfaces, t_interfaces, NULL, NULL, iv_interfaces, tq_interfaces },
     [S_BLOQUEO]   = { "red", N_("Publicidad (DNS)"), "Red", 1, NULL, NULL, d_bloqueo, t_bloqueo, NULL, NULL, NULL, NULL },
     [S_VPN]       = { "vpn", N_("VPN (WireGuard)"), "VPN", 1, NULL, NULL, d_vpn, t_vpn, NULL, NULL, NULL, NULL },
+    [S_UNIDADES_RED] = { "unidades-red", N_("Unidades de red"), "Unidades de red", 1, p_unidades, NULL, d_unidades, t_unidades, NULL, NULL, iv_unidades, tq_unidades },
     [S_VNC]       = { "vnc", N_("Escritorio remoto"), "Escritorio remoto", 1, p_vnc, NULL, d_vnc, t_vnc, NULL, NULL, iv_vnc, tq_vnc },
     [S_IA]        = { "ia", N_("IA"), "IA", 0, p_ia, NULL, d_ia, t_ia, NULL, ia_guardar, NULL, NULL },
     [S_IA_LOCAL]  = { "ialocal", N_("IA local: modelos"), "IA local", 1, p_ialocal, NULL, d_ialocal, t_ialocal, NULL, NULL, iv_ialocal, tq_ialocal },
@@ -5154,7 +6232,7 @@ static int seccion_por_nombre(const char *n)
         { "pantalla", S_TELA }, { "salvapantallas", S_ENERGIA }, { "bateria", S_ENERGIA }, { "resolucion", S_TELA }, { "aceleracion", S_ACEL }, { "gpu", S_ACEL }, { "fecha", S_ZONA },
         { "hora", S_ZONA }, { "fondo", S_COLORES }, { "colores", S_COLORES }, { "apariencia", S_ESTILOS }, { "esquemas", S_ESTILOS }, { "temas", S_ESTILOS }, { "fuente", S_FUENTES }, { "sonido", S_SONIDO },
         { "teclado", S_TECLADO }, { "mandos", S_MANDOS }, { "joystick", S_MANDOS }, { "usuarios", S_USUARIOS },
-        { "idioma", S_IDIOMA }, { "bloqueo", S_BLOQUEO }, { "interfaz", S_INTERFACES }, { "ifconfig", S_INTERFACES }, { "escritorio-remoto", S_VNC }, { "kernel", S_KERNEL }, { "sonidos-sistema", S_SONIDOS }, { "sonidos-del-sistema", S_SONIDOS },
+        { "idioma", S_IDIOMA }, { "bloqueo", S_BLOQUEO }, { "interfaz", S_INTERFACES }, { "ifconfig", S_INTERFACES }, { "escritorio-remoto", S_VNC }, { "webdav", S_UNIDADES_RED }, { "dav", S_UNIDADES_RED }, { "kernel", S_KERNEL }, { "cursor", S_CURSORES }, { "raton", S_CURSORES }, { "sonidos-sistema", S_SONIDOS }, { "sonidos-del-sistema", S_SONIDOS },
     };
     for (int i = 0; i < S_QTD; i++) if (compara_texto(n, seccoes[i].chave) == 0) return i;
     for (unsigned i = 0; i < sizeof alias / sizeof alias[0]; i++) if (compara_texto(n, alias[i].alias) == 0) return alias[i].s;
@@ -5295,7 +6373,13 @@ static void deshacer_apertura(void)
         else if (acento_ini && ap.acento != acento_ini) acento_cor((int)acento_ini);
     }
     if (compara_texto(conf.idioma, conf0.idioma) != 0 && conf0.idioma[0]) idioma_fijar(conf0.idioma);
-    if (compara_texto(conf.fundo, conf0.fundo) != 0 || conf.modo != conf0.modo) fundo_aplicar(conf0.fundo, conf0.fundo[0] ? conf0.modo : M_DEGRADE);
+    if (conf.tipo != conf0.tipo || conf.color_solido != conf0.color_solido || conf.color != conf0.color ||
+        compara_texto(conf.fundo, conf0.fundo) != 0 || conf.modo != conf0.modo) {   /* D483 */
+        conf.tipo = conf0.tipo; conf.tipo_def = conf0.tipo_def; conf.color_solido = conf0.color_solido; conf.color = conf0.color;
+        copia_texto(conf.fundo, conf0.fundo, sizeof conf.fundo);
+        conf.modo = conf0.modo;
+        fondo_aplicar_tipo();
+    }
     conf.teclado = conf0.teclado; conf.volume = conf0.volume; conf.silencio = conf0.silencio;
     conf.son_def = (conf.son_def & ~3) | (conf0.son_def & 3);
     conf.balance = conf0.balance; conf.latencia = conf0.latencia;
@@ -5305,6 +6389,8 @@ static void deshacer_apertura(void)
     copia_texto(conf.idioma, conf0.idioma, sizeof conf.idioma);
     copia_texto(conf.fundo, conf0.fundo, sizeof conf.fundo);
     conf.modo = conf0.modo;
+    copia_texto(conf.rot_pasta, conf0.rot_pasta, sizeof conf.rot_pasta);   /* D483 */
+    conf.rot_seg = conf0.rot_seg; conf.rot_azar = conf0.rot_azar; conf.rot_corte = conf0.rot_corte; conf.acento_auto = conf0.acento_auto;
     copia_texto(conf.capturas, conf0.capturas, sizeof conf.capturas); conf.cap_sonido = conf0.cap_sonido;
     copia_texto(conf.fuente_doc, conf0.fuente_doc, sizeof conf.fuente_doc);
     copia_texto(conf.fuente_tit, conf0.fuente_tit, sizeof conf.fuente_tit);
@@ -5477,6 +6563,8 @@ static int janela(int sec_inicial)
     lista_vnc = (lista_t){ 24, Y_PAG + 238, 200, 80, itens_vnc, 0, -1, 0, NULL };
     c_capturas = (caixa_t){ .x = XL, .y = 0, .l = 200, .foco = true };
     caixa_definir(&c_capturas, conf.capturas);
+    c_rot = (caixa_t){ .x = XL, .y = 0, .l = 200, .foco = true };
+    caixa_definir(&c_rot, conf.rot_pasta);
     lista_zona = (lista_t){ 24, Y_PAG + 34, 200, 100, itens_zona, 0, -1, 0, NULL };
     lista_modo = (lista_t){ 24, 40, 200, 100, itens_modo, 0, -1, 0, NULL };
     lista_img = (lista_t){ XL, 0, 200, 100, itens_img, 0, -1, 0, NULL };
@@ -5577,6 +6665,7 @@ static int janela(int sec_inicial)
 int principal(int argc, char **argv)
 {
     if (argc >= 2 && compara_texto(argv[1], "--aplicar") == 0) return aplicar_tudo(argc, argv);
+    if (argc >= 2 && compara_texto(argv[1], "--rotar") == 0) return rotar_servicio();   /* D483 */
     if (argc >= 2 && compara_texto(argv[1], "--usuarios") == 0) return janela(S_USUARIOS);   /* D340 */
     if (argc >= 2 && compara_texto(argv[1], "--ventana") != 0 && compara_texto(argv[1], "--seccion") != 0) return linha_de_comandos(argc, argv);
     /* «--ventana [SECCION]» o «--seccion SECCION»: la ventana, abierta en esa sección (D367) */

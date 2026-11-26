@@ -211,9 +211,16 @@ void virgl_ctx_destruir(uint32_t ctx)
 bool virgl_recurso_crear(uint32_t ctx, uint32_t id, uint32_t tipo, uint32_t fmt, uint32_t bind, uint32_t l, uint32_t a,
                          void *respaldo, uint32_t bytes)
 {
+    return virgl_recurso_crear2(ctx, id, tipo, fmt, bind, l, a, 1, 1, 0, respaldo, bytes);
+}
+
+/* D480: con profundidad, capas (un cubo: 6) y último nivel de mipmap */
+bool virgl_recurso_crear2(uint32_t ctx, uint32_t id, uint32_t tipo, uint32_t fmt, uint32_t bind, uint32_t l, uint32_t a,
+                          uint32_t prof, uint32_t capas, uint32_t ult_nivel, void *respaldo, uint32_t bytes)
+{
     cmd_crear3d_t c; cab(&c.c, CMD_CREAR_3D, false, ctx);
-    c.id = id; c.tipo = tipo; c.fmt = fmt; c.bind = bind; c.l = l; c.a = a; c.prof = 1; c.capas = 1;
-    c.nivel = 0; c.muestras = 0; c.flags = 0; c.pad = 0;
+    c.id = id; c.tipo = tipo; c.fmt = fmt; c.bind = bind; c.l = l; c.a = a; c.prof = prof; c.capas = capas;
+    c.nivel = ult_nivel; c.muestras = 0; c.flags = 0; c.pad = 0;
     if (!orden(&c, sizeof c, 500)) return false;
     if (respaldo) {
         cmd_respaldo_t r; cab(&r.c, CMD_RESPALDO, false, ctx);
@@ -237,8 +244,15 @@ void virgl_recurso_soltar(uint32_t id)
 bool virgl_transferir(uint32_t ctx, bool a_host, uint32_t id, uint32_t x, uint32_t y, uint32_t l, uint32_t a, uint32_t stride,
                       uint32_t desl, bool valla, uint32_t ms)
 {
+    return virgl_transferir2(ctx, a_host, id, 0, x, y, 0, l, a, stride, desl, valla, ms);
+}
+
+/* D480: de un nivel de mipmap y una capa (la cara de un cubo es z) */
+bool virgl_transferir2(uint32_t ctx, bool a_host, uint32_t id, uint32_t nivel, uint32_t x, uint32_t y, uint32_t z, uint32_t l, uint32_t a,
+                       uint32_t stride, uint32_t desl, bool valla, uint32_t ms)
+{
     cmd_transf_t t; cab(&t.c, a_host ? CMD_TRANSF_A_HOST : CMD_TRANSF_DEL_HOST, valla, ctx);
-    t.x = x; t.y = y; t.z = 0; t.l = l; t.a = a; t.p = 1; t.desl = desl; t.id = id; t.nivel = 0; t.stride = stride; t.stride_capa = 0;
+    t.x = x; t.y = y; t.z = z; t.l = l; t.a = a; t.p = 1; t.desl = desl; t.id = id; t.nivel = nivel; t.stride = stride; t.stride_capa = 0;
     return orden(&t, sizeof t, ms);
 }
 

@@ -1,0 +1,41 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>T1 tablas</title>
+<style>
+body{margin:0;font:12px sans-serif;background:#fff}
+#o{position:absolute;left:0;top:0;width:8px;height:8px;background:#f0f}
+.w{position:absolute;left:10px}
+table{border-collapse:separate;border-spacing:0}
+td{padding:0;border:0}
+i{display:block;height:20px}
+.r{background:#f00}.g{background:#008000}.b{background:#00f}.y{background:#ff0}.c{background:#0ff}.m{background:#f80}.p{background:#808}
+#t1{top:10px}#t2{top:100px}#t3{top:200px}#t4{top:300px}#t5{top:380px}#t6{top:450px}
+#fix{table-layout:fixed;width:300px}
+#fix i.largo{width:400px}
+#pct{width:400px}
+</style></head><body><div id="o"></div>
+<!-- 1: colspan -->
+<div class="w" id="t1"><table>
+<tr><td class="r" colspan="2"><i style="width:100px"></i></td><td class="b"><i style="width:30px"></i></td></tr>
+<tr><td class="g"><i style="width:40px"></i></td><td class="y"><i style="width:40px"></i></td><td class="c"><i style="width:30px"></i></td></tr>
+</table></div>
+<!-- 2: rowspan -->
+<div class="w" id="t2"><table>
+<tr><td class="r" rowspan="2"><i style="width:40px;height:50px"></i></td><td class="b"><i style="width:40px"></i></td></tr>
+<tr><td class="g"><i style="width:40px"></i></td></tr>
+</table></div>
+<!-- 3: table-layout fixed -->
+<div class="w" id="t3"><table id="fix">
+<tr><td class="r" style="width:100px"><i></i></td><td class="b" style="width:50px"><i></i></td><td class="g"><i></i></td></tr>
+<tr><td class="y"><i class="largo"></i></td><td class="c"><i></i></td><td class="m"><i></i></td></tr>
+</table></div>
+<!-- 4: porcentajes -->
+<div class="w" id="t4"><table id="pct">
+<tr><td class="r" style="width:25%"><i style="width:10px"></i></td><td class="b"><i style="width:10px"></i></td><td class="g" style="width:50%"><i style="width:10px"></i></td></tr>
+</table></div>
+<!-- 5: anchos explícitos, colspan con rowspan -->
+<div class="w" id="t5"><table>
+<tr><td class="r" style="width:120px"><i style="width:10px"></i></td><td class="b" colspan="2"><i style="width:60px"></i></td></tr>
+<tr><td class="g" rowspan="2"><i style="width:10px"></i></td><td class="y"><i style="width:20px"></i></td><td class="c"><i style="width:20px"></i></td></tr>
+<tr><td class="m" colspan="2"><i style="width:30px"></i></td></tr>
+</table></div>
+</body></html>

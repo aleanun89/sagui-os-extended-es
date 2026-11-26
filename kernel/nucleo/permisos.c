@@ -76,7 +76,9 @@ static const uint8_t classe[SIS_MAX] = {
     [SIS_MODOS_VIDEO] = L, [SIS_MUDAR_MODO] = L,      /* la resolución: preferencia del usuario */
     [SIS_PORTATIL] = O,                    /* D403: estado, brillo y acciones; los avisos simulados y las tablas, root */
     [SIS_TELAS] = O,                       /* D290: varias pantallas; D371: guardarlas es de la máquina */
-    [SIS_FUNDO] = L, [SIS_ACENTO] = L, [SIS_ESQUEMA] = L,
+    [SIS_FUNDO] = L, [SIS_ACENTO] = L, [SIS_ESQUEMA] = L, [SIS_CURSOR] = L,
+    [SIS_PONTE] = L,                       /* D485: cada cuenta sus unidades de red; quién puede qué se mira dentro */
+    [SIS_CHAVEIRO] = L,                    /* D485: la clave del llavero de la propia cuenta (root, la de cualquiera) */
     [SIS_ALEATORIO] = L, [SIS_INFO_ALEATORIO] = L,
     /* Sonido */
     [SIS_BIP] = L, [SIS_AUDIO_ABRIR] = L, [SIS_AUDIO_ESCREVER] = L, [SIS_AUDIO_CONTROLE] = L,

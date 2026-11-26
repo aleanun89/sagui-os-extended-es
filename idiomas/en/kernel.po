@@ -1110,3 +1110,22 @@ msgstr "Stopping services..."
 #: kernel/gui/barra.c:1220
 msgid "Arara (diagramas)"
 msgstr "Arara (diagrams)"
+
+#: D483
+msgid "Siguiente fondo"
+msgstr "Next background"
+
+#: D485
+#, c-format
+msgid "Unidad de red %s: sin conexión"
+msgstr "Network drive %s: no connection"
+
+#: D485
+#, c-format
+msgid "Unidad de red %s: conectada"
+msgstr "Network drive %s: connected"
+
+#: D485
+#, c-format
+msgid "Unidades de red: %d (%d sin conexión)"
+msgstr "Network drives: %d (%d without connection)"

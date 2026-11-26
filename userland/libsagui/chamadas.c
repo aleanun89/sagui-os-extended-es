@@ -100,6 +100,7 @@ int  bip(int freq, int ms)
 int  teclas_seguradas(unsigned char mapa[32]) { return chamar(SIS_TECLAS_SEGURADAS, (unsigned)mapa, 0, 0); }
 int  teclado_layout(int layout)        { return chamar(SIS_TECLADO, (unsigned)layout, 0, 0); }
 int  acento_cor(int rgb)               { return chamar(SIS_ACENTO, (unsigned)rgb, 0, 0); }
+int  cursor_op(unsigned op, unsigned tema, unsigned tamano) { return chamar(SIS_CURSOR, op, tema, tamano); }   /* D482 */
 int  esquema_op(unsigned op, void *ptr, unsigned n) { return chamar(SIS_ESQUEMA, op, (unsigned)ptr, n); }   /* D428 */
 void silenciar(void)                  { chamar(SIS_BIP, 0, 0, 0); }
 
@@ -235,3 +236,12 @@ int  esperar_pid(int pid, int *estado, int opcoes)
 int  sinal_op(int op, unsigned a, unsigned b, unsigned c) { return chamar4(SIS_SINAL, (unsigned)op, a, b, c); }
 int  sondar(sondagem_t *v, unsigned n, int ms) { return chamar(SIS_SONDAR, (unsigned)v, n, (unsigned)ms); }
 int  descritor_op(int fd, int op, unsigned arg) { return chamar(SIS_DESCRITOR, (unsigned)fd, (unsigned)op, arg); }
+
+/* D485: el puente de las unidades de red (cuatro argumentos además de la operación: EDI) y el llavero. */
+int ponte_op(int op, unsigned a, unsigned b, unsigned c, unsigned d)
+{
+    int r;
+    __asm__ volatile("int $0x80" : "=a"(r) : "a"(SIS_PONTE), "b"(op), "c"(a), "d"(b), "S"(c), "D"(d) : "memory");
+    return r;
+}
+int chaveiro_op(int op, unsigned a, const void *b) { return chamar(SIS_CHAVEIRO, (unsigned)op, a, (unsigned)b); }

@@ -40,6 +40,7 @@
 #include "cpu.h"
 #include "telas.h"
 #include "virtio_gpu.h"
+#include "cursores.h"
 
 static bool ativo;
 static uint32_t larg, alt, pitch, bpp, bytes_px;   /* larg y alt: el escritorio; pitch, bpp y bytes_px: la cabeza 0 (bpp = profundidad, 15 ocupa 2 bytes) */
@@ -58,15 +59,27 @@ static int cur_x, cur_y, cur_ant_x, cur_ant_y;
 static bool cur_visivel, cur_ant_visivel;
 /* D230: donde el cursor no se dibuja (la punta de la flecha dentro = oculto). */
 static int zona_x0, zona_y0, zona_x1, zona_y1;
-#define CUR_L 12
-#define CUR_A 19
-_Static_assert(CUR_L == VIDEO_CUR_L && CUR_A == VIDEO_CUR_A, "video.h: tamaño de la flecha");
-static const char *const seta[CUR_A] = {
-    "#           ", "##          ", "#.#         ", "#..#        ", "#...#       ",
-    "#....#      ", "#.....#     ", "#......#    ", "#.......#   ", "#........#  ",
-    "#.........# ", "#......#####", "#...#..#    ", "#..# #..#   ", "#.#  #..#   ",
-    "##    #..#  ", "#     #..#  ", "       ##   ", "            ",
-};
+/* D482: tema y tamaño del cursor (cursores.h); CUR_L y CUR_A son lo que ocupa ahora. */
+static int cur_tema, cur_tam, cur_l = CURSOR_BASE_L, cur_a = CURSOR_BASE_A;
+#define CUR_L cur_l
+#define CUR_A cur_a
+
+/* El píxel del cursor (con alfa) sobre lo que hay en el búfer de atrás en (x, y). Devuelve false si es transparente. */
+static bool cursor_cor(int i, int j, int x, int y, uint32_t *c)
+{
+    uint32_t p = cursor_pixel(cur_tema, cur_tam, i, j);
+    uint32_t al = p >> 24;
+    if (al == 0) return false;
+    if (al < 255) {
+        uint32_t d = (uint32_t)x < larg && (uint32_t)y < alt ? tras[(uint32_t)y * larg + (uint32_t)x] : 0;
+        uint32_t r = 0;
+        for (int sh = 0; sh <= 16; sh += 8)
+            r |= (((p >> sh & 255) * al + (d >> sh & 255) * (255 - al) + 127) / 255) << sh;
+        p = r;
+    }
+    *c = p & 0xFFFFFFu;
+    return true;
+}
 
 bool video_ativo(void)      { return ativo; }
 uint32_t video_largura(void) { return larg; }
@@ -380,8 +393,8 @@ static void copiar_linha_cursor(int y, int x0, int x1, int cx, int cy)
     if (j < 0 || j >= CUR_A || a >= b) { copiar_linha(y, x0, x1, 0, 0); return; }
     if (x0 < a) copiar_linha(y, x0, a, 0, 0);
     for (int x = a; x < b; x++) {
-        char p = seta[j][x - cx];
-        escrever_pixel_tela(x, y, p == '#' ? 0x000000u : p == '.' ? 0xFFFFFFu : tras[(uint32_t)y * larg + (uint32_t)x]);
+        uint32_t c;
+        escrever_pixel_tela(x, y, cursor_cor(x - cx, j, x, y, &c) ? c : tras[(uint32_t)y * larg + (uint32_t)x]);
     }
     if (b < x1) copiar_linha(y, b, x1, 0, 0);
 }
@@ -442,9 +455,8 @@ static void desenhar_cursor(int x, int y)
 {
     for (int j = 0; j < CUR_A; j++)
         for (int i = 0; i < CUR_L; i++) {
-            char p = seta[j][i];
-            if (p == '#') escrever_pixel_tela(x + i, y + j, 0x000000);
-            else if (p == '.') escrever_pixel_tela(x + i, y + j, 0xFFFFFF);
+            uint32_t c;
+            if (cursor_cor(i, j, x + i, y + j, &c)) escrever_pixel_tela(x + i, y + j, c);
         }
 }
 
@@ -549,6 +561,30 @@ void video_cursor(int x, int y, bool visivel)
 {
     cur_x = x; cur_y = y; cur_visivel = visivel;
 }
+
+/* D482: otro tema o tamaño. Lo que ocupaba la flecha (con su tamaño de antes) y lo que va a ocupar se marcan
+ * para que video_mostrar lo rehaga desde el búfer de atrás y la dibuje de nuevo; por eso también la virtio-gpu
+ * (vg_atualizar), la VMware y las demás cabezas reciben el rectángulo entero. La IRQ del ratón también dibuja:
+ * se cambia con las interrupciones cerradas. Devuelve true si algo cambió. */
+bool video_cursor_estilo(int tema, int tamano)
+{
+    if (tema < 0 || tema >= CURSOR_TEMAS || tamano < 0 || tamano >= CURSOR_TAMANOS) return false;
+    if (tema == cur_tema && tamano == cur_tam) return false;
+    bool ints = int_salva_desliga();
+    if (ativo && cur_ant_visivel) video_marcar(cur_ant_x, cur_ant_y, cur_l, cur_a);
+    cur_tema = tema; cur_tam = tamano;
+    cur_l = cursor_ancho(tamano); cur_a = cursor_alto(tamano);
+    if (ativo) {
+        video_marcar(cur_x, cur_y, cur_l, cur_a);
+        cur_ant_visivel = false;   /* lo que había bajo la flecha vieja ya no vale: se vuelve a dibujar entera */
+        video_mostrar();
+    }
+    int_restaura(ints);
+    return true;
+}
+void video_cursor_estilo_ler(int *tema, int *tamano) { if (tema) *tema = cur_tema; if (tamano) *tamano = cur_tam; }
+int  video_cursor_largura(void) { return cur_l; }
+int  video_cursor_altura(void) { return cur_a; }
 
 bool video_zona_sem_cursor(int x, int y, int l, int a)
 {

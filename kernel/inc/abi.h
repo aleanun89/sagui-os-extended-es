@@ -214,7 +214,12 @@
  * 140: las 140-146 son de la rama de procesos POSIX (v8.5.5.1). */
 #define SIS_PORTATIL      150   /* (PORTATIL_*, a, b, c) -> según la operación */
 #define SIS_ESQUEMA       151   /* D428: (op ESQ_OP_*, ptr, n) esquema de apariencia de todo el sistema (esquemas.h) */
-#define SIS_MAX           152
+#define SIS_CURSOR        152   /* D482: (CURSOR_OP_*, tema, tamaño) cursor del ratón (cursores.h) */
+/* D485 (v8.5.6.5): unidades de red. El puente del VFS a un servidor de usuario (PONTE_*, abajo) y el
+ * llavero de cada cuenta en la memoria del kernel (CHAVEIRO_*, abajo). La 158 y la 159 para dejar sitio. */
+#define SIS_PONTE         158   /* (PONTE_*, a, b, c, d) -> según la operación */
+#define SIS_CHAVEIRO      159   /* (CHAVEIRO_*, a, b) -> según la operación */
+#define SIS_MAX           160
 
 /* SIS_USUARIO (D255). Cada proceso tiene un usuario (uid) y un grupo (gid);
  * los hijos y los hilos los heredan. Solo root (uid 0) los cambia. Lo que
@@ -636,6 +641,8 @@ typedef struct {
 #define MONTAR_COM_UMASK       0x08
 #define MONTAR_UMASK(o)        (((o) >> 16) & 0777)
 #define MONTAR_COM_MASCARA(m)  (MONTAR_COM_UMASK | ((unsigned)(m) & 0777) << 16)
+/* D485: nada de ese montaje se ejecuta (programas, intérpretes, bibliotecas): el noexec de Linux. */
+#define MONTAR_SEM_EXEC        0x10
 #define MONTAR_TIPO(o)   (((o) >> 8) & 0xF)
 #define MONTAR_AUTO      0x000
 #define MONTAR_FAT32     0x100
@@ -702,6 +709,77 @@ typedef struct {
     unsigned int tipo;
     unsigned int tamanho;
 } entrada_pasta_t;
+
+/* ---- D485: el puente del VFS (SIS_PONTE) ----
+ * Un proceso de usuario (el servicio «dav») monta una unidad en /red/<nombre> y atiende las operaciones de
+ * archivos que los demás programas hacen en ella: las recoge con PONTE_RECEBER y contesta con PONTE_RESPONDER.
+ * El kernel espera cada respuesta con plazo; sin conexión (PONTE_ESTADO) contesta él mismo con ERRO_SEM_REDE.
+ * Solo la cuenta que montó (y root) ve la unidad, y nada de ella se ejecuta (MONTAR_SEM_EXEC). */
+#define PONTE_MONTAR      1   /* (&ponte_montar_t) -> canal (>= 0) */
+#define PONTE_RECEBER     2   /* (canal, buf, max, ms) -> bytes de un ponte_pedido_t y sus datos; 0 = nada en ms */
+#define PONTE_RESPONDER   3   /* (canal, buf, n) -> 0: buf = ponte_resposta_t y sus datos */
+#define PONTE_ESTADO      4   /* (canal, PONTE_EST_*) -> 0 */
+#define PONTE_DESMONTAR   5   /* (canal) -> 0 */
+#define PONTE_LISTAR      6   /* (&ponte_info_t[], n) -> cuántas (solo las de la cuenta; root, todas) */
+#define PONTE_MAX         6
+#define PONTE_NOME_MAX    25  /* letras, números, «-» y «_» (hasta 24) */
+#define PONTE_ROTULO_MAX  96  /* lo que se enseña (la URL sin usuario ni contraseña) */
+#define PONTE_DADOS       32768   /* datos de un mensaje, como mucho */
+#define PONTE_EST_DESCONECTADA 0
+#define PONTE_EST_CONECTADA    1
+#define PONTE_EST_CONECTANDO   2
+/* Operaciones que llegan al servidor (ponte_pedido_t.op). */
+#define PO_INFO           1   /* caminho -> tipo, tamanho, modificado */
+#define PO_LISTAR         2   /* caminho, pos = primer índice, n = cuántas como mucho -> n entradas (entrada_pasta_t) */
+#define PO_ABRIR          3   /* caminho, modo (ABRIR_*) -> arq, tamanho */
+#define PO_LER            4   /* arq, pos, n -> n bytes */
+#define PO_ESCREVER       5   /* arq, pos, n bytes de datos -> tamanho (el nuevo del fichero) */
+#define PO_TRUNCAR        6   /* arq, pos = tamaño */
+#define PO_FECHAR         7   /* arq (sin respuesta: id 0) */
+#define PO_SINCRONIZAR    8   /* arq: subirlo ya */
+#define PO_CRIAR_PASTA    9   /* caminho */
+#define PO_REMOVER_PASTA 10   /* caminho */
+#define PO_APAGAR        11   /* caminho */
+#define PO_RENOMEAR      12   /* caminho -> destino */
+typedef struct {
+    char         nome[PONTE_NOME_MAX];
+    char         rotulo[PONTE_ROTULO_MAX];
+    unsigned int opcoes;          /* MONTAR_SO_LEITURA */
+} ponte_montar_t;
+typedef struct {
+    char         nome[PONTE_NOME_MAX];
+    char         rotulo[PONTE_ROTULO_MAX];
+    unsigned int estado;          /* PONTE_EST_* */
+    unsigned int uid;
+    int          pid;             /* el servidor */
+    unsigned int pedidos, erros, tempo_esgotado;   /* contadores desde que se montó */
+    unsigned int canal;           /* para PONTE_DESMONTAR */
+} ponte_info_t;
+typedef struct {
+    unsigned int id;              /* 0 = no se contesta (PO_FECHAR) */
+    unsigned int op;              /* PO_* */
+    unsigned int uid;             /* quién lo pide */
+    unsigned int arq;             /* el número de fichero abierto que dio el servidor */
+    unsigned int pos, n, modo;
+    char         caminho[128];    /* relativo a la unidad, sin «/» al principio ("" = la raíz) */
+    char         destino[128];    /* PO_RENOMEAR */
+    /* siguen n bytes de datos (PO_ESCREVER) */
+} ponte_pedido_t;
+typedef struct {
+    unsigned int id;
+    int          resultado;       /* 0 o ERRO_* */
+    unsigned int tipo, tamanho, modificado, arq;
+    unsigned int n;               /* bytes de datos que siguen (PO_LER) o entradas (PO_LISTAR) */
+} ponte_resposta_t;
+
+/* ---- D485: el llavero de la cuenta (SIS_CHAVEIRO) ----
+ * Una clave de 32 bytes por uid, solo en la memoria del kernel. La pone el gestor de servicios al comprobar la
+ * contraseña de la cuenta al entrar (root, para ese uid) o la propia cuenta (contraseña propia del llavero);
+ * solo la toma la propia cuenta. Se olvida al cerrar la sesión. */
+#define CHAVEIRO_POR      1   /* (uid, &clave[32]) -> 0 */
+#define CHAVEIRO_TOMAR    2   /* (&clave[32]) -> 0, o ERRO_NAO_EXISTE */
+#define CHAVEIRO_ESQUECER 3   /* (uid) -> 0 */
+#define CHAVEIRO_TAM      32
 
 /* SIS_INFO_ALEATORIO (D061) */
 #define ALEA_RDRAND 1   /* a CPU tem RDRAND (e ele funciona) */
@@ -1700,6 +1778,119 @@ typedef struct {
     unsigned int  reservado[2];
 } gpu3d_limpar2_t;
 
+/* ---- gpu3d v4 (D480): sombreadores programables (SaguiGL 2.0 / OpenGL ES 2.0) por la GPU ----
+ * Se añade a v1-v3 sin cambiarlas. La libsgl traduce la RI de sus sombreadores a TGSI en texto (sgl_tgsi.c) y el
+ * kernel solo los entrega al driver; todo lo demás es estado de ES 2.0 ya resuelto: programas (un par de
+ * sombreadores), recursos (texturas 2D y cubo con niveles, destinos de color y Z/esténcil), subidas de píxeles, un
+ * dibujo con sus atributos, uniformes, texturas y estado de fragmentos, limpiar y leer. Los reales van como bits de
+ * IEEE 754 (el kernel no usa coma flotante). Un driver sin v4 contesta GPU3D_SEM_SUPORTE a GPU3D_OP_V4_CAPS y la
+ * libsgl sigue por la CPU. Se usa tras GPU3D_OP_ABRIR (que toma el motor; el destino v1 de ese ABRIR no se usa).
+ * docs/gpu3d.md y docs/saguigl2.md. */
+#define GPU3D_OP_V4_CAPS      19  /* ptr = gpu3d_v4_caps_t */
+#define GPU3D_OP_V4_PROGRAMA  20  /* a = hueco (0 .. G3D4_PROGRAMAS - 1), ptr = gpu3d_v4_prog_t (ptr 0: soltarlo) */
+#define GPU3D_OP_V4_RECURSO   21  /* ptr = gpu3d_v4_rec_t (larg 0: soltarlo) */
+#define GPU3D_OP_V4_SUBIR     22  /* ptr = gpu3d_v4_subir_t */
+#define GPU3D_OP_V4_DESENHAR  23  /* ptr = gpu3d_v4_des_t */
+#define GPU3D_OP_V4_LIMPAR    24  /* ptr = gpu3d_v4_limpar_t */
+#define GPU3D_OP_V4_LER       25  /* ptr = gpu3d_v4_ler_t: espera a la GPU y copia un rectángulo de un recurso */
+#define GPU3D_OP_V4_INFORME   26  /* a = 1 bien / 2 mal, b = diferencias: la autoprueba v4 de la libsgl lo anota en el log */
+#define G3D4_PROGRAMAS   64
+#define G3D4_RECURSOS    512
+#define G3D4_ATRIBS      16
+#define G3D4_AMOSTRAS    8       /* samplers por etapa */
+#define G3D4_UNIF_MAX    256     /* vectores de uniformes por etapa */
+#define G3D4_TGSI_MAX    32768   /* bytes de un sombreador en texto, con el 0 final */
+#define G3D4_BYTES_MAX   (1u << 20)   /* vértices e índices de un dibujo */
+#define G3D4_NIVEIS      12
+#define G3D4_C_V4        0x01u   /* el driver sabe v4 */
+#define G3D4_C_ESTENCIL  0x02u   /* un recurso Z/esténcil puede llevar esténcil de 8 bits */
+#define G3D4_C_CUBO      0x04u   /* texturas cubo */
+typedef struct {
+    unsigned int versao;        /* 4 */
+    unsigned int bits;          /* G3D4_C_* */
+    unsigned int max_lado;
+    unsigned int max_recursos;
+    unsigned int max_programas;
+    unsigned int max_bytes;     /* G3D4_BYTES_MAX o menos */
+    unsigned int reservado[10];
+} gpu3d_v4_caps_t;
+typedef struct { unsigned int vs, nvs, fs, nfs; } gpu3d_v4_prog_t;     /* TGSI en texto; n incluye el 0 final */
+#define G3D4_R_TEX2D  1         /* textura 2D con niveis niveles */
+#define G3D4_R_CUBO   2         /* textura cubo (6 caras) */
+#define G3D4_R_ALVO   3         /* destino de color (también se muestrea: es una textura 2D de un nivel) */
+#define G3D4_R_ZE     4         /* profundidad (zbits 16 o 24) con o sin esténcil de 8 bits */
+typedef struct { unsigned int id, tipo, larg, alt, niveis, zbits, estencil, flags; } gpu3d_v4_rec_t;   /* id 1 .. G3D4_RECURSOS - 1 */
+typedef struct {
+    unsigned int id, nivel, face;
+    unsigned int x, y, larg, alt;
+    unsigned int dados;         /* píxeles 0xAARRGGBB, larg x alt */
+    unsigned int passo;         /* bytes por fila de dados */
+    unsigned int invertir;      /* 1: la fila j de dados va a la fila alt - 1 - j del rectángulo (el framebuffer por defecto está al revés) */
+} gpu3d_v4_subir_t;
+/* un atributo del sombreador de vértices; el índice es el registro de entrada de la RI */
+typedef struct {
+    unsigned int ativo;         /* 0: constante cte (glVertexAttrib); 1: datos */
+    unsigned int comps;         /* 1 a 4 floats por vértice */
+    unsigned int passo;         /* bytes entre vértices (>= comps * 4) */
+    unsigned int dados;         /* nverts vértices; ya empieza en el primero que se dibuja */
+    unsigned int cte[4];
+} gpu3d_v4_atrib_t;
+#define G3D4_PRIM_PONTOS     0
+#define G3D4_PRIM_LINHAS     1
+#define G3D4_PRIM_TRIANGULOS 4
+#define G3D4_PRIM_TIRA       5
+#define G3D4_PRIM_LEQUE      6
+typedef struct {
+    unsigned int func, ref, masc_v, masc_e, falha, zfalha, zpassa;   /* func: 0 NEVER .. 7 ALWAYS; ops: 0 KEEP 1 ZERO 2 REPLACE 3 INCR 4 DECR 5 INCR_WRAP 6 DECR_WRAP 7 INVERT */
+} gpu3d_v4_est_t;
+typedef struct {
+    unsigned int mez_on, eq_rgb, eq_a;           /* eq: 0 ADD 1 SUBTRACT 2 REVERSE_SUBTRACT */
+    unsigned int src_rgb, dst_rgb, src_a, dst_a; /* factores: 0 ZERO 1 ONE 2 SRC_COLOR 3 INV_SRC_COLOR 4 DST_COLOR 5 INV_DST_COLOR 6 SRC_ALPHA 7 INV_SRC_ALPHA 8 DST_ALPHA 9 INV_DST_ALPHA 10 CONST_COLOR 11 INV_CONST_COLOR 12 CONST_ALPHA 13 INV_CONST_ALPHA 14 SRC_ALPHA_SATURATE */
+    unsigned int cor_mez[4];                     /* bits de float */
+    unsigned int masc_cor;                       /* bits 0 R, 1 G, 2 B, 3 A */
+    unsigned int z_on, z_func, z_escrita;
+    unsigned int est_on;
+    gpu3d_v4_est_t est[2];                       /* [0] caras de frente, [1] de espaldas */
+    unsigned int cull;                           /* 0 nada, 1 elimina las de frente, 2 las de espaldas, 3 todas */
+    unsigned int frente_ccw;
+    unsigned int off_on, off_fator, off_unid;    /* bits de float */
+    unsigned int tij_on; int tij[4];             /* x, y, ancho, alto */
+    int          vp[4];
+    unsigned int z_escala, z_trasl;              /* bits de float: (far - near) / 2 y (far + near) / 2 (la libsgl los calcula) */
+} gpu3d_v4_estado_t;
+typedef struct {
+    unsigned int rec;           /* recurso de textura (0: ninguno, negro opaco como una textura incompleta) */
+    unsigned int min_img, min_mip, mag_img;      /* img: 0 vecino 1 lineal; mip: 0 sin 1 vecino 2 lineal */
+    unsigned int wrap_s, wrap_t;                 /* 0 REPEAT 1 CLAMP_TO_EDGE 2 MIRRORED_REPEAT */
+} gpu3d_v4_amostra_t;
+typedef struct {
+    unsigned int programa;
+    unsigned int modo;                           /* G3D4_PRIM_* */
+    unsigned int nverts;                         /* vértices de los atributos (con índices, el rango que cubren) */
+    unsigned int n;                              /* vértices o índices que se dibujan */
+    unsigned int tipo_ind;                       /* 0 sin índices, 2 de 16 bits, 4 de 32 (ya restada la base) */
+    unsigned int indices;
+    unsigned int alvo_cor, alvo_ze;              /* recursos (alvo_ze 0: sin Z ni esténcil) */
+    unsigned int natrib;                         /* registros de entrada de vértices del programa */
+    gpu3d_v4_atrib_t at[G3D4_ATRIBS];
+    unsigned int unif[2], nunif[2];              /* vs y fs: nunif vectores de 4 floats (bits) */
+    gpu3d_v4_amostra_t am[2][G3D4_AMOSTRAS];     /* [etapa][sampler del sombreador] */
+    unsigned int namostras[2];
+    gpu3d_v4_estado_t e;
+} gpu3d_v4_des_t;
+typedef struct {
+    unsigned int alvo_cor, alvo_ze;
+    unsigned int mascara;       /* 1 color, 2 Z, 4 esténcil */
+    unsigned int cor[4];        /* bits de float */
+    unsigned int z_lo, z_hi;    /* el Z como double (bits) */
+    unsigned int est;
+} gpu3d_v4_limpar_t;
+typedef struct {
+    unsigned int rec, x, y, larg, alt;
+    unsigned int dest;          /* fila j (la y + j del recurso) en dest + j * passo */
+    int          passo;         /* bytes; puede ser negativo (el framebuffer por defecto va de abajo arriba) */
+} gpu3d_v4_ler_t;
+
 typedef struct {
     unsigned int versao;        /* 1 */
     unsigned int estado;        /* GPU3D_* */
@@ -2504,7 +2695,12 @@ typedef struct {
     int          largura, altura;   /* área de conteúdo */
     unsigned int foco;       /* 1 = é a janela de cima */
     char         titulo[48];
+    unsigned int estado;     /* D484: JAN_EST_*; sonidos del sistema (/bin/sonidos --vigilar) detecta minimizar y maximizar */
 } info_janela_t;
+#define JAN_EST_MINIMIZADA 1u
+#define JAN_EST_MAXIMIZADA 2u
+#define JAN_EST_TELA_CHEIA 4u
+#define JAN_EST_WIDGET     8u   /* widget del escritorio / ventana sin marco normal: no es una ventana "de la persona" */
 
 typedef struct {
     char         versao[32];

@@ -303,6 +303,9 @@ int  teclado_layout(int layout);   /* TECLADO_ES, TECLADO_ABNT2 o -1 = sólo con
 int  fundo_enviar(int op, const uint32_t *px, int y, int n);   /* FUNDO_LINHAS/FIM/PADRAO; n líneas del ancho de la pantalla */
 int  acento_cor(int rgb);                                      /* -1 = sólo consultar; devuelve el color actual */
 void tema_ao_mudar(void (*repintar)(void));   /* D428: el programa dice cómo repintarse cuando llega EV_TEMA (tras recargar el esquema) */
+int  cursor_op(unsigned op, unsigned tema, unsigned tamano);   /* D482: SIS_CURSOR (cursores.h): CURSOR_OP_LER / FIJAR */
+int  ponte_op(int op, unsigned a, unsigned b, unsigned c, unsigned d);   /* D485: SIS_PONTE (PONTE_* en abi.h): unidades de red */
+int  chaveiro_op(int op, unsigned a, const void *b);   /* D485: SIS_CHAVEIRO (CHAVEIRO_*): la clave del llavero de la cuenta */
 int  esquema_op(unsigned op, void *ptr, unsigned n);   /* D428: SIS_ESQUEMA (esquemas.h): ESQ_OP_LER / VERSAO / FIJAR / FIJAR_LOGIN */
 
 /* ---- red (D046). IPs como número: 10.0.2.15 = 0x0A00020F ---- */
@@ -346,7 +349,7 @@ typedef struct {
     http_ler_t ler_fn;
     void *ctx;
     int  codigo;                 /* 200, 404... */
-    char cabecalho[4096];        /* línea de estado y campos, terminados en cero */
+    char cabecalho[8192];        /* línea de estado y campos, terminados en cero */
     int  tam_cabecalho;
     int  restante;               /* Content-Length que falta (-1 = hasta cerrar) */
     bool pedacos;                /* Transfer-Encoding: chunked */

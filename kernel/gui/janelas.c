@@ -1709,6 +1709,8 @@ int janelas_listar(void *destino, int n)
         v[k].altura = j->alt;
         v[k].foco = k == qtd - 1 && !j->widget;
         txt_copia_n(v[k].titulo, j->titulo, sizeof v[k].titulo);
+        v[k].estado = (j->minimizada ? JAN_EST_MINIMIZADA : 0) | (j->maximizada ? JAN_EST_MAXIMIZADA : 0) |
+                      (j->tela_cheia ? JAN_EST_TELA_CHEIA : 0) | (j->widget ? JAN_EST_WIDGET : 0);
     }
     return k;
 }

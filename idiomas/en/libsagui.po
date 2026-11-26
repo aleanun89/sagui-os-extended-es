@@ -607,3 +607,23 @@ msgstr "Conky"
 msgid "Texto con datos del sistema (~/.config/conky.conf)"
 msgstr "Text with system data (~/.config/conky.conf)"
 
+#: D485
+#, c-format
+msgid "Red: %s (%s)"
+msgstr "Network: %s (%s)"
+
+#: D485
+msgid "conectada"
+msgstr "connected"
+
+#: D485
+msgid "desconectada"
+msgstr "disconnected"
+
+#: D485
+msgid "conectando"
+msgstr "connecting"
+
+#: D485
+msgid "sin montar"
+msgstr "not mounted"

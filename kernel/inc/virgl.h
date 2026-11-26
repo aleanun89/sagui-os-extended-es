@@ -25,7 +25,10 @@ int  virgl_estado(void);
 #define VC_DIBUJAR          8
 #define VC_ESCRIBIR         9    /* RESOURCE_INLINE_WRITE */
 #define VC_SAMPLER_VIEWS    10
+#define VC_INDICES          11   /* SET_INDEX_BUFFER (D480) */
 #define VC_CONSTANTES       12   /* SET_CONSTANT_BUFFER */
+#define VC_STENCIL_REF      13   /* D480 */
+#define VC_COR_MEZCLA       14   /* SET_BLEND_COLOR (D480) */
 #define VC_TIJERA           15   /* SET_SCISSOR_STATE */
 #define VC_BLIT             16
 #define VC_ASOCIAR_SAMPLERS 18
@@ -52,8 +55,10 @@ int  virgl_estado(void);
 #define BIND_RENDER_TARGET  (1u << 1)
 #define BIND_SAMPLER_VIEW   (1u << 3)
 #define BIND_VERTEX_BUFFER  (1u << 4)
+#define BIND_INDEX_BUFFER   (1u << 5)
 #define TGT_BUFFER          0
 #define TGT_2D              2
+#define TGT_CUBO            4    /* PIPE_TEXTURE_CUBE (D480) */
 #define FMT_BUFFER          64   /* R8_UNORM: los búferes se crean con un formato de un byte */
 #define VSOMBRA_VERTICES    0
 #define VSOMBRA_FRAGMENTOS  1
@@ -72,6 +77,11 @@ void     virgl_ctx_destruir(uint32_t ctx);
 /* respaldo NULL: sin memoria del invitado (el recurso solo vive en el anfitrión: Z, búferes que se escriben en el flujo). */
 bool     virgl_recurso_crear(uint32_t ctx, uint32_t id, uint32_t tipo, uint32_t fmt, uint32_t bind, uint32_t l, uint32_t a,
                              void *respaldo, uint32_t bytes);
+/* D480: recursos con capas y niveles (cubo: capas 6; ult_nivel = último nivel de mipmap) y transferencias a un nivel y capa */
+bool     virgl_recurso_crear2(uint32_t ctx, uint32_t id, uint32_t tipo, uint32_t fmt, uint32_t bind, uint32_t l, uint32_t a,
+                              uint32_t prof, uint32_t capas, uint32_t ult_nivel, void *respaldo, uint32_t bytes);
+bool     virgl_transferir2(uint32_t ctx, bool a_host, uint32_t id, uint32_t nivel, uint32_t x, uint32_t y, uint32_t z, uint32_t l, uint32_t a,
+                           uint32_t stride, uint32_t desl, bool valla, uint32_t ms);
 void     virgl_recurso_soltar(uint32_t id);
 /* a_host: TRANSFER_TO_HOST_3D (si no, FROM). desl: byte del respaldo donde empieza la caja. Con valla, la respuesta
  * llega cuando la GPU terminó todo lo anterior del contexto. */

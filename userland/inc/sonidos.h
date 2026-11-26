@@ -9,7 +9,9 @@
 #ifndef SAGUI_SONIDOS_H
 #define SAGUI_SONIDOS_H
 
-#define SON_EV_N 10
+#define SON_EV_N 16                /* D484: 10 originales (D421, mismo orden) + 6 nuevos */
+#define SON_RUTA_MAX 112
+#define SON_DIR_PRESETS "/home/.config/sonidos"   /* D484: presets «<nombre>.sonidos» y sus audios propios en audio/ */
 #define SON_ARQ_CONF  "/home/.config/sonidos.conf"
 #define SON_DIR_SIS   "/sistema/sonidos"
 #define SON_DIR_PRIV  "/apps/sonidos"
@@ -21,7 +23,16 @@ typedef struct {
     int           volumen;       /* 0-100, de los sonidos del sistema (por defecto 70) */
     char          esquema[32];   /* id de la carpeta; "" o "ninguno" = ninguno */
     unsigned char ev[SON_EV_N];  /* 1 = ese evento suena */
+    /* D484: un sonido por acción. asig[i] = "" (el del esquema), "-" (ninguno) o la ruta de un archivo. */
+    char          asig[SON_EV_N][SON_RUTA_MAX];
+    unsigned char vol[SON_EV_N]; /* 0-100: volumen de esa acción, multiplica al general (por defecto 100) */
+    char          preset[32];    /* el último preset cargado o guardado (informativo) */
 } sonidos_conf_t;
+
+typedef struct {
+    char nombre[32];
+    bool esquema;                /* preset de partida (un esquema instalado): solo lectura */
+} sonidos_preset_t;
 
 typedef struct {
     char id[32];
@@ -38,6 +49,18 @@ int  sonidos_conf_ler(sonidos_conf_t *c);            /* 0 = leída; 1 = no habí
 int  sonidos_conf_gravar(const sonidos_conf_t *c);   /* 0 o < 0 */
 int  sonidos_esquemas(sonidos_esquema_t *v, int max);   /* los instalados (sin «Ninguno»); -> cuántos */
 int  sonidos_ruta(const char *esquema, const char *evento, char *dst, int max);   /* 0 = archivo del evento; < 0 = no lo tiene */
+/* D484: el archivo que suena para la acción i con esta configuración (asignación propia o esquema); 0 = hay, < 0 = no. */
+int  sonidos_ruta_accion(const sonidos_conf_t *c, int i, char *dst, int max);
+int  sonidos_volumen_accion(const sonidos_conf_t *c, int i);   /* general x de la acción, 0-100 */
+/* Presets (D484). Los esquemas instalados cuentan como presets de solo lectura (van primero). */
+int  sonidos_presets(sonidos_preset_t *v, int max);
+int  sonidos_nombre_valido(const char *n);                          /* letras, cifras, - y _ (hasta 31) */
+int  sonidos_preset_guardar(const char *nombre, const sonidos_conf_t *c);   /* 0; -1 nombre malo; -2 es un esquema; < -2 error de E/S */
+int  sonidos_preset_cargar(const char *nombre, sonidos_conf_t *c);  /* conserva «activo»; 0 o < 0 */
+int  sonidos_preset_borrar(const char *nombre);
+int  sonidos_preset_renombrar(const char *viejo, const char *nuevo);
+int  sonidos_preset_exportar(const char *nombre, const char *destino);   /* destino = ruta del .sonidos; copia los audios propios al lado */
+int  sonidos_preset_importar(const char *origen, char *nombre_out, int max);   /* copia el .sonidos (y sus audios) a SON_DIR_PRESETS */
 /* Lanza /bin/sonidos para el evento si está activado (sin esperar): devuelve el pid, 0 si no suena. */
 int  sonido_evento(const char *evento);
 /* Igual, pero espera a que acabe hasta max_ms (y lo mata si se pasa): para el apagado y el reinicio. */

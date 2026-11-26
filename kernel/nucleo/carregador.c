@@ -29,6 +29,7 @@
 #include "vfs.h"
 #include "relogio.h"
 #include "gui.h"
+#include "montagem.h"
 
 /* Límites de argumentos y entorno (D037): los textos van a la pila del
  * programa, así que el total queda en 16 KB. */
@@ -330,6 +331,11 @@ static int carregar_programa(const char *caminho, int argc, char *const argv[], 
     uint32_t tam;
     uint8_t *img;
     memset(cg, 0, sizeof *cg);
+    /* D485: nada se ejecuta desde un montaje sin ejecución (las unidades de red de /red). */
+    if (montagem_sem_exec(caminho)) {
+        klog("[SAGUI] %s: no se ejecuta (montaje sin ejecucion)\n", caminho);
+        return ERRO_ACESSO;
+    }
     int erro = vfs_ler_inteiro(caminho, &img, &tam);
     if (erro < 0) return erro;
 

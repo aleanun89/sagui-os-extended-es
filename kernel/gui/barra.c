@@ -211,17 +211,18 @@ static struct {
     int ocultas[MAX_TAREFAS], nocultas;
     int fim_tarefas;             /* primer x libre después de las tareas */
     int band_x, band_l;          /* la bandeja (D114), a la izquierda del reloj */
-    int nic, ic_id[5], ic_x[5];  /* iconos visibles, de izquierda a derecha */
+    int nic, ic_id[6], ic_x[6];  /* iconos visibles, de izquierda a derecha (D485: hasta seis) */
 } lay;
 
 /* La bandeja del sistema (D114): volumen, red, temperatura y (D192) batería. */
-enum { IC_TEMP, IC_REDE, IC_VOL, IC_BAT, IC_VPN };   /* IC_VPN: D363, solo con el túnel encendido */
+enum { IC_TEMP, IC_REDE, IC_VOL, IC_BAT, IC_VPN, IC_DAV };   /* IC_VPN: D363, solo con el túnel encendido; IC_DAV: D485, con unidades de red */
 #define IC_L      16      /* los iconos se dibujan en 16x16 */
 #define IC_ESP    4
 #define IC_Y      ((g.alt - 1 - IC_L) / 2)
 static bool bandeja_temp_visivel(void);
 static bool bandeja_bat_visivel(void);
 static bool bandeja_vpn_visivel(void);
+static bool bandeja_dav_visivel(void);
 
 static bool inicio_aberto;
 static int minuto_mostrado = -1;
@@ -304,6 +305,7 @@ static void calcular(void)
     if (cfg[BC_BAND_TEMP] && bandeja_temp_visivel()) lay.ic_id[lay.nic++] = IC_TEMP;   /* temperatura, batería, red y, pegado al reloj, el volumen */
     if (cfg[BC_BAND_BAT] && bandeja_bat_visivel()) lay.ic_id[lay.nic++] = IC_BAT;      /* D192: solo con una batería puesta */
     if (bandeja_vpn_visivel()) lay.ic_id[lay.nic++] = IC_VPN;   /* D363: el candado de la VPN, junto a la red; siempre que esté encendida */
+    if (bandeja_dav_visivel()) lay.ic_id[lay.nic++] = IC_DAV;   /* D485: las unidades de red de la sesión, mientras haya alguna montada */
     if (cfg[BC_BAND_RED]) lay.ic_id[lay.nic++] = IC_REDE;
     if (cfg[BC_BAND_VOL]) lay.ic_id[lay.nic++] = IC_VOL;
     lay.band_l = lay.nic ? lay.nic * (IC_L + IC_ESP) - IC_ESP : 0;
@@ -393,7 +395,7 @@ static void registrar(void)
     k = snformatar(s, sizeof s, "[GUI] bandeja %d+%d:", lay.band_x, lay.band_l);
     for (int i = 0; i < lay.nic; i++)
         k += snformatar(s + k, sizeof s - (uint32_t)k, " %s@%d", lay.ic_id[i] == IC_VOL ? "vol" : lay.ic_id[i] == IC_REDE ? "red"
-                        : lay.ic_id[i] == IC_BAT ? "bat" : lay.ic_id[i] == IC_VPN ? "vpn" : "temp", lay.ic_x[i]);
+                        : lay.ic_id[i] == IC_BAT ? "bat" : lay.ic_id[i] == IC_VPN ? "vpn" : lay.ic_id[i] == IC_DAV ? "dav" : "temp", lay.ic_x[i]);
     klog("%s\n", s);
 }
 
@@ -544,6 +546,8 @@ static struct {
     bool bat_avisou;             /* ya se avisó de batería baja en esta bajada */
     int  vpn;                    /* D363: 0 sin túnel, 1 encendido sin saludo, 2 con saludo */
     char vpn_nome[16];
+    int  dav, dav_sem;           /* D485: unidades de red de la sesión y cuántas sin conexión */
+    char dav_nome[PONTE_NOME_MAX];
     info_bateria_t bat;
     uint32_t tique, hash;
 } tb;
@@ -557,6 +561,7 @@ static struct { int ic, x, y, l; char t[72]; } dica = { .ic = -1 };
 static bool bandeja_temp_visivel(void) { return tb.temp_ok; }
 static bool bandeja_bat_visivel(void) { return tb.bat_ok; }
 static bool bandeja_vpn_visivel(void) { return tb.vpn != 0; }
+static bool bandeja_dav_visivel(void) { return tb.dav != 0; }
 
 /* Punto de enganche de la mejora 061 (frecuencia de la CPU): si la CPU está
  * reduciendo la frecuencia por temperatura, el icono lo marca. Hoy sale del
@@ -583,13 +588,14 @@ static uint32_t bandeja_ler(void)
     tb.bat_ok = bateria_estado(&tb.bat);
     bool vpn_con = false;
     tb.vpn = tunel_bandeja(&vpn_con, tb.vpn_nome, sizeof tb.vpn_nome) ? (vpn_con ? 2 : 1) : 0;
+    tb.dav = ponte_bandeja(permisos_uid_inicial(), &tb.dav_sem, tb.dav_nome, sizeof tb.dav_nome);
     tb.lido = true;
     uint32_t h = 2166136261u;
 #define MIST(v) (h = (h ^ (uint32_t)(v)) * 16777619u)
     MIST(tb.som); MIST(tb.vol); MIST(tb.mudo); MIST(tb.rede); MIST(tb.temp_ok); MIST(tb.temp_mc / 1000); MIST(tb.thr);
     MIST(rd.ip); MIST(rd.roteador); MIST(rd.dns); MIST(rd.dhcp_estado); MIST(rd.cabo); MIST(rd.desativada);
     MIST(wf.estado); MIST(wf.qualidade / 25); MIST(wf.seguranca);
-    MIST(tb.vpn); MIST(tb.bat_ok); MIST(tb.bat.porcentagem); MIST(tb.bat.estado); MIST(tb.bat.adaptador); MIST(tb.bat.minutos);
+    MIST(tb.vpn); MIST(tb.dav); MIST(tb.dav_sem); MIST(tb.bat_ok); MIST(tb.bat.porcentagem); MIST(tb.bat.estado); MIST(tb.bat.adaptador); MIST(tb.bat.minutos);
 #undef MIST
     return h;
 }
@@ -694,6 +700,17 @@ static void ico_vpn(superficie_t *s, int x, int y)
     R(2, 7, 12, 8, c);                                       /* el cuerpo */
     R(7, 9, 2, 4, COR_BARRA);                                /* la cerradura */
 }
+/* D485: una unidad (un disco con una antena): verde si todas tienen conexión, gris con una cruz roja si alguna no. */
+static void ico_dav(superficie_t *s, int x, int y)
+{
+    uint32_t c = tb.dav_sem ? COR_ICO_CINZA : COR_ICO_OK;
+    R(1, 9, 14, 6, c);                                       /* el disco */
+    R(11, 11, 2, 2, COR_BARRA);                              /* su luz */
+    R(7, 4, 2, 5, c);                                        /* la antena */
+    R(4, 2, 8, 1, c); R(3, 3, 1, 1, c); R(12, 3, 1, 1, c);   /* las ondas */
+    if (tb.dav_sem)
+        for (int i = 0; i < 5; i++) { R(i, i, 2, 1, COR_ICO_ERRO); R(i, 4 - i, 2, 1, COR_ICO_ERRO); }
+}
 #undef R
 
 static void bandeja_desenhar(superficie_t *s)
@@ -704,6 +721,7 @@ static void bandeja_desenhar(superficie_t *s)
         else if (lay.ic_id[i] == IC_REDE) ico_rede(s, x, IC_Y);
         else if (lay.ic_id[i] == IC_BAT) ico_bateria(s, x, IC_Y);
         else if (lay.ic_id[i] == IC_VPN) ico_vpn(s, x, IC_Y);
+        else if (lay.ic_id[i] == IC_DAV) ico_dav(s, x, IC_Y);
         else ico_temp(s, x, IC_Y);
     }
 }
@@ -724,6 +742,9 @@ static void dica_texto(int id, char *t, int max)
         else snformatar(t, (uint32_t)max, _("Sin tarjeta de red"));
     } else if (id == IC_VPN) {
         snformatar(t, (uint32_t)max, tb.vpn == 2 ? _("VPN: %s (conectada)") : _("VPN: %s (esperando al servidor)"), tb.vpn_nome);
+    } else if (id == IC_DAV) {
+        if (tb.dav == 1) snformatar(t, (uint32_t)max, tb.dav_sem ? _("Unidad de red %s: sin conexión") : _("Unidad de red %s: conectada"), tb.dav_nome);
+        else snformatar(t, (uint32_t)max, _("Unidades de red: %d (%d sin conexión)"), tb.dav, tb.dav_sem);
     } else if (id == IC_BAT) {
         char tm[24];
         int pct = tb.bat.porcentagem;
@@ -1010,6 +1031,13 @@ static void bandeja_clicar(int id)
         gui_abrir_unico("wifi", "/bin/wifi", 2, argv);
         return;
     }
+    if (id == IC_DAV) {   /* D485: Configuración > Unidades de red */
+        painel_fechar();
+        char *argv[4] = { "configuracion", "--ventana", "unidades-red", NULL };
+        klog("[GUI] bandeja: dav -> unidades de red\n");
+        gui_abrir_unico("configuracion", "/bin/configuracion", 3, argv);
+        return;
+    }
     if (id == IC_VPN) {   /* D363: la ventana de la VPN (wg --ventana) */
         painel_fechar();
         char *argv[3] = { "wg", "--ventana", NULL };
@@ -1027,7 +1055,7 @@ static void bandeja_tique(void)
     uint32_t agora = relogio_tiques();
     if (!tb.lido || agora - tb.tique >= TIQUES_POR_SEGUNDO) {
         tb.tique = agora;
-        bool tinha_temp = tb.temp_ok, tinha_bat = tb.bat_ok, tinha_vpn = tb.vpn != 0;
+        bool tinha_temp = tb.temp_ok, tinha_bat = tb.bat_ok, tinha_vpn = tb.vpn != 0, tinha_dav = tb.dav != 0;
         uint32_t h = bandeja_ler();
         if (h != tb.hash) {
             tb.hash = h;
@@ -1036,8 +1064,8 @@ static void bandeja_tique(void)
             klog("[GUI] bandeja: som %d volume %d%s, rede %d ip %s, temp %d, bat %d e%u a%u\n", tb.som, tb.vol,
                  tb.mudo ? " (silencio)" : "", tb.rede, ip, tb.temp_ok ? tb.temp_mc / 1000 : -1,
                  tb.bat_ok ? tb.bat.porcentagem : -1, tb.bat.estado, tb.bat.adaptador);
-            if (tinha_temp == tb.temp_ok && tinha_bat == tb.bat_ok && tinha_vpn == (tb.vpn != 0)) { sujar_bandeja(); sujar_painel(); }
-            else if (tinha_vpn != (tb.vpn != 0)) barra_sujar();   /* D363: el candado entra o sale */
+            if (tinha_temp == tb.temp_ok && tinha_bat == tb.bat_ok && tinha_vpn == (tb.vpn != 0) && tinha_dav == (tb.dav != 0)) { sujar_bandeja(); sujar_painel(); }
+            else if (tinha_vpn != (tb.vpn != 0) || tinha_dav != (tb.dav != 0)) barra_sujar();   /* D363, D485: el candado o la unidad entran o salen */
             else if (pop.tipo == P_BAT && !tb.bat_ok) painel_fechar();   /* se quitó la batería */
             if (dica.ic >= 0) { dica_texto(dica.ic, dica.t, sizeof dica.t); sujar_dica(); }
         }

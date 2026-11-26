@@ -808,6 +808,11 @@ static biblioteca_t *carregar(const char *caminho, int profundidade)
     biblioteca_t *b = NULL;
     elf_cab_t c;
     elf_ph_t ph[MAX_PH];
+    /* D485: nada se carga de las unidades de red (el kernel tampoco comparte sus páginas como código). */
+    if (caminho[0] == '/' && caminho[1] == 'r' && caminho[2] == 'e' && caminho[3] == 'd' && (caminho[4] == '/' || !caminho[4])) {
+        falhar("%s: no se cargan bibliotecas de una unidad de red", caminho, 0);
+        return NULL;
+    }
     int fd = abrir(caminho, ABRIR_LER);
     if (fd < 0) { falhar("%s: no se puede leer", caminho, 0); return NULL; }
     if (ler_tudo(fd, &c, sizeof c) < 0 || c.ident[0] != 0x7F || c.ident[1] != 'E' || c.ident[2] != 'L' || c.ident[3] != 'F' ||

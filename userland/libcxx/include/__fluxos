@@ -558,6 +558,10 @@ inline ios_base &showbase(ios_base &b) { b.setf(ios_base::showbase); return b; }
 inline ios_base &noshowbase(ios_base &b) { b.unsetf(ios_base::showbase); return b; }
 inline ios_base &uppercase(ios_base &b) { b.setf(ios_base::uppercase); return b; }
 inline ios_base &nouppercase(ios_base &b) { b.unsetf(ios_base::uppercase); return b; }
+inline ios_base &showpoint(ios_base &b) { b.setf(ios_base::showpoint); return b; }
+inline ios_base &noshowpoint(ios_base &b) { b.unsetf(ios_base::showpoint); return b; }
+inline ios_base &showpos(ios_base &b) { b.setf(ios_base::showpos); return b; }
+inline ios_base &noshowpos(ios_base &b) { b.unsetf(ios_base::showpos); return b; }
 inline ios_base &boolalpha(ios_base &b) { b.setf(ios_base::boolalpha); return b; }
 inline ios_base &noboolalpha(ios_base &b) { b.unsetf(ios_base::boolalpha); return b; }
 inline ios_base &skipws(ios_base &b) { b.setf(ios_base::skipws); return b; }
@@ -568,18 +572,30 @@ struct detalhe_setw { int n; };
 struct detalhe_setfill { char c; };
 struct detalhe_setprecision { int n; };
 struct detalhe_setiosflags { ios_base::fmtflags f; };
+struct detalhe_setbase { int b; };
 inline detalhe_setw setw(int n) { return { n }; }
 inline detalhe_setfill setfill(char c) { return { c }; }
 inline detalhe_setprecision setprecision(int n) { return { n }; }
 inline detalhe_setiosflags setiosflags(ios_base::fmtflags f) { return { f }; }
+inline detalhe_setbase setbase(int b) { return { b }; }   // D481: 8, 10 o 16 (otro valor = decimal)
 inline ostream &operator<<(ostream &os, detalhe_setw m) { os.width(m.n); return os; }
 inline ostream &operator<<(ostream &os, detalhe_setfill m) { os.fill(m.c); return os; }
 inline ostream &operator<<(ostream &os, detalhe_setprecision m) { os.precision(m.n); return os; }
 inline ostream &operator<<(ostream &os, detalhe_setiosflags m) { os.setf(m.f); return os; }
+inline ostream &operator<<(ostream &os, detalhe_setbase m)
+{
+    os.setf(m.b == 8 ? ios_base::oct : m.b == 16 ? ios_base::hex : ios_base::dec, ios_base::basefield);
+    return os;
+}
 inline istream &operator>>(istream &is, detalhe_setw m) { is.width(m.n); return is; }
 inline istream &operator>>(istream &is, detalhe_setfill m) { is.fill(m.c); return is; }
 inline istream &operator>>(istream &is, detalhe_setprecision m) { is.precision(m.n); return is; }
 inline istream &operator>>(istream &is, detalhe_setiosflags m) { is.setf(m.f); return is; }
+inline istream &operator>>(istream &is, detalhe_setbase m)
+{
+    is.setf(m.b == 8 ? ios_base::oct : m.b == 16 ? ios_base::hex : ios_base::dec, ios_base::basefield);
+    return is;
+}
 
 class iostream : public istream, public ostream {
 public:

@@ -70,6 +70,9 @@ static const chamada_t tabela[SIS_MAX] = {
     [SIS_FREQUENCIA] = sis_frequencia,       /* D106 */
     [SIS_FUNDO] = sis_fundo, [SIS_ACENTO] = sis_acento,   /* D112 */
     [SIS_ESQUEMA] = sis_esquema,   /* D428 */
+    [SIS_CURSOR] = sis_cursor,     /* D482 */
+    [SIS_PONTE] = sis_ponte,       /* D485: unidades de red */
+    [SIS_CHAVEIRO] = sis_chaveiro, /* D485: el llavero de la cuenta */
     [SIS_MENU_CONTEXTUAL] = sis_menu_contextual,
     [SIS_MODOS_VIDEO] = sis_modos_video, [SIS_MUDAR_MODO] = sis_mudar_modo,
     [SIS_GRUPO] = sis_grupo,             [SIS_INTERRUPCOES] = sis_interrupcoes,

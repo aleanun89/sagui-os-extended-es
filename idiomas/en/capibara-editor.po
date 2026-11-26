@@ -530,7 +530,7 @@ msgstr "Capibara: editor"
 
 #: userland/capibara/editor/editor.c:1736
 msgid "Nuevo"
-msgstr ""
+msgstr "New"
 
 #: userland/capibara/editor/editor.c:1736
 msgid "Abrir"

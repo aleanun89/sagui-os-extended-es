@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: GPL-3.0-only
+/* sgl2_procs.inc - las funciones de GLES2/gl2.h que no son de ES 1.1, para eglGetProcAddress (D475).
+ * Las comunes ya están en sgl_procs.inc (tests/h475_saguigl2.py «fuentes» lo comprueba). */
+    P(glAttachShader), P(glBindAttribLocation), P(glBindFramebuffer), P(glBindRenderbuffer), P(glBlendColor),
+    P(glBlendEquation), P(glBlendEquationSeparate), P(glBlendFuncSeparate), P(glCheckFramebufferStatus),
+    P(glCompileShader), P(glCreateProgram), P(glCreateShader), P(glDeleteFramebuffers), P(glDeleteProgram),
+    P(glDeleteRenderbuffers), P(glDeleteShader), P(glDetachShader), P(glDisableVertexAttribArray),
+    P(glEnableVertexAttribArray), P(glFramebufferRenderbuffer), P(glFramebufferTexture2D), P(glGenerateMipmap),
+    P(glGenFramebuffers), P(glGenRenderbuffers), P(glGetActiveAttrib), P(glGetActiveUniform), P(glGetAttachedShaders),
+    P(glGetAttribLocation), P(glGetFramebufferAttachmentParameteriv), P(glGetProgramiv), P(glGetProgramInfoLog),
+    P(glGetRenderbufferParameteriv), P(glGetShaderiv), P(glGetShaderInfoLog), P(glGetShaderPrecisionFormat),
+    P(glGetShaderSource), P(glGetUniformfv), P(glGetUniformiv), P(glGetUniformLocation), P(glGetVertexAttribfv),
+    P(glGetVertexAttribiv), P(glGetVertexAttribPointerv), P(glIsFramebuffer), P(glIsProgram), P(glIsRenderbuffer),
+    P(glIsShader), P(glLinkProgram), P(glReleaseShaderCompiler), P(glRenderbufferStorage), P(glShaderBinary),
+    P(glShaderSource), P(glStencilFuncSeparate), P(glStencilMaskSeparate), P(glStencilOpSeparate), P(glUniform1f),
+    P(glUniform1fv), P(glUniform1i), P(glUniform1iv), P(glUniform2f), P(glUniform2fv), P(glUniform2i),
+    P(glUniform2iv), P(glUniform3f), P(glUniform3fv), P(glUniform3i), P(glUniform3iv), P(glUniform4f),
+    P(glUniform4fv), P(glUniform4i), P(glUniform4iv), P(glUniformMatrix2fv), P(glUniformMatrix3fv),
+    P(glUniformMatrix4fv), P(glUseProgram), P(glValidateProgram), P(glVertexAttrib1f), P(glVertexAttrib1fv),
+    P(glVertexAttrib2f), P(glVertexAttrib2fv), P(glVertexAttrib3f), P(glVertexAttrib3fv), P(glVertexAttrib4f),
+    P(glVertexAttrib4fv), P(glVertexAttribPointer),

@@ -1,0 +1,72 @@
+
+--- a/src/gl-visual-config.cpp
++++ b/src/gl-visual-config.cpp
+@@ -24,6 +24,8 @@
+ #include "log.h"
+ 
+ #include <vector>
++#include <algorithm>
++#include <cstdlib>
+ 
+ GLVisualConfig::GLVisualConfig(const std::string &s) :
+     id(0), red(1), green(1), blue(1), alpha(1), depth(1), stencil(0), buffer(1), samples(0)
+
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -35,7 +35,9 @@
+ 
+ #include "canvas-generic.h"
+ 
+-#if GLMARK2_USE_X11
++#if GLMARK2_USE_SAGUI
++#include "native-state-sagui.h"
++#elif GLMARK2_USE_X11
+ #include "native-state-x11.h"
+ #elif GLMARK2_USE_DRM
+ #include "native-state-drm.h"
+@@ -158,7 +160,9 @@
+ int
+ main(int argc, char *argv[])
+ {
+-#if GLMARK2_USE_X11
++#if GLMARK2_USE_SAGUI
++    NativeStateSagui native_state;
++#elif GLMARK2_USE_X11
+     NativeStateX11 native_state;
+ #elif GLMARK2_USE_DRM
+     NativeStateDRM native_state;
+@@ -172,6 +176,12 @@
+     NativeStateWin32 native_state;
+ #endif
+ 
++#if GLMARK2_USE_SAGUI
++    /* Las superficies de EGL de SaguiOS son RGB sin alfa (la ventana es 0x00RRGGBB): lo pedido por defecto
++     * («alpha=1») no tendría configuración. --visual-config sigue mandando. */
++    Options::visual_config = GLVisualConfig("alpha=0");
++#endif
++
+     if (!Options::parse_args(argc, argv))
+         return 1;
+ 
+
+--- a/src/mesh.cpp
++++ b/src/mesh.cpp
+@@ -24,6 +24,7 @@
+ #include "mesh.h"
+ #include "log.h"
+ #include "gl-headers.h"
++#include <algorithm>
+ 
+ 
+ Mesh::Mesh() :
+
+--- a/src/scene-pulsar.cpp
++++ b/src/scene-pulsar.cpp
+@@ -24,6 +24,7 @@
+  *  Jesse Barker (glmark2)
+  */
+ #include <stdlib.h>
++#include <time.h>
+ #include "scene.h"
+ #include "mat.h"
+ #include "options.h"

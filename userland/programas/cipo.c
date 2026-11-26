@@ -26,8 +26,10 @@
 #include "gui.h"
 #include "imagem.h"
 #include "video.h"   /* <video> con H.264/AAC (mejora 100, D276) */
+#include "audio_formato.h"   /* <audio>: WAV, MP3 y FLAC (D489) */
 #include "motor.h"
 #include "js.h"
+#include "rede.h"        /* D487: cookies, caché, POST, descompresión */
 #include "qjs_bridge.h"   /* D149: o motor de JavaScript da pagina (QuickJS) */
 
 static motor_t *motor;
@@ -1052,11 +1054,14 @@ static void desenhar_barra_rolagem(void)
     }
 }
 
+static void media_controles_pintar(void);   /* controles de <video> y <audio> (D489) */
+
 /* Copia el búfer entero a la ventana y la presenta una sola vez. */
 static void pag_fb_apresentar(void)
 {
     for (int y = 0; y < pag_fb_a; y++)
         memcpy(j->px + (ABA_Y + y) * j->larg, pag_fb + y * pag_fb_l, (size_t)pag_fb_l * 4);
+    media_controles_pintar();
     desenhar_barra_rolagem();
     jan_mostrar_area(j, 0, ABA_Y, LARG, AREA_A);
     est_apresentacoes++;
@@ -1548,6 +1553,8 @@ static void carregar(const char *pedido);   /* usado por nova_aba() */
 static void video_parar(void);
 static void nova_aba_com_url(const char *url);
 static void rolar_px(int px);              /* usado por carregar() */
+static int zoom_do_sitio(const char *url);   /* usado al cargar la página (D489) */
+static void zoom_paso(int dir);
 
 /* Guarda o estado da aba atual: a página em memória e onde se estava a ler. */
 static void aba_guardar(void)
@@ -1863,6 +1870,7 @@ static bool  tem_url_pendente;
 static int   redirecoes;         /* quantos reenvios seguidos */
 
 static void diagramar(void);
+static bool pedido_por_js;       /* la última navegación la pidió un script (D487) */
 static void definir_doc(char *corpo, int tam, bool html);
 
 /* Pede outra pagina: guarda o endereco (resolvido contra a pagina actual)
@@ -1870,6 +1878,7 @@ static void definir_doc(char *corpo, int tam, bool html);
 static void pedir_pagina(const char *url)
 {
     if (!url || !url[0]) return;
+    pedido_por_js = true;   /* viene de una página (script o meta refresh), no de la barra de direcciones */
     char u[URL_MAX];
     if (url_juntar(url_atual, url, u, sizeof u)) copia_texto(url_pendente, u, sizeof url_pendente);
     else copia_texto(url_pendente, url, sizeof url_pendente);
@@ -1898,37 +1907,8 @@ static void js_log(const char *t)
     registrar("cipo: js: %s\n", t);
 }
 
-/* ---- el script cambia la página (D271) ----
- * El puente avisa de cada atributo (class, style, hidden...) o texto que el
- * script cambia en un elemento; aquí se pasa al motor y se apunta que hay que
- * maquetar otra vez. La maquetación se hace una sola vez, cuando el script (o
- * el temporizador, o el manejador del clic) ha terminado: js_refrescar(). */
-static bool js_dom_sujo;
-static uint8_t *motor_baixar(const char *url, unsigned *n);
-static void desenhar_pagina(void);
-
-static void js_atributo(int dom, const char *nome, const char *valor)
-{
-    if (!motor || !nome) return;
-    static char b[4100];
-    if (valor) {
-        copia_texto(b, valor, sizeof b);
-        b[utf8_para_latin1(b, tam_texto(b), NULL)] = 0;      /* el motor guarda el texto en Latin-1, como el HTML */
-    }
-    if (motor_dom_atributo(motor, dom, nome, valor ? b : NULL)) js_dom_sujo = true;
-}
-
-static void js_texto(int dom, const char *txt)
-{
-    if (!motor || !txt) return;
-    size_t n = tam_texto(txt);
-    char *b = aloca(n + 1);
-    if (!b) return;
-    memcpy(b, txt, n + 1);
-    b[utf8_para_latin1(b, n, NULL)] = 0;
-    if (motor_dom_texto(motor, dom, b)) js_dom_sujo = true;
-    libera(b);
-}
+/* ---- el script cambia la página (D271, D488): cipo_js.h ---- */
+#include "cipo_js.h"
 
 /* fetch y XMLHttpRequest (solo GET): la dirección puede ser relativa a la página. */
 static char *js_baixar(const char *url, int *n)
@@ -1942,15 +1922,6 @@ static char *js_baixar(const char *url, int *n)
     if (!d) return NULL;
     *n = (int)tam;
     return (char *)d;
-}
-
-/* Si el script cambió algo, maqueta y pinta de nuevo. */
-static void js_refrescar(void)
-{
-    if (!js_dom_sujo || !motor) return;
-    js_dom_sujo = false;
-    motor_altura = motor_layout(motor, LARG - ROLAGEM, AREA_A);
-    desenhar_pagina();
 }
 
 /* O script pediu outra pagina (location.href = ... ou location.replace(...)).
@@ -2065,92 +2036,19 @@ static int latin1_para_utf8(const char *s, int n, char *o, int max)
  * en un texto (UTF-8, con los campos separados por tabulador) que es lo que
  * el puente entiende (el formato está en qjs_bridge.h).
  */
-#define CIPO_DOM_MAX   256      /* nodos que se mandan al puente */
-#define CIPO_DOM_TEXTO 49152    /* el tamaño del texto del DOM */
-
-static motor_dom_no_t dom_nos[CIPO_DOM_MAX];   /* la lista de nodos */
-static char dom_texto[CIPO_DOM_TEXTO];          /* el texto del DOM */
+/* D488: la lista la escribe el motor (motor_dom_exportar), con todos los nodos:
+ * antes eran los 256 primeros y 8 atributos por elemento. */
+static char *dom_texto;
 static int  dom_texto_tam;
 
-/* Añade texto al final del DOM (si cabe). */
-static int dom_add(char *dst, int max, int k, const char *s)
-{
-    while (*s && k < max - 1) dst[k++] = *s++;
-    dst[k] = 0;
-    return k;
-}
-
-/* Añade un número al final del DOM. */
-static int dom_num(char *dst, int max, int k, int v)
-{
-    char b[16];
-    formatar_texto(b, sizeof b, "%d", v);
-    return dom_add(dst, max, k, b);
-}
-
-/* Escribe un campo de texto (UTF-8, con los escapes: \\, \t, \n, \r). */
-static int dom_campo(char *dst, int max, int k, const char *s)
-{
-    if (!s) s = "";
-    for (const char *q = s; *q; q++) {
-        char b[4];
-        int n;
-        unsigned char c = (unsigned char)*q;
-        if (c == '\\') { b[0] = '\\'; b[1] = '\\'; n = 2; }
-        else if (c == '\t') { b[0] = '\\'; b[1] = 't'; n = 2; }
-        else if (c == '\n') { b[0] = '\\'; b[1] = 'n'; n = 2; }
-        else if (c == '\r') { b[0] = '\\'; b[1] = 'r'; n = 2; }
-        else n = latin1_para_utf8(q, 1, b, 4);
-        if (k + n >= max) break;
-        memcpy(dst + k, b, (size_t)n);
-        k += n;
-    }
-    dst[k] = 0;
-    return k;
-}
-
-/* Construye el texto del DOM de la página (a partir del motor). */
 static void dom_construir(void)
 {
+    if (dom_texto) { libera(dom_texto); dom_texto = NULL; }
     dom_texto_tam = 0;
-    dom_texto[0] = 0;
     if (!motor) return;
-    int n = motor_dom_lista(motor, dom_nos, CIPO_DOM_MAX);
-    int k = 0;
-    /* la cabecera: el <body> y el <html> */
-    k = dom_add(dom_texto, CIPO_DOM_TEXTO, k, "D\t");
-    k = dom_num(dom_texto, CIPO_DOM_TEXTO, k, motor_dom_corpo(motor));
-    k = dom_add(dom_texto, CIPO_DOM_TEXTO, k, "\t");
-    k = dom_num(dom_texto, CIPO_DOM_TEXTO, k, motor_dom_documento(motor));
-    k = dom_add(dom_texto, CIPO_DOM_TEXTO, k, "\n");
-    for (int i = 0; i < n; i++) {
-        motor_dom_no_t *e = &dom_nos[i];
-        if (k + 64 >= CIPO_DOM_TEXTO) break;
-        k = dom_add(dom_texto, CIPO_DOM_TEXTO, k, "N\t");
-        k = dom_num(dom_texto, CIPO_DOM_TEXTO, k, e->id);
-        k = dom_add(dom_texto, CIPO_DOM_TEXTO, k, "\t");
-        k = dom_num(dom_texto, CIPO_DOM_TEXTO, k, e->pai);
-        k = dom_add(dom_texto, CIPO_DOM_TEXTO, k, "\t");
-        k = dom_campo(dom_texto, CIPO_DOM_TEXTO, k, e->tag);
-        k = dom_add(dom_texto, CIPO_DOM_TEXTO, k, "\t");
-        k = dom_campo(dom_texto, CIPO_DOM_TEXTO, k, e->id_attr);
-        k = dom_add(dom_texto, CIPO_DOM_TEXTO, k, "\t");
-        k = dom_campo(dom_texto, CIPO_DOM_TEXTO, k, e->classe);
-        k = dom_add(dom_texto, CIPO_DOM_TEXTO, k, "\t");
-        k = dom_num(dom_texto, CIPO_DOM_TEXTO, k, e->n_atr);
-        k = dom_add(dom_texto, CIPO_DOM_TEXTO, k, "\t");
-        k = dom_campo(dom_texto, CIPO_DOM_TEXTO, k, e->texto);
-        k = dom_add(dom_texto, CIPO_DOM_TEXTO, k, "\n");
-        for (int a = 0; a < e->n_atr; a++) {
-            if (k + 32 >= CIPO_DOM_TEXTO) break;
-            k = dom_add(dom_texto, CIPO_DOM_TEXTO, k, "A\t");
-            k = dom_campo(dom_texto, CIPO_DOM_TEXTO, k, e->atr_nome[a]);
-            k = dom_add(dom_texto, CIPO_DOM_TEXTO, k, "\t");
-            k = dom_campo(dom_texto, CIPO_DOM_TEXTO, k, e->atr_valor[a]);
-            k = dom_add(dom_texto, CIPO_DOM_TEXTO, k, "\n");
-        }
-    }
-    dom_texto_tam = k;
+    dom_texto = motor_dom_exportar(motor, -1, &dom_texto_tam);
+    int n = 0;
+    for (int i = 0; dom_texto && i < dom_texto_tam; i++) if (dom_texto[i] == 'N' && (i == 0 || dom_texto[i - 1] == '\n')) n++;
     registrar("cipo: js: el DOM tiene %d nodo(s)\n", n);
 }
 
@@ -2162,7 +2060,15 @@ static void correr_scripts(void)
     if (js_geracao != js_geracao_rodada) {
         js_geracao_rodada = js_geracao;
         if (js) { qjs_destruir(js); js = NULL; }
-        qjs_ganchos_t g = { js_titulo, js_trocar_corpo, js_alerta, js_log, js_navegar, js_atributo, js_texto, js_baixar };
+        /* con designadores (D488): los ganchos nuevos de otras decisiones no se cruzan */
+        qjs_ganchos_t g = { .titulo = js_titulo, .corpo = js_trocar_corpo, .alerta = js_alerta, .log = js_log,
+                            .navegar = js_navegar, .atributo = js_atributo, .texto = js_texto, .baixar = js_baixar,
+                            .dom_criar = js_dom_criar, .dom_inserir = js_dom_inserir, .dom_tirar = js_dom_tirar,
+                            .dom_dado = js_dom_dado, .dom_html = js_dom_html, .caixa = js_caixa, .estilo = js_estilo,
+                            .elemento_em = js_elemento_em, .janela = js_g_janela, .rolar = js_g_rolar,
+                            .historia = js_historia, .ir = js_ir,
+                            .firma = js_firma, .incremental = js_incremental,
+                            .rolagem = js_rolagem, .rolar_caixa = js_rolar_caixa };
         js = qjs_criar(&g);
         if (!js) { registrar("cipo: js: sem memoria para o motor\n"); return; }
     }
@@ -2173,6 +2079,9 @@ static void correr_scripts(void)
     qjs_tique(js, tempo_ms());     /* o relogio dos temporizadores */
     qjs_definir_janela(js, LARG - ROLAGEM, AREA_A);     /* innerWidth, innerHeight y matchMedia (D271) */
     js_dom_sujo = false;
+    js_faixa_y0 = 1 << 30; js_faixa_y1 = -(1 << 30);
+    js_layouts = js_layouts_inc = 0; js_ms_layout = js_ms_pintura = 0;
+    js_rol_visto = -1; js_hist_pendente = 0;
     /* o DOM da pagina: o script ve a arvore dos elementos (D160) */
     dom_construir();
     if (dom_texto_tam > 0) qjs_definir_dom(js, dom_texto, dom_texto_tam);
@@ -2202,20 +2111,14 @@ static void correr_scripts(void)
     }
     if (quantos) registrar("cipo: js: %d script(s) correram\n", quantos);
     if (quantos) qjs_carga(js);     /* DOMContentLoaded y load (D271) */
-    /* Os elementos com um tratador de clique: o motor tem de os saber para
-     * que sejam alvo do rato (o alvo se cria no layout). Marca-se e volta a
-     * maquetar a pagina (D160). */
-    if (motor) {
-        int ids[64];
-        int n = qjs_clique_ids(js, ids, 64);
-        for (int i = 0; i < n; i++) motor_marcar_clique(motor, ids[i]);
-        if (n > 0 || js_dom_sujo) {
-            if (js_dom_sujo) registrar("cipo: js: el script cambio la pagina\n");
-            js_dom_sujo = false;
-            motor_altura = motor_layout(motor, LARG - ROLAGEM, AREA_A);
-            if (n > 0) registrar("cipo: js: %d elemento(s) com tratador de clique\n", n);
-        }
+    /* D488: el navegador ya no marca los elementos con manejador (el clic busca
+     * el elemento bajo el puntero); lo que el script cambió se maqueta una vez. */
+    if (motor && js_dom_sujo) {
+        registrar("cipo: js: el script cambio la pagina\n");
+        js_layout_sync();
+        js_faixa_y0 = 1 << 30; js_faixa_y1 = -(1 << 30);   /* la página aún no está pintada */
     }
+    js_rol_visto = rol_px;
 }
 
 /* O script trocou o corpo: novo documento e nova maquetacao. */
@@ -2297,6 +2200,7 @@ static void diagramar(void)
     motor = motor_novo(&g);
     ms_base = tempo_ms();   /* o relógio das animações começa a zero nesta página */
     if (motor && doc) {
+        motor_zoom(motor, zoom_do_sitio(url_atual));   /* el zoom del sitio (D489) */
         motor_ler(motor, doc, doc_tam, url_atual);
         int nos = 0, cmds = 0, im = 0;
         motor_numeros(motor, &nos, &cmds, &im);
@@ -2386,28 +2290,181 @@ static void cert_resumo(tls_t *t, const char *host)
                    host, suj, emi, d1, d2, tls_versao_texto(t), hu);
 }
 
-static void baixar_int(char *url, bool pagina, int maximo, baixa_t *b, http_resposta_t *rr, conexao_t *cn, bool *tem_trava);
-static void baixar(char *url, bool pagina, int maximo, baixa_t *b)
+/* D487: el pedido de red completo (método, cuerpo, cookies, caché, descompresión, redirecciones).
+ * baixar() es el GET de siempre; los formularios POST y el JavaScript entran por baixar_ex(). */
+#define PEDIDO_MAX 16384
+static char nav_ref[URL_MAX];      /* página desde la que se hizo clic (Referer/SameSite de la navegación) */
+static bool nav_ref_valido;
+
+static void baixar_int(char *url, const rede_pedido_t *q, bool pagina, baixa_t *b, rede_resposta_t *extra,
+                       http_resposta_t *rr, conexao_t *cn, bool *tem_trava, char *pedido);
+static void baixar_ex(char *url, const rede_pedido_t *q, bool pagina, baixa_t *b, rede_resposta_t *extra)
 {
     http_resposta_t *rr = aloca_zerado(sizeof *rr);
     conexao_t *cn = aloca_zerado(sizeof *cn);
+    char *pedido = aloca(PEDIDO_MAX);
     bool trava = false;
-    if (!rr || !cn) { memset(b, 0, sizeof *b); b->erro = "Sin memoria"; libera(rr); libera(cn); return; }
-    baixar_int(url, pagina, maximo, b, rr, cn, &trava);
+    if (!rr || !cn || !pedido) { memset(b, 0, sizeof *b); b->erro = "Sin memoria"; libera(rr); libera(cn); libera(pedido); return; }
+    baixar_int(url, q, pagina, b, extra, rr, cn, &trava, pedido);
     if (trava) mutex_largar(&tls_trava);
     libera(rr);
     libera(cn);
+    libera(pedido);
 }
 
-static void baixar_int(char *url, bool pagina, int maximo, baixa_t *b, http_resposta_t *rr, conexao_t *cn, bool *tem_trava)
+static void baixar(char *url, bool pagina, int maximo, baixa_t *b)
+{
+    rede_pedido_t q;
+    memset(&q, 0, sizeof q);
+    q.metodo = "GET";
+    q.url = url;
+    q.maximo = maximo;
+    q.flags = pagina ? (RP_PAGINA | RP_NAVEGACAO) : 0;
+    q.iniciador = pagina ? (nav_ref_valido ? nav_ref : NULL) : url_atual;
+    baixar_ex(url, &q, pagina, b, NULL);
+}
+
+/* D487: la página que se pide puede ser un POST (formulario); lo prepara navegar_envio(). */
+static char *post_corpo;
+static int post_n;
+static char post_tipo[100];
+static bool nav_clique;     /* la navegación viene de un clic o de un envío: lleva Referer */
+
+static void baixar_pagina(char *url, baixa_t *b)
+{
+    rede_pedido_t q;
+    memset(&q, 0, sizeof q);
+    q.metodo = post_corpo ? "POST" : "GET";
+    q.url = url;
+    q.maximo = PAGINA_MAX;
+    q.flags = RP_PAGINA | RP_NAVEGACAO | (post_corpo ? RP_SEM_CACHE : 0);
+    q.corpo = (const uint8_t *)post_corpo;
+    q.ncorpo = post_n;
+    q.tipo_corpo = post_tipo[0] ? post_tipo : NULL;
+    nav_ref_valido = nav_clique && nav_ref[0];
+    q.iniciador = nav_ref_valido ? nav_ref : NULL;
+    baixar_ex(url, &q, true, b, NULL);
+    libera(post_corpo);
+    post_corpo = NULL; post_n = 0; post_tipo[0] = 0;
+    nav_clique = false; nav_ref_valido = false;
+}
+
+/* Ejecuta el pedido de un script (fetch, XMLHttpRequest): cualquier método, cabeceras y cuerpo, con
+ * CORS sencillo (D487). Devuelve 0 con la respuesta, o -1 si no se pudo (red caída, CORS, memoria). */
+static int rede_js_executor(const rede_pedido_t *q, rede_resposta_t *r)
+{
+    char url[URL_MAX];
+    copia_texto(url, q->url, sizeof url);
+    baixa_t *b = aloca_zerado(sizeof *b);
+    if (!b) { r->erro = "Sin memoria"; return -1; }
+    bool entre = q->iniciador && q->iniciador[0] && !rede_mesma_origem(url, q->iniciador) && !(q->flags & RP_NO_CORS);
+    bool cred = (q->flags & RP_CREDENCIAIS) != 0;
+    rede_pedido_t qq = *q;
+    qq.flags |= RP_BRUTO;
+    qq.maximo = q->maximo > 0 ? q->maximo : IMG_MAX_BYTES;
+    if (entre) {
+        qq.flags |= RP_CORS;
+        const char *m = q->metodo ? q->metodo : "GET";
+        if (rede_cors_precisa_preparacao(m, q->cabs)) {   /* petición previa OPTIONS */
+            char cab[512], nomes[300] = "";
+            for (const char *l = q->cabs ? q->cabs : ""; *l;) {
+                const char *fin = acha_char(l, '\n');
+                const char *dp = l;
+                while (*dp && *dp != ':' && *dp != '\n') dp++;
+                int nn = (int)(dp - l);
+                if (*dp == ':' && nn > 0 && nn < 60 && !rede_igual_ci(l, "accept") && !rede_comeca_ci(l, "accept:")) {
+                    if (nomes[0]) junta_texto(nomes, ",", sizeof nomes);
+                    char t[64]; memcpy(t, l, (size_t)nn); t[nn] = 0;
+                    for (char *c = t; *c; c++) if (*c >= 'A' && *c <= 'Z') *c = (char)(*c + 32);
+                    junta_texto(nomes, t, sizeof nomes);
+                }
+                if (!fin) break;
+                l = fin + 1;
+            }
+            formatar_texto(cab, sizeof cab, "Access-Control-Request-Method: %s\r\n%s%s%s", m, nomes[0] ? "Access-Control-Request-Headers: " : "", nomes, nomes[0] ? "\r\n" : "");
+            rede_pedido_t po;
+            memset(&po, 0, sizeof po);
+            po.metodo = "OPTIONS"; po.url = url; po.cabs = cab; po.iniciador = q->iniciador; po.maximo = 65536;
+            po.flags = RP_BRUTO | RP_CORS | RP_SEM_CACHE | RP_SEM_CODIF;
+            rede_resposta_t pr;
+            memset(&pr, 0, sizeof pr);
+            char u2[URL_MAX];
+            copia_texto(u2, url, sizeof u2);
+            baixar_ex(u2, &po, false, b, &pr);
+            bool ok = !b->erro && b->codigo >= 200 && b->codigo < 300 && pr.cab && rede_cors_permite(pr.cab, q->iniciador, cred);
+            libera(b->corpo); libera(pr.cab);
+            if (!ok) { r->cors_bloqueado = true; r->erro = "CORS"; libera(b); return -1; }
+            memset(b, 0, sizeof *b);
+        }
+    }
+    baixar_ex(url, &qq, false, b, r);
+    r->codigo = b->codigo;
+    r->corpo = (uint8_t *)b->corpo;
+    r->tam = b->tam;
+    r->truncado = b->truncado;
+    r->erro = b->erro;
+    copia_texto(r->detalhe, b->detalhe, sizeof r->detalhe);
+    if (!r->url[0]) copia_texto(r->url, url, sizeof r->url);
+    libera(b);
+    if (!r->erro && entre && r->cab && !rede_cors_permite(r->cab, q->iniciador, cred)) {
+        r->cors_bloqueado = true;
+        r->erro = "CORS";
+        libera(r->corpo); r->corpo = NULL; r->tam = 0;
+    }
+    return r->erro ? -1 : 0;
+}
+
+/* Entrega lo que había en la caché como si viniera de la red. */
+static bool baixa_da_cache(const char *url, baixa_t *b, rede_resposta_t *extra, bool pagina)
+{
+    int n = 0;
+    char *cab = NULL;
+    uint8_t *c = rede_cache_ler(url, &n, &cab);
+    if (!c) return false;
+    b->corpo = (char *)c;
+    b->tam = n;
+    b->codigo = 200;
+    char tipo[80] = "text/html";
+    rede_cab_valor(cab, "Content-Type", tipo, sizeof tipo);
+    for (char *p = tipo; *p; p++) *p = minuscula(*p);
+    b->html = comeca_com(tipo, "text/html") || comeca_com(tipo, "application/xhtml");
+    (void)pagina;
+    if (extra) { extra->cab = cab; extra->de_cache = true; extra->codigo = 200; }
+    else libera(cab);
+    registrar("cipo: cache: %s (%d bytes)\n", url, n);
+    return true;
+}
+
+static void baixar_int(char *url, const rede_pedido_t *q, bool pagina, baixa_t *b, rede_resposta_t *extra,
+                       http_resposta_t *rr, conexao_t *cn, bool *tem_trava, char *pedido)
 {
     memset(b, 0, sizeof *b);
     b->html = true;
     const bool principal = thread_id() == meu_pid();   /* solo el hilo principal toca la ventana (D373) */
-    for (int redirecoes = 0; redirecoes < 5; redirecoes++) {
+    const bool bruto = (q->flags & RP_BRUTO) != 0;
+    const int maximo = q->maximo;
+    char metodo[12];
+    copia_texto(metodo, q->metodo && q->metodo[0] ? q->metodo : "GET", sizeof metodo);
+    for (char *p = metodo; *p; p++) if (*p >= 'a' && *p <= 'z') *p = (char)(*p - 32);
+    const uint8_t *corpo_env = q->corpo;
+    int ncorpo = q->ncorpo;
+    const char *tipo_corpo = q->tipo_corpo;
+    rede_pedido_t qq = *q;
+    qq.metodo = metodo;
+    for (int redirecoes = 0; redirecoes < 15; redirecoes++) {
         url_t u;
         if (!url_separar(url, &u)) { b->erro = "Dirección no válida"; return; }
         if (!pagina) registrar("cipo: baixando %s\n", url);
+        const bool get = compara_texto(metodo, "GET") == 0;
+        char etag[100] = "", lm[48] = "";
+        int est = CACHE_NADA;
+        if (get && !(q->flags & RP_SEM_CACHE)) est = rede_cache_consultar(url, etag, sizeof etag, lm, sizeof lm);
+        if (est == CACHE_FRESCA && baixa_da_cache(url, b, extra, pagina)) {
+            if (extra) copia_texto(extra->url, url, sizeof extra->url);
+            if (pagina && !b->html && !bruto) {   /* un archivo que no se muestra: lo resuelve la ruta normal, sin caché */
+                libera(b->corpo); b->corpo = NULL; b->tam = 0;
+            } else return;
+        }
         char st[160];
         formatar_texto(st, sizeof st, "%s %s%s...", pagina ? "Conectando con" : "Descargando imagen de", u.host, u.https ? " (HTTPS)" : "");
         if (principal) rodape(st);
@@ -2428,19 +2485,32 @@ static void baixar_int(char *url, bool pagina, int maximo, baixa_t *b, http_resp
             return;
         }
         if (pagina && u.https && cn->tls) cert_resumo(cn->tls, u.host);
-        char pedido[1024];
-        int np = http_montar_pedido(&u, "GET", NULL, pedido, sizeof pedido);
-        if (conexao_escrever(cn, pedido, (unsigned)np) < 0 || http_ler_cabecalho_de(rr, conexao_ler, cn) < 0) {
+        int np = rede_montar_pedido(&qq, metodo, &u, url, tipo_corpo, ncorpo, est == CACHE_VELHA ? etag : NULL,
+                                    est == CACHE_VELHA ? lm : NULL, pedido, PEDIDO_MAX);
+        if (np < 0) { conexao_fechar(cn); b->erro = "Petición demasiado larga"; return; }
+        if (conexao_escrever(cn, pedido, (unsigned)np) < 0 ||
+            (ncorpo > 0 && conexao_escrever(cn, corpo_env, (unsigned)ncorpo) < 0) ||
+            http_ler_cabecalho_de(rr, conexao_ler, cn) < 0) {
             conexao_fechar(cn);
             b->erro = "Respuesta no válida del servidor";
             return;
         }
+        if (compara_texto(metodo, "HEAD") == 0) rr->acabou = true;
+        if (!(q->flags & RP_SEM_COOKIES)) rede_cookies_da_resposta(url, rr->cabecalho);   /* todos los Set-Cookie, también los de las redirecciones */
         b->codigo = rr->codigo;
+        if (b->codigo == 304 && est == CACHE_VELHA) {   /* no ha cambiado: sirve la copia */
+            conexao_fechar(cn);
+            rede_cache_renovar(url, rr->cabecalho);
+            if (baixa_da_cache(url, b, extra, pagina)) { if (extra) copia_texto(extra->url, url, sizeof extra->url); return; }
+        }
         char destino[URL_MAX];
-        if (b->codigo >= 300 && b->codigo < 400 && http_campo(rr->cabecalho, "Location", destino, sizeof destino)) {
+        if (b->codigo >= 300 && b->codigo < 400 && b->codigo != 304 && !(q->flags & RP_MANUAL) &&
+            http_campo(rr->cabecalho, "Location", destino, sizeof destino)) {
             conexao_fechar(cn);
             char nova[URL_MAX];
             if (!juntar_url(url, destino, nova, sizeof nova)) { b->erro = "Redirección no válida"; return; }
+            if (!rede_redirecao(rr->codigo, metodo, sizeof metodo)) { ncorpo = 0; corpo_env = NULL; tipo_corpo = NULL; }
+            if (extra) extra->redirigido = true;
             copia_texto(url, nova, URL_MAX);
             if (pagina) {
                 copia_texto(url_atual, url, sizeof url_atual);
@@ -2453,13 +2523,13 @@ static void baixar_int(char *url, bool pagina, int maximo, baixa_t *b, http_resp
         http_campo(rr->cabecalho, "Content-Type", tipo, sizeof tipo);
         for (char *p = tipo; *p; p++) *p = minuscula(*p);
         b->html = comeca_com(tipo, "text/html") || comeca_com(tipo, "application/xhtml");
-        if (pagina && !b->html && !comeca_com(tipo, "text/")) {
+        if (pagina && !bruto && !b->html && !comeca_com(tipo, "text/")) {
             conexao_fechar(cn);
             b->arquivo = true;   /* no es una página: lo recoge el gestor de descargas (D373) */
             copia_texto(b->detalhe, tipo, sizeof b->detalhe);
             return;
         }
-        if (!pagina && b->codigo != 200) {
+        if (!pagina && !bruto && b->codigo != 200) {
             conexao_fechar(cn);
             b->erro = "Imagen no disponible";
             return;
@@ -2474,9 +2544,9 @@ static void baixar_int(char *url, bool pagina, int maximo, baixa_t *b, http_resp
                 if (cap >= maximo) { b->truncado = true; break; }
                 int nova = cap * 2;
                 if (nova > maximo) nova = maximo;
-                char *q = realoca(b->corpo, (size_t)nova);
-                if (!q) { b->erro = "Sin memoria"; b->truncado = true; break; }
-                b->corpo = q;
+                char *qn = realoca(b->corpo, (size_t)nova);
+                if (!qn) { b->erro = "Sin memoria"; b->truncado = true; break; }
+                b->corpo = qn;
                 cap = nova;
             }
             if (pagina && b->tam / 16384 != mostrado) {
@@ -2487,6 +2557,31 @@ static void baixar_int(char *url, bool pagina, int maximo, baixa_t *b, http_resp
         }
         if (n < 0) b->erro = "Error al leer la respuesta";
         conexao_fechar(cn);
+        /* gzip, deflate y brotli (D487) */
+        if (b->corpo && b->tam > 0 && !b->truncado) {
+            const char *erro_dec = NULL;
+            int tn = b->tam;
+            uint8_t *nb = rede_decodificar(rr->cabecalho, (uint8_t *)b->corpo, &tn, maximo, &erro_dec);
+            b->corpo = (char *)nb;
+            b->tam = tn;
+            if (erro_dec && !nb) b->erro = erro_dec;
+        } else if (b->corpo && b->truncado && b->tam > 0) {
+            char ce[40];
+            if (http_campo(rr->cabecalho, "Content-Encoding", ce, sizeof ce) && compara_texto(ce, "identity") != 0) {
+                const char *erro_dec = NULL;   /* flujo comprimido cortado: se descomprime lo que haya */
+                int tn = b->tam;
+                uint8_t *nb = rede_decodificar(rr->cabecalho, (uint8_t *)b->corpo, &tn, maximo, &erro_dec);
+                b->corpo = (char *)nb; b->tam = tn;
+            }
+        }
+        if (get && !b->erro && !b->truncado && b->corpo && b->codigo == 200 && !(q->flags & RP_SEM_CACHE) && !q->corpo)
+            rede_cache_guardar(url, b->codigo, rr->cabecalho, (uint8_t *)b->corpo, b->tam);
+        if (extra) {
+            extra->codigo = b->codigo;
+            extra->cab = aloca((size_t)tam_texto(rr->cabecalho) + 1);
+            if (extra->cab) memcpy(extra->cab, rr->cabecalho, tam_texto(rr->cabecalho) + 1);
+            copia_texto(extra->url, url, sizeof extra->url);
+        }
         return;
     }
     b->erro = "Demasiadas redirecciones";
@@ -2535,13 +2630,15 @@ static int16_t vid_pcm[1024 * 2];
 static int vid_pcm_n, vid_pcm_pos;    /* audio decodificado pendiente de escribir (cuadros estéreo) */
 static unsigned vid_mostrados, vid_saltados, vid_ms_decod;
 
+static bool med_audio;                /* el medio activo es un <audio> (D489) */
 static const uint32_t *motor_video(const char *url, int flags, int x, int y, int l, int a, int *fl, int *fa)
 {
     if (!vid_quer[0]) copia_texto(vid_quer, url, sizeof vid_quer);
     if (compara_texto(vid_quer, url) != 0) return NULL;   /* solo el primero */
     vid_flags = flags;
     vid_px = x; vid_py = y; vid_pl = l; vid_pa = a;
-    if (vid && vid_img.px && compara_texto(vid_url, url) == 0) { *fl = vid_img.larg; *fa = vid_img.alt; return vid_img.px; }
+    med_audio = (flags & VIDEO_AUDIO) != 0;
+    if (!med_audio && vid && vid_img.px && compara_texto(vid_url, url) == 0) { *fl = vid_img.larg; *fa = vid_img.alt; return vid_img.px; }
     return NULL;
 }
 
@@ -2583,8 +2680,10 @@ static void video_escrever_som(void)
     }
 }
 
+static void audio_solo_parar(void);
 static void video_parar(void)
 {
+    audio_solo_parar();
     if (vid_audio >= 0) { audio_fechar(vid_audio, 0); vid_audio = -1; }
     if (vid) {
         registrar("cipo: video fin: %u cuadros mostrados, %u saltados, %u ms decodificando\n", vid_mostrados, vid_saltados, vid_ms_decod);
@@ -2626,6 +2725,235 @@ static void video_blit(void)
         }
     }
     jan_mostrar_area(j, x0, y0, x1 - x0, y1 - y0);
+    media_controles_pintar();
+}
+
+/* ---- <audio> y controles de <video>/<audio> (D489) ----
+ * El audio sin imagen se baja entero, se guarda en /tmp (audio_arquivo_abrir lee de un archivo) y lo
+ * decodifica la libsagui (WAV, MP3, FLAC) a la tarjeta de sonido, sin bloquear la ventana. Si el
+ * elemento lleva `controls`, el navegador dibuja encima de la caja una barra con reproducir/pausa, el
+ * tiempo, la barra de progreso (un clic salta) y el volumen. Un solo medio activo a la vez. */
+#define CTL_A 28
+static audio_arquivo_t *aud;
+static char aud_ruta[48];
+static uint32_t aud_dur_ms;
+static int med_vol = 100;
+/* áreas de la barra, en coordenadas de la ventana (lo calcula media_controles_pintar) */
+static int ctl_vis, ctl_x, ctl_y, ctl_l, ctl_prog0, ctl_prog1, ctl_vol0, ctl_vol1;
+
+static void audio_solo_parar(void)
+{
+    if (aud) { audio_arquivo_fechar(aud); aud = NULL; }
+    if (aud_ruta[0]) { apagar(aud_ruta); aud_ruta[0] = 0; }
+    ctl_vis = 0;
+}
+
+static unsigned med_pos_ms(void)
+{
+    if (med_audio) return aud ? video_relogio() : 0;
+    return vid ? (unsigned)((long long)vid_prox * 1000 / (vid_fps > 0 ? vid_fps : 25)) : 0;
+}
+static unsigned med_dur_ms(void)
+{
+    if (med_audio) return aud_dur_ms;
+    if (!vid) return 0;
+    const video_info_t *inf = video_info(vid);
+    return inf->duracao_ms ? inf->duracao_ms : (unsigned)((long long)inf->quadros * 1000 / (vid_fps > 0 ? vid_fps : 25));
+}
+
+static void media_controles_pintar(void)
+{
+    ctl_vis = 0;
+    if (!(vid_flags & VIDEO_CONTROLS) || !vid_quer[0] || pintura_pendente || painel) return;
+    if (med_audio ? aud == NULL : vid == NULL) return;
+    int wx = vid_px, wy = ABA_Y + vid_py - rol_px;
+    int y = med_audio ? wy + (vid_pa - CTL_A) / 2 : wy + vid_pa - CTL_A;
+    if (vid_pl < 120 || vid_pa < CTL_A || y < ABA_Y || y + CTL_A > ABA_Y + AREA_A || wx < 0 || wx + vid_pl > LARG - ROLAGEM) return;
+    uint32_t fondo = med_audio ? 0xF1F3F4 : 0x202428, fg = med_audio ? 0x202428 : 0xFFFFFF, pista = med_audio ? 0xC4CBD2 : 0x59626B, resalta = 0x1A73E8;
+    ctl_x = wx; ctl_y = y; ctl_l = vid_pl; ctl_vis = 1;
+    g_retangulo(j, wx, y, vid_pl, CTL_A, fondo);
+    /* reproducir / pausa */
+    if (vid_tocando && !vid_fim) { g_retangulo(j, wx + 9, y + 7, 4, 14, fg); g_retangulo(j, wx + 16, y + 7, 4, 14, fg); }
+    else for (int k = -7; k <= 7; k++) { int w = 8 - (k < 0 ? -k : k) * 8 / 7; if (w > 0) g_retangulo(j, wx + 10, y + 14 + k, w + 1, 1, fg); }
+    int x = wx + 30, fin = wx + vid_pl - 8;
+    unsigned pos = med_pos_ms(), dur = med_dur_ms();
+    if (dur && pos > dur) pos = dur;
+    if (vid_pl >= 260) {
+        char t[32];
+        formatar_texto(t, sizeof t, "%u:%02u / %u:%02u", pos / 60000, (pos / 1000) % 60, dur / 60000, (dur / 1000) % 60);
+        g_texto(j, x, y + 6, t, fg);
+        x += (int)tam_texto(t) * LETRA_L + 8;
+    }
+    /* volumen a la derecha */
+    ctl_vol0 = ctl_vol1 = 0;
+    if (vid_pl >= 200) {
+        int vx = fin - 48;
+        g_retangulo(j, vx - 18, y + 11, 5, 6, fg); g_retangulo(j, vx - 13, y + 8, 4, 12, fg);   /* altavoz */
+        g_retangulo(j, vx, y + 13, 48, 2, pista);
+        g_retangulo(j, vx, y + 13, 48 * med_vol / 100, 2, resalta);
+        g_retangulo(j, vx + 48 * med_vol / 100 - 2, y + 9, 5, 10, fg);
+        ctl_vol0 = vx; ctl_vol1 = vx + 48;
+        fin = vx - 26;
+    }
+    /* progreso */
+    ctl_prog0 = x; ctl_prog1 = fin;
+    if (fin - x > 20) {
+        g_retangulo(j, x, y + 13, fin - x, 3, pista);
+        int w = dur ? (int)((long long)(fin - x) * pos / dur) : 0;
+        g_retangulo(j, x, y + 13, w, 3, resalta);
+        g_retangulo(j, x + w - 3, y + 9, 7, 11, fg);
+    }
+    jan_mostrar_area(j, wx, y, vid_pl, CTL_A);
+}
+
+/* Salta a ms dentro del medio. */
+static void media_buscar(unsigned ms)
+{
+    unsigned dur = med_dur_ms();
+    if (dur && ms > dur) ms = dur;
+    if (med_audio) {
+        if (!aud) return;
+        audio_arquivo_buscar(aud, ms);
+    } else {
+        if (!vid) return;
+        int fps = vid_fps > 0 ? vid_fps : 25;
+        int cuadro = (int)((long long)ms * fps / 1000);
+        video_buscar(vid, cuadro);
+        vid_prox = cuadro;
+        if (video_quadro(vid, &vid_img) == 0) { vid_prox = cuadro + 1; }
+    }
+    vid_t0 = tempo_ms() - ms;
+    vid_fim = false;
+    if (vid_audio >= 0) { audio_fechar(vid_audio, 0); vid_audio = -1; }
+    if (vid_tocando) {
+        if (med_audio) { vid_audio = audio_abrir((int)vid_taxa, 2, 16); if (vid_audio >= 0) audio_volume(vid_audio, med_vol); vid_pcm_n = vid_pcm_pos = 0; vid_ms_escritos = 0; }
+        else video_abrir_som();
+        if (vid_audio >= 0) { vid_ms_escritos = ms; audio_volume(vid_audio, med_vol); }
+    }
+    registrar("cipo: medio: salto a %u ms\n", ms);
+}
+
+/* Un clic en la barra de controles; true = era de la barra. */
+static bool media_clique(int x, int y)
+{
+    if (!ctl_vis || x < ctl_x || x >= ctl_x + ctl_l || y < ctl_y || y >= ctl_y + CTL_A) return false;
+    if (x < ctl_x + 30) {                 /* reproducir / pausa */
+        if (vid_fim) { media_buscar(0); vid_fim = false; }
+        vid_tocando = !vid_tocando;
+        if (vid_tocando) {
+            vid_t0 = tempo_ms() - med_pos_ms();
+            if (vid_audio < 0) {
+                if (med_audio) { vid_audio = audio_abrir((int)vid_taxa, 2, 16); if (vid_audio >= 0) { audio_volume(vid_audio, med_vol); vid_ms_escritos = med_pos_ms(); } }
+                else video_abrir_som();
+            }
+        }
+        registrar("cipo: medio %s\n", vid_tocando ? "reanudado" : "en pausa");
+    } else if (ctl_vol1 && x >= ctl_vol0 - 4 && x <= ctl_vol1 + 4) {     /* volumen */
+        med_vol = (x - ctl_vol0) * 100 / (ctl_vol1 - ctl_vol0);
+        if (med_vol < 0) med_vol = 0;
+        if (med_vol > 100) med_vol = 100;
+        if (vid_audio >= 0) audio_volume(vid_audio, med_vol);
+        registrar("cipo: medio: volumen %d\n", med_vol);
+    } else if (x >= ctl_prog0 && x <= ctl_prog1 && ctl_prog1 > ctl_prog0) {      /* barra de progreso */
+        unsigned dur = med_dur_ms();
+        media_buscar((unsigned)((long long)(x - ctl_prog0) * dur / (ctl_prog1 - ctl_prog0)));
+    }
+    media_controles_pintar();
+    return true;
+}
+
+/* Audio sin imagen: baja el archivo, lo abre y deja el sonido listo (suena si lleva autoplay). */
+static void audio_iniciar(const char *url)
+{
+    static baixa_t ab;
+    char u[URL_MAX];
+    copia_texto(u, url, sizeof u);
+    rodape("Descargando audio...");
+    baixar(u, false, 64 * 1024 * 1024, &ab);
+    if (ab.erro || ab.truncado || !ab.corpo || ab.tam < 32) {
+        registrar("cipo: audio: no se pudo bajar (%s%s)\n", ab.erro ? ab.erro : "", ab.truncado ? ", demasiado grande" : "");
+        libera(ab.corpo);
+        ab.corpo = NULL;
+        copia_texto(vid_falha, url, sizeof vid_falha);
+        rodape("No se pudo descargar el audio");
+        return;
+    }
+    formatar_texto(aud_ruta, sizeof aud_ruta, "/tmp/cipo-audio-%u.dat", tempo_ms() & 0xFFFF);
+    int fd = abrir(aud_ruta, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd >= 0) { escrever_tudo(fd, ab.corpo, (unsigned)ab.tam); fechar(fd); }
+    libera(ab.corpo);
+    ab.corpo = NULL;
+    int erro = 0;
+    aud = fd >= 0 ? audio_arquivo_abrir(aud_ruta, &erro) : NULL;
+    if (!aud) {
+        registrar("cipo: audio: %s\n", fd >= 0 ? audio_erro_texto(erro) : "no se pudo guardar en /tmp");
+        if (aud_ruta[0]) { apagar(aud_ruta); aud_ruta[0] = 0; }
+        copia_texto(vid_falha, url, sizeof vid_falha);
+        rodape("Formato de audio no reconocido");
+        return;
+    }
+    const audio_info_t *inf = audio_arquivo_info(aud);
+    copia_texto(vid_url, url, sizeof vid_url);
+    aud_dur_ms = inf->duracao_ms;
+    vid_taxa = inf->taxa;
+    vid_fim = false;
+    vid_pcm_n = vid_pcm_pos = 0;
+    vid_ms_escritos = 0;
+    vid_audio = -1;
+    registrar("cipo: audio %s %u Hz %u canales %u ms\n", inf->nome_formato, inf->taxa, inf->canais, inf->duracao_ms);
+    vid_tocando = (vid_flags & VIDEO_AUTOPLAY) != 0;
+    vid_t0 = tempo_ms();
+    if (vid_tocando && !(vid_flags & VIDEO_MUTED)) {
+        vid_audio = audio_abrir((int)vid_taxa, 2, 16);
+        if (vid_audio >= 0) audio_volume(vid_audio, med_vol);
+    }
+    rodape("");
+    desenhar_pagina();
+}
+
+/* Un paso del audio sin imagen: escribe lo que cabe en la tarjeta. */
+static void audio_tick(void)
+{
+    static unsigned ult_pintura;
+    if (!aud) return;
+    if (vid_tocando && !vid_fim) {
+        for (int vueltas = 0; vueltas < 8; vueltas++) {
+            if (vid_pcm_pos >= vid_pcm_n) {
+                int16_t tmp[1024 * 2];
+                int canais = (int)audio_arquivo_info(aud)->canais;
+                int n = audio_arquivo_ler(aud, tmp, 1024);
+                vid_pcm_pos = 0; vid_pcm_n = 0;
+                if (n <= 0) {      /* fin del archivo: cuando se vacía la tarjeta, termina o vuelve a empezar */
+                    if (vid_audio < 0 || audio_pendente(vid_audio) <= 0) {
+                        if (vid_flags & VIDEO_LOOP) { media_buscar(0); }
+                        else {
+                            vid_tocando = false; vid_fim = true;
+                            if (vid_audio >= 0) { audio_fechar(vid_audio, 0); vid_audio = -1; }
+                            registrar("cipo: audio terminado\n");
+                        }
+                    }
+                    break;
+                }
+                for (int i = 0; i < n; i++) {      /* siempre estéreo hacia la tarjeta */
+                    vid_pcm[i * 2] = tmp[i * canais];
+                    vid_pcm[i * 2 + 1] = tmp[i * canais + (canais > 1 ? 1 : 0)];
+                }
+                vid_pcm_n = n;
+            }
+            if (vid_audio < 0) {      /* sin tarjeta (o muted): el reloj corre solo */
+                vid_pcm_pos = vid_pcm_n;
+                if ((int)tempo_ms() - (int)vid_t0 < (int)(vid_ms_escritos + 1)) break;
+                vid_ms_escritos += (uint32_t)vid_pcm_n * 1000u / (vid_taxa ? vid_taxa : 44100);
+                continue;
+            }
+            int r = audio_escrever_sem_bloquear(vid_audio, vid_pcm + vid_pcm_pos * 2, (unsigned)(vid_pcm_n - vid_pcm_pos) * 4);
+            if (r <= 0) break;
+            int cuadros = r / 4;
+            vid_pcm_pos += cuadros;
+            vid_ms_escritos += (uint32_t)cuadros * 1000u / (vid_taxa ? vid_taxa : 44100);
+        }
+    }
+    if (tempo_ms() - ult_pintura >= 250 && ctl_vis) { ult_pintura = tempo_ms(); media_controles_pintar(); }
 }
 
 static void video_iniciar(const char *url)
@@ -2674,8 +3002,9 @@ static void video_iniciar(const char *url)
 /* Un paso del bucle de eventos: arranca el vídeo que pidió la pintura y saca el cuadro que toca. */
 static void video_tick(void)
 {
+    if (aud) { audio_tick(); return; }
     if (!vid) {
-        if (vid_quer[0] && compara_texto(vid_quer, vid_falha) != 0 && !pintura_pendente) video_iniciar(vid_quer);
+        if (vid_quer[0] && compara_texto(vid_quer, vid_falha) != 0 && !pintura_pendente) { if (med_audio) audio_iniciar(vid_quer); else video_iniciar(vid_quer); }
         return;
     }
     if (!vid_tocando || vid_fim) return;
@@ -2716,6 +3045,7 @@ static void video_tick(void)
 /* Clic sobre el vídeo: pausa o reanuda. true = el clic era del vídeo. */
 static bool video_clique(int x, int y)
 {
+    if (media_clique(x, y)) return true;      /* la barra de controles (D489) */
     if (!vid || !vid_img.px) return false;
     int wy = ABA_Y + vid_py - rol_px;
     if (x < vid_px || x >= vid_px + vid_pl || y < wy || y >= wy + vid_pa || y < ABA_Y || y >= ABA_Y + AREA_A) return false;
@@ -2910,6 +3240,7 @@ static void carregar(const char *pedido)
         gravar_posicoes();
         registrar("cipo: posicao guardada (%d px) em %s\n", rol_px, url_atual);
     }
+    copia_texto(nav_ref, url_atual, sizeof nav_ref);   /* de dónde viene (Referer y SameSite) */
     copia_texto(url_atual, url, sizeof url_atual);
     caixa_definir(&endereco, url);
     endereco.foco = false;
@@ -2928,7 +3259,18 @@ static void carregar(const char *pedido)
     registrar("cipo: abrindo %s\n", url);
 
     if (comeca_com(url, "sobre:")) {
-        if (compara_texto(url, "sobre:blanco") == 0) definir_doc_texto("<title>En blanco</title>");
+        if (comeca_com(url, "sobre:red")) {
+            /* Diagnóstico de la red (D487). "?recargar" descarta la memoria y vuelve a leer cookies y
+             * almacenamiento del disco: solo lo acepta una dirección escrita, no una página. */
+            if (compara_texto(url, "sobre:red?recargar") == 0 && !pedido_por_js) { rede_cookie_gravar(true); rede_cookie_recarregar(); rede_alm_recarregar(); }
+            int ses = 0, ck = rede_cookie_contar(&ses), cb = 0, cn = rede_cache_contar(&cb);
+            char h[900];
+            formatar_texto(h, sizeof h, "<title>Red</title><h1>Red del Cipó</h1><p>Cookies: %d (%d de sesión), %d en disco.</p>"
+                           "<p>Almacenamiento local: %d origen(es) en disco.</p><p>Caché HTTP: %d recursos, %d KB.</p>"
+                           "<p>User-Agent: %s</p>", ck, ses, rede_cookie_em_disco(), rede_alm_em_disco(), cn, cb / 1024, REDE_UA);
+            registrar("cipo: red: cookies=%d sesion=%d disco=%d storage_disco=%d cache=%d\n", ck, ses, rede_cookie_em_disco(), rede_alm_em_disco(), cn);
+            definir_doc_texto(h);
+        } else if (compara_texto(url, "sobre:blanco") == 0) definir_doc_texto("<title>En blanco</title>");
         else {
             char *h = inicio_gerar();
             if (h) { definir_doc(h, (int)tam_texto(h), true); }
@@ -2937,7 +3279,7 @@ static void carregar(const char *pedido)
         diagramar();
     } else {
         static baixa_t b;
-        baixar(url, true, PAGINA_MAX, &b);
+        baixar_pagina(url, &b);
         codigo_pagina = b.codigo;
         if (b.arquivo) {
             /* No es una página (un zip, un ejecutable...): lo baja el gestor de descargas (D373). */
@@ -2979,6 +3321,7 @@ static void carregar(const char *pedido)
     }
     if (qtd_abas) abas[aba_atual].carregando = false;
     if (codigo_pagina > 0 && codigo_pagina < 400) hst_registar(url_atual, titulo);
+    rede_cookie_gravar(false);
     registrar("cipo: pronto \"%s\" (%d linhas, %d links)\n", titulo, linhas, motor ? motor_links(motor) : qtd_alvos);
     rodape(recursos_pendentes ? "Cargando recursos de la página..." : "Listo");
     /* Se a pagina nao pediu outra, a cadeia de reenvios acaba aqui (D159). */
@@ -3000,10 +3343,12 @@ static void navegar(const char *url)
         if (qtd_historico == HIST_MAX) {
             memmove(historico[0], historico[1], sizeof historico[0] * (HIST_MAX - 1));
             memmove(historico_pos, historico_pos + 1, sizeof historico_pos[0] * (HIST_MAX - 1));
+            memmove(historico_doc, historico_doc + 1, sizeof historico_doc[0] * (HIST_MAX - 1));
             qtd_historico--;
         }
         copia_texto(historico[qtd_historico], url_atual, URL_MAX);
         historico_pos[qtd_historico] = rol_px;   /* onde se estava a ler */
+        historico_doc[qtd_historico] = js_geracao;   /* D488: el documento de la entrada */
         qtd_historico++;
     }
     qtd_futuro = 0;
@@ -3038,14 +3383,23 @@ static void voltar(void)
     if (qtd_futuro == HIST_MAX) {
         memmove(futuro[0], futuro[1], sizeof futuro[0] * (HIST_MAX - 1));
         memmove(futuro_pos, futuro_pos + 1, sizeof futuro_pos[0] * (HIST_MAX - 1));
+        memmove(futuro_doc, futuro_doc + 1, sizeof futuro_doc[0] * (HIST_MAX - 1));
         qtd_futuro--;
     }
     copia_texto(futuro[qtd_futuro], url_atual, URL_MAX);
     futuro_pos[qtd_futuro] = rol_px;
+    futuro_doc[qtd_futuro] = js_geracao;
     qtd_futuro++;
     char u[URL_MAX];
     copia_texto(u, historico[--qtd_historico], sizeof u);
     int onde = historico_pos[qtd_historico];
+    if (js && historico_doc[qtd_historico] == js_geracao) {     /* el mismo documento (pushState): popstate, sin descargar (D488) */
+        char velha[URL_MAX];
+        copia_texto(velha, url_atual, sizeof velha);
+        copia_texto(url_atual, u, sizeof url_atual);
+        js_popstate(-1, velha);
+        return;
+    }
     int outra = aba_com_url(u);
     if (outra >= 0) { trocar_aba(outra); return; }
     carregar(u);
@@ -3059,14 +3413,23 @@ static void avancar(void)
     if (qtd_historico == HIST_MAX) {
         memmove(historico[0], historico[1], sizeof historico[0] * (HIST_MAX - 1));
         memmove(historico_pos, historico_pos + 1, sizeof historico_pos[0] * (HIST_MAX - 1));
+        memmove(historico_doc, historico_doc + 1, sizeof historico_doc[0] * (HIST_MAX - 1));
         qtd_historico--;
     }
     copia_texto(historico[qtd_historico], url_atual, URL_MAX);
     historico_pos[qtd_historico] = rol_px;
+    historico_doc[qtd_historico] = js_geracao;
     qtd_historico++;
     char u[URL_MAX];
     copia_texto(u, futuro[--qtd_futuro], sizeof u);
     int onde = futuro_pos[qtd_futuro];
+    if (js && futuro_doc[qtd_futuro] == js_geracao) {     /* D488 */
+        char velha[URL_MAX];
+        copia_texto(velha, url_atual, sizeof velha);
+        copia_texto(url_atual, u, sizeof url_atual);
+        js_popstate(1, velha);
+        return;
+    }
     int outra = aba_com_url(u);
     if (outra >= 0) { trocar_aba(outra); return; }
     carregar(u);
@@ -3193,23 +3556,111 @@ static void guardar_recurso(const char *url)
     registrar("cipo: guardado %s (%d bytes)\n", caminho, r);
 }
 
+/* Decodifica "a=b+c%41" en el sitio. */
+static void form_decodificar(char *s)
+{
+    char *d = s;
+    for (; *s; s++) {
+        if (*s == '+') *d++ = ' ';
+        else if (*s == '%' && s[1] && s[2]) {
+            int h = s[1] <= '9' ? s[1] - '0' : (minuscula(s[1]) - 'a' + 10), l = s[2] <= '9' ? s[2] - '0' : (minuscula(s[2]) - 'a' + 10);
+            *d++ = (char)(h * 16 + l);
+            s += 2;
+        } else *d++ = *s;
+    }
+    *d = 0;
+}
+
+/* Envía el formulario de quem (NULL = el campo con foco): GET como siempre; POST con el cuerpo en
+ * urlencoded o multipart (D487). */
+static void navegar_envio(const motor_alvo_t *quem)
+{
+    char url[URL_MAX];
+    if (!motor_envio(motor, quem, url, sizeof url)) return;
+    char metodo[12], enc[80], acao[URL_MAX];
+    nav_clique = true;
+    if (!motor_envio_modo(motor, quem, metodo, sizeof metodo, enc, sizeof enc, acao, sizeof acao) || compara_texto(metodo, "POST") != 0) {
+        navegar(url);
+        return;
+    }
+    char *q = acha_char(url, '?');
+    const char *campos = q ? q + 1 : "";
+    int nc = (int)tam_texto(campos);
+    if (rede_comeca_ci(enc, "multipart/form-data")) {
+        char borde[48];
+        uint32_t r1 = 0, r2 = 0;
+        bytes_aleatorios(&r1, 4); bytes_aleatorios(&r2, 4);
+        formatar_texto(borde, sizeof borde, "----CipoFormBoundary%x%x", r1, r2);
+        int cap = nc * 3 + 256 + (int)tam_texto(borde) * 2, k = 0;
+        char *cuerpo = aloca((size_t)cap);
+        char *cp = aloca((size_t)nc + 1);
+        if (!cuerpo || !cp) { libera(cuerpo); libera(cp); return; }
+        memcpy(cp, campos, (size_t)nc + 1);
+        for (char *p = cp; *p;) {
+            char *fin = acha_char(p, '&');
+            if (fin) *fin = 0;
+            char *eq = acha_char(p, '=');
+            const char *val = "";
+            if (eq) { *eq = 0; val = eq + 1; }
+            form_decodificar(p);
+            char *vv = aloca(tam_texto(val) + 1);
+            if (vv) {
+                copia_texto(vv, val, tam_texto(val) + 1);
+                form_decodificar(vv);
+                for (char *c = p; *c; c++) if (*c == '"') *c = '\'';
+                int need = (int)tam_texto(borde) + (int)tam_texto(p) + (int)tam_texto(vv) + 96;
+                if (k + need < cap) k += formatar_texto(cuerpo + k, (size_t)(cap - k), "--%s\r\nContent-Disposition: form-data; name=\"%s\"\r\n\r\n%s\r\n", borde, p, vv);
+                libera(vv);
+            }
+            if (!fin) break;
+            p = fin + 1;
+        }
+        k += formatar_texto(cuerpo + k, (size_t)(cap - k), "--%s--\r\n", borde);
+        libera(cp);
+        post_corpo = cuerpo; post_n = k;
+        formatar_texto(post_tipo, sizeof post_tipo, "multipart/form-data; boundary=%s", borde);
+    } else if (rede_comeca_ci(enc, "text/plain")) {
+        post_corpo = aloca((size_t)nc + 1);
+        if (!post_corpo) return;
+        memcpy(post_corpo, campos, (size_t)nc + 1);
+        for (char *p = post_corpo; *p; p++) if (*p == '&') *p = '\n';
+        post_n = nc;
+        copia_texto(post_tipo, "text/plain", sizeof post_tipo);
+    } else {
+        post_corpo = aloca((size_t)nc + 1);
+        if (!post_corpo) return;
+        memcpy(post_corpo, campos, (size_t)nc + 1);
+        post_n = nc;
+        copia_texto(post_tipo, "application/x-www-form-urlencoded", sizeof post_tipo);
+    }
+    registrar("cipo: POST %s (%d bytes, %s)\n", acao, post_n, post_tipo);
+    navegar(acao);
+}
+
 static void abrir_alvo_motor(const motor_alvo_t *a)
 {
     if (!a) return;
-    /* Un manejador de JavaScript puede atender el clic (D160). Si el script
-     * cancela el evento (preventDefault), no se navega. */
-    if (a->dom >= 0 && js) {
-        bool cancelado = qjs_clique(js, a->dom);
-        js_refrescar();      /* el manejador pudo cambiar clases o estilos (D271) */
-        if (cancelado) {
-            registrar("cipo: js: el clic lo cancelo el script\n");
+    /* El click ya lo vio el JavaScript (js_clique_pagina, D488): si lo canceló, no se llega aquí. */
+    if (a->tipo == MA_LINK && a->href && a->href[0]) {
+        /* solo cambia el #: la misma página, con hashchange (D488) */
+        if (js && js_so_ancora(url_atual, a->href)) {
+            char json[URL_MAX + 32], *u = json;
+            int k = formatar_texto(json, sizeof json, "{\"url\":\"");
+            char t[URL_MAX * 2];
+            int n = latin1_para_utf8(a->href, (int)tam_texto(a->href), t, (int)sizeof t);
+            for (int i = 0; i < n && k < (int)sizeof json - 4; i++) { if (t[i] == '"' || t[i] == '\\') json[k++] = '\\'; json[k++] = t[i]; }
+            json[k++] = '"'; json[k++] = '}'; json[k] = 0;
+            js_historia(t, 0);
+            qjs_despachar(js, -1, "hashchange", u);
+            js_refrescar();
             return;
         }
+        nav_clique = true;
+        navegar(a->href);
     }
-    if (a->tipo == MA_LINK && a->href && a->href[0]) navegar(a->href);
     else if ((a->tipo == MA_CAMPO || a->tipo == MA_BOTAO) && a->envia) {
-        char url[URL_MAX];
-        if (motor_envio(motor, a, url, sizeof url)) navegar(url);
+        if (js && js_formulario(a->dom)) return;      /* submit cancelado por el script (D488) */
+        navegar_envio(a);                             /* GET o POST (D487) */
     } else if (a->tipo == MA_CAMPO) {
         motor_foco(motor, a);
         foco_campo = motor_foco_campo(motor);
@@ -3222,8 +3673,8 @@ static void tecla_campo_motor(unsigned t)
     if (!motor || !motor_tem_foco(motor)) return;
     if (t == TECLA_ESC || t == 27) { motor_foco(motor, NULL); foco_campo = -1; desenhar_pagina(); return; }
     if (t == '\n' || t == '\r') {
-        char url[URL_MAX];
-        if (motor_envio(motor, NULL, url, sizeof url)) navegar(url);
+        if (js && js_formulario(motor_dom_foco(motor))) return;    /* D488 */
+        navegar_envio(NULL);
         return;
     }
     char v[1024];
@@ -3241,6 +3692,7 @@ static void tecla_campo_motor(unsigned t)
     motor_foco_definir(motor, v);
     motor_altura = motor_layout(motor, LARG - ROLAGEM, AREA_A);
     desenhar_pagina();
+    js_campo_input();      /* el evento input (D488) */
 }
 
 /* Avança o relógio do motor (para as animações). true = alguma animação mudou
@@ -4264,7 +4716,9 @@ static void painel_layout(void)
         {
             const char *t = _("Olvidar posiciones de lectura");
             pb[2] = (botao_t){ x0, y0 + 112, (int)tam_texto(t) * LETRA_L + 20, 26, t, false };
-            pan_nbot = 3;
+            const char *t2 = _("Borrar cookies y caché");
+            pb[3] = (botao_t){ x0, y0 + 144, (int)tam_texto(t2) * LETRA_L + 20, 26, t2, false };
+            pan_nbot = 4;
         }
         break;
     case P_REND:
@@ -4358,7 +4812,11 @@ static void painel_desenhar(void)
         if (bloqueo_dns(BLOQ_ESTADO, &bi, sizeof bi) < 0) copia_texto(t, _("Bloqueo de publicidad y rastreo (DNS): no disponible"), sizeof t);
         else formatar_texto(t, sizeof t, _("Bloqueo de publicidad y rastreo (DNS): %s, %u dominios"), bi.activo ? _("activo") : _("desactivado"), bi.bloqueados);
         rot_p(x0, y0 + 44, t, COR_TEXTO);
-        rot_p(x0, y0 + 150, _("Cipó no guarda cookies: no hay nada que aceptar ni borrar."), COR_TEXTO_FRACO);
+        {
+            int ses = 0, ck = rede_cookie_contar(&ses), cb = 0, cn = rede_cache_contar(&cb);
+            formatar_texto(t, sizeof t, _("Cookies: %d (%d de sesión). Caché: %d recursos, %d KB."), ck, ses, cn, cb / 1024);
+            rot_p(x0, y0 + 184, t, COR_TEXTO_FRACO);
+        }
         break;
     }
     case P_REND: {
@@ -4602,6 +5060,7 @@ static bool painel_evento(const evento_t *e)
             }
             if (b == 1 && confirmar("Cipó", _("¿Borrar todo el historial?"))) { qtd_hst = 0; gravar_hst(); registrar("cipo: historial borrado\n"); }
             if (b == 2) { qtd_pos = 0; gravar_posicoes(); registrar("cipo: posiciones de lectura olvidadas\n"); }
+            if (b == 3 && confirmar("Cipó", _("¿Borrar las cookies y la caché?"))) { cookie_limpar(); rede_cache_limpar(); registrar("cipo: cookies y cache borrados\n"); }
             painel_desenhar();
         }
         return true;
@@ -4634,7 +5093,7 @@ static void quitar_marcador(int i)
 
 static void menu_principal(void)
 {
-    char t[400];
+    char t[640];
     int k = 0;
     k += formatar_texto(t + k, (int)sizeof t - k, "%s\n", _("Nueva pestaña\tCtrl+T"));
     k += formatar_texto(t + k, (int)sizeof t - k, "%s\n", _("Marcadores\tCtrl+B"));
@@ -4642,7 +5101,10 @@ static void menu_principal(void)
     k += formatar_texto(t + k, (int)sizeof t - k, "%s\n", _("Descargas\tCtrl+J"));
     k += formatar_texto(t + k, (int)sizeof t - k, "%s\n", _("Ajustes"));
     k += formatar_texto(t + k, (int)sizeof t - k, "%s\n", conf.barra_marc ? _("Ocultar la barra de marcadores") : _("Mostrar la barra de marcadores"));
-    k += formatar_texto(t + k, (int)sizeof t - k, "%s", _("Buscar en la página\tCtrl+F"));
+    k += formatar_texto(t + k, (int)sizeof t - k, "%s\n", _("Buscar en la página\tCtrl+F"));
+    k += formatar_texto(t + k, (int)sizeof t - k, "%s\n", _("Acercar\tCtrl++"));
+    k += formatar_texto(t + k, (int)sizeof t - k, "%s\n", _("Alejar\tCtrl+-"));
+    k += formatar_texto(t + k, (int)sizeof t - k, "%s", _("Tamaño normal\tCtrl+0"));
     menu_contextual(j->id, br[B_MENU].x - 150, ABA_A + BARRA_A, t, COD_MENU_PRINCIPAL);
 }
 
@@ -4657,6 +5119,9 @@ static void acao_menu_principal(int k)
     else if (k == 4) mostrar_painel(P_GERAL);
     else if (k == 5) { conf.barra_marc = !conf.barra_marc; barra_marc_mudou(); }
     else if (k == 6) abrir_busca();
+    else if (k == 7) zoom_paso(1);
+    else if (k == 8) zoom_paso(-1);
+    else if (k == 9) zoom_paso(0);
 }
 
 static void menu_aba(int i, int x, int y)
@@ -4745,6 +5210,144 @@ static bool clique_barra(const evento_t *e)
     return false;
 }
 
+/* ---- Zoom de la página (D489) ----
+ * Ctrl++ / Ctrl+- / Ctrl+0 (y Ctrl+rueda): el motor maqueta otra vez con las medidas absolutas
+ * multiplicadas, así que el texto se vuelve a repartir en líneas y no se estira un mapa de bits.
+ * El zoom es por sitio (el servidor, sin el puerto) y se guarda en ~/.config/cipo/zoom. */
+#define ZOOM_MAX_SITIOS 64
+static char zoom_sitio[ZOOM_MAX_SITIOS][64];
+static int zoom_sitio_pct[ZOOM_MAX_SITIOS];
+static int zoom_qtd;
+static const int zoom_pasos[] = { 25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500 };
+#define ZOOM_PASOS ((int)(sizeof zoom_pasos / sizeof zoom_pasos[0]))
+
+/* El servidor de una dirección ("http://host:8080/x" -> "host"); vacío si no es de la web. */
+static void sitio_de(const char *url, char *o, int max)
+{
+    o[0] = 0;
+    const char *p = url;
+    if (comeca_com(p, "http://")) p += 7;
+    else if (comeca_com(p, "https://")) p += 8;
+    else return;
+    int n = 0;
+    while (p[n] && p[n] != '/' && p[n] != ':' && p[n] != '?' && p[n] != '#' && n < max - 1) { o[n] = p[n]; n++; }
+    o[n] = 0;
+}
+
+static int zoom_do_sitio(const char *url)
+{
+    char h[64];
+    sitio_de(url, h, sizeof h);
+    for (int i = 0; h[0] && i < zoom_qtd; i++) if (compara_texto(zoom_sitio[i], h) == 0) return zoom_sitio_pct[i];
+    return 100;
+}
+
+static void caminho_zoom(char *saida, int max)
+{
+    char c[128];
+    caminho_posicoes(c, sizeof c);            /* crea ~/.config/cipo */
+    int n = (int)tam_texto(c);
+    while (n && c[n - 1] != '/') n--;
+    c[n] = 0;
+    formatar_texto(saida, max, "%szoom", c);
+}
+
+static void zoom_gravar(void)
+{
+    char caminho[128];
+    caminho_zoom(caminho, sizeof caminho);
+    int fd = abrir(caminho, ABRIR_ESCREVER | ABRIR_CRIAR | ABRIR_TRUNCAR);
+    if (fd < 0) return;
+    for (int i = 0; i < zoom_qtd; i++) {
+        char linha[96];
+        int n = formatar_texto(linha, sizeof linha, "%s\t%d\n", zoom_sitio[i], zoom_sitio_pct[i]);
+        escrever_tudo(fd, linha, (unsigned)n);
+    }
+    fechar(fd);
+}
+
+static void zoom_ler(void)
+{
+    zoom_qtd = 0;
+    char caminho[128];
+    caminho_zoom(caminho, sizeof caminho);
+    int fd = abrir(caminho, ABRIR_LER);
+    if (fd < 0) return;
+    char linha[96];
+    while (zoom_qtd < ZOOM_MAX_SITIOS) {
+        int n = ler_linha(fd, linha, sizeof linha);
+        if (n < 0) break;
+        char *sep = NULL;
+        for (char *p = linha; *p; p++) if (*p == '\t') sep = p;
+        if (!sep) continue;
+        *sep = 0;
+        int v = num_de(sep + 1, 25, 500, 100);
+        if (!linha[0] || tam_texto(linha) >= 64) continue;
+        copia_texto(zoom_sitio[zoom_qtd], linha, 64);
+        zoom_sitio_pct[zoom_qtd++] = v;
+    }
+    fechar(fd);
+}
+
+/* Fija el zoom del sitio de la página actual (100 = lo quita de la lista). */
+static void zoom_fijar(int pct)
+{
+    char h[64];
+    sitio_de(url_atual, h, sizeof h);
+    if (!h[0] || !motor) { rodape("El zoom solo vale en páginas de la web"); return; }
+    if (pct < 25) pct = 25;
+    if (pct > 500) pct = 500;
+    int antes = motor_zoom_atual(motor);
+    int i = 0;
+    while (i < zoom_qtd && compara_texto(zoom_sitio[i], h) != 0) i++;
+    if (pct == 100) {
+        if (i < zoom_qtd) {
+            for (int k = i; k < zoom_qtd - 1; k++) { copia_texto(zoom_sitio[k], zoom_sitio[k + 1], 64); zoom_sitio_pct[k] = zoom_sitio_pct[k + 1]; }
+            zoom_qtd--;
+        }
+    } else {
+        if (i == zoom_qtd) {
+            if (zoom_qtd == ZOOM_MAX_SITIOS) {   /* llena: sale el más antiguo */
+                for (int k = 0; k < zoom_qtd - 1; k++) { copia_texto(zoom_sitio[k], zoom_sitio[k + 1], 64); zoom_sitio_pct[k] = zoom_sitio_pct[k + 1]; }
+                zoom_qtd--;
+            }
+            i = zoom_qtd++;
+        }
+        copia_texto(zoom_sitio[i], h, 64);
+        zoom_sitio_pct[i] = pct;
+    }
+    zoom_gravar();
+    if (pct == antes) return;
+    /* la posición de lectura se conserva en proporción a la altura de la página */
+    int altura_antes = motor_altura > 0 ? motor_altura : 1;
+    int rol_antes = rol_px;
+    motor_zoom(motor, pct);
+    motor_altura = motor_layout(motor, LARG - ROLAGEM, AREA_A);
+    if (motor_altura < 0) motor_altura = 0;
+    linhas = (motor_altura + LINHA_A - 1) / LINHA_A + 1;
+    int max = motor_altura > AREA_A ? motor_altura - AREA_A : 0;
+    rol_px = (int)((int64_t)rol_antes * motor_altura / altura_antes);
+    if (rol_px > max) rol_px = max;
+    topo = (rol_px + LINHA_A / 2) / LINHA_A;
+    char t[48];
+    formatar_texto(t, sizeof t, "Zoom: %d%%", pct);
+    registrar("cipo: zoom %d%% en %s (la página mide %d px)\n", pct, h, motor_altura);
+    desenhar_pagina();
+    rodape(t);
+}
+
+/* dir > 0 acerca un paso, dir < 0 aleja, 0 vuelve al 100 %. */
+static void zoom_paso(int dir)
+{
+    int pct = motor ? motor_zoom_atual(motor) : 100;
+    if (dir == 0) { zoom_fijar(100); return; }
+    int i = 0;
+    while (i < ZOOM_PASOS - 1 && zoom_pasos[i] < pct) i++;
+    if (dir > 0) { while (i < ZOOM_PASOS - 1 && zoom_pasos[i] <= pct) i++; }
+    else { while (i > 0 && zoom_pasos[i] >= pct) i--; }
+    zoom_fijar(zoom_pasos[i]);
+}
+
 static void novo_tamanho(void)
 {
     if (motor) {
@@ -4756,6 +5359,7 @@ static void novo_tamanho(void)
         topo = (rol_px + LINHA_A / 2) / LINHA_A;
     }
     registrar("cipo: ventana %dx%d, texto de %d px de ancho, %d lineas\n", LARG, ALT, LARG_TEXTO, linhas);
+    if (js) { qjs_definir_janela(js, LARG - ROLAGEM, AREA_A); qjs_despachar(js, -1, "resize", "{}"); js_refrescar(); }   /* D488 */
     if (painel) painel_layout();
     desenhar_tudo();
 }
@@ -4782,6 +5386,9 @@ static bool atalho(const evento_t *e)
     if (t == 6) { abrir_busca(); return true; }                                /* Ctrl+F */
     if (t == 3) { copiar_agora(); return true; }                                /* Ctrl+C */
     if (t == 20) { nova_aba(); return true; }                                   /* Ctrl+T */
+    if ((m & 2) && (t == '+' || t == '=')) { zoom_paso(1); return true; }        /* Ctrl++ (D489) */
+    if ((m & 2) && (t == '-' || t == '_')) { zoom_paso(-1); return true; }       /* Ctrl+- */
+    if ((m & 2) && t == '0') { zoom_paso(0); return true; }                      /* Ctrl+0 */
     if ((m & 2) && (t == 8 || t == 'h')) { mostrar_painel(P_HIST); return true; }      /* Ctrl+H: historial con búsqueda */
     if ((m & 2) && (t == 10 || t == 'j')) { mostrar_painel(P_DESC); return true; }     /* Ctrl+J: descargas */
     if (t == 23) { fechar_aba(); return true; }                                 /* Ctrl+W */
@@ -4831,6 +5438,10 @@ int principal(int argc, char **argv)
     ler_hst();
     ler_marcadores();
     ler_posicoes();
+    zoom_ler();
+    rede_cookie_carregar();                 /* las cookies persistentes del usuario (D487) */
+    rede_definir_executor(rede_js_executor);
+    ws_definir_trava(&tls_trava);
     registrar("cipo: ajustes: inicio %d, buscador %s, descargas simultáneas %d (efectivas %d), js %d, imágenes %d\n",
               conf.inicio_modo, buscadores[conf.buscador].nome, conf.hilos, hilos_efectivos(), conf.js, conf.imagens);
     ajustar_barra();
@@ -4842,6 +5453,7 @@ int principal(int argc, char **argv)
     jan_mostrar(j);
 
     evento_t e;
+    unsigned ultimo_ws_ms = 0;
     for (;;) {
         /* O script pediu outra pagina (D159): navega-se aqui, fora do script,
          * para o motor poder ser destruido com calma (e nao a meio de um
@@ -4857,6 +5469,7 @@ int principal(int argc, char **argv)
             } else {
                 registrar("cipo: navega para %s\n", u);
                 navegar(u);
+                pedido_por_js = false;
                 continue;
             }
         }
@@ -4864,14 +5477,23 @@ int principal(int argc, char **argv)
          * a banda visível (sem recalcular o layout). */
         if (!painel && animacoes_tick()) { desenhar_pagina(); continue; }
         video_tick();
-        /* Os temporizadores do script (setTimeout): correm com o relogio do SO. */
-        if (js && qjs_tique(js, tempo_ms()) > 0) { if (js_dom_sujo) js_refrescar(); else desenhar_pagina(); }
+        /* El script pidió history.back/forward (D488): fuera del script. */
+        if (js_hist_pendente) { int d = js_hist_pendente; js_hist_pendente = 0; if (d < 0) voltar(); else avancar(); continue; }
+        /* Los WebSocket de la página (D487): el sondeo es una tarea más del bucle (qjs_chamar: con sus
+         * microtareas detrás); los mensajes y las promesas entran así en la cola del script (D488). */
+        if (js && ws_ativos() > 0 && tempo_ms() - ultimo_ws_ms >= 15) {
+            ultimo_ws_ms = tempo_ms();
+            qjs_chamar(js, "__sagui_ws_poll", NULL);
+            js_refrescar();
+        }
+        /* El bucle de eventos del script (D488): temporizadores, quadros y el evento scroll. */
+        js_volta();
         if (proximo_evento(j->id, &e, false) != 1) {
             indicadores_tick();
             if (pintura_pendente || recursos_pendentes) { processar_recurso(); continue; }
             if (!painel && qtd_abas && !abas[aba_atual].fav_tentado && doc && !tem_url_pendente) { favicon_buscar(); desenhar_abas(); continue; }
             if (painel == P_DESC && desc_activas() && tempo_ms() - ultimo_desc_ms > 300) { ultimo_desc_ms = tempo_ms(); painel_desc_desenhar(); }
-            if (esperar_evento(j->id, &e, vid_tocando ? 4 : 15) != 1) continue;
+            if (esperar_evento(j->id, &e, js_espera_ms(vid_tocando ? 4 : 15)) != 1) continue;
         }
         if (e.tipo == EV_FECHAR) break;
         if (e.tipo == EV_MENU && e.tecla == COD_MENU_CONTEXTUAL) {
@@ -4915,14 +5537,23 @@ int principal(int argc, char **argv)
             if (n && qtd_abas > 1) trocar_aba(((aba_atual + (n < 0 ? 1 : -1)) % qtd_abas + qtd_abas) % qtd_abas);
             continue;
         }
+        if (e.tipo == EV_RODA && (e.modificadores & 2) && e.y >= ABA_Y && e.y < ALT - RODAPE) {   /* Ctrl+rueda: zoom (D489) */
+            zoom_paso((int)e.cliques < 0 ? 1 : -1);
+            continue;
+        }
         if (e.tipo == EV_RODA) {
             int n = (int)e.cliques;
-            if (e.y >= ABA_Y && e.y < ALT - RODAPE) {
+            if (e.y >= ABA_Y && e.y < ALT - RODAPE && motor && e.x < LARG - ROLAGEM &&
+                motor_rolar_caixa(motor, e.x, e.y - ABA_Y + rol_px, 0, n * RODA_LINHAS * LINHA_A)) {   /* un bloque con overflow se queda la rueda (D489) */
+                desenhar_pagina();
+                registrar("cipo: rueda %d sobre un bloque con overflow\n", n);
+            } else if (e.y >= ABA_Y && e.y < ALT - RODAPE) {
                 rolar(topo + n * RODA_LINHAS);
                 registrar("cipo: rueda %d, linea %d de %d\n", n, topo, linhas);
             }
             continue;
         }
+        if (e.tipo == EV_SOLTOU && motor && motor_barra_arrastando(motor)) { motor_barra_soltar(motor); continue; }
         if (e.tipo == EV_SOLTOU && rolando) { rolando = false; desenhar_barra_rolagem(); jan_mostrar_area(j, LARG - ROLAGEM, ABA_Y, ROLAGEM, AREA_A); continue; }
         if (e.tipo == EV_TECLA) {
             unsigned t = e.tecla;
@@ -4933,6 +5564,8 @@ int principal(int argc, char **argv)
                 if (t == TECLA_CIMA || t == TECLA_BAIXO || t == TECLA_PGUP || t == TECLA_PGDN) { /* rueda de la página */ }
                 else { caixa_tratar(j, &caixa_busca, &e); atualizar_busca(); continue; }
             }
+            /* la página tiene oyentes de teclado (D488): la tecla es suya primero */
+            if (js && motor && !endereco.foco && (motor_tem_foco(motor) || (qjs_quer(js) & QJS_QUER_TECLA)) && js_tecla(t, e.modificadores)) continue;
             if (motor && motor_tem_foco(motor)) { tecla_campo_motor(t); continue; }
             if (endereco.foco) {
                 if (t == '\t' || t == TECLA_ESC || t == 27) { endereco.foco = false; endereco_sel = false; sugestoes_fechar(); desenhar_barra(); continue; }
@@ -5031,6 +5664,7 @@ int principal(int argc, char **argv)
             continue;
         }
         if (e.tipo == EV_CLIQUE && (e.botoes & 2) && motor) {
+            if (js_menu_pagina(e.x, e.y, e.modificadores)) continue;     /* contextmenu cancelado (D488) */
             const motor_alvo_t *a = alvo_motor_em(e.x, e.y);
             salvar_imagem_url[0] = salvar_link_url[0] = 0;
             qtd_menu_acoes = 0;
@@ -5086,7 +5720,16 @@ int principal(int argc, char **argv)
                 desenhar_pagina();
                 continue;
             }
+            if (motor && e.y >= ABA_Y && e.y < ALT - RODAPE && e.x < LARG - ROLAGEM && motor_barra_pulsar(motor, e.x, e.y - ABA_Y + rol_px)) {   /* barra de un bloque con overflow (D489) */
+                desenhar_pagina();
+                continue;
+            }
             if (video_clique(e.x, e.y)) continue;
+            /* el JavaScript ve el clic primero (mousedown, mouseup, click; D488) */
+            if (js_clique_pagina(e.x, e.y, (int)e.cliques, e.modificadores)) {
+                if (alvo_motor_em(e.x, e.y)) registrar("cipo: js: el clic lo cancelo el script\n");
+                continue;
+            }
             const motor_alvo_t *a = alvo_motor_em(e.x, e.y);
             if (a) {
                 foco_alvo = -1;
@@ -5097,11 +5740,18 @@ int principal(int argc, char **argv)
             continue;
         }
         if (e.tipo == EV_MOVER) {
+            if (motor && motor_barra_arrastando(motor)) {
+                if (e.botoes & 1) motor_barra_mover(motor, e.x, e.y - ABA_Y + rol_px);
+                else motor_barra_soltar(motor);
+                desenhar_pagina();
+                continue;
+            }
             if (rolando) {
                 if (e.botoes & 1) rolar_para_pulgar(e.y);
                 else { rolando = false; desenhar_pagina(); }
                 continue;
             }
+            js_mover_rato(e.x, e.y, (int)e.botoes);     /* mousemove, over, out... (D488) */
             const motor_alvo_t *a = alvo_motor_em(e.x, e.y);
             if (a && a->tipo == MA_LINK) rodape(a->href);
             else if (a) rodape("Formulario: haz clic para escribir");
@@ -5114,6 +5764,7 @@ int principal(int argc, char **argv)
         posicao_guardar(url_atual, rol_px);
         gravar_posicoes();
     }
+    rede_cookie_gravar(true);
     video_parar();
     liberar_imagens();
     jan_fechar(j);

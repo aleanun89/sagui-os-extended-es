@@ -75,8 +75,9 @@ int principal(int argc, char **argv)
         registrar("quickjs: %s = %s\n", provas[i].nome, valor);
     }
 
-    /* o temporizador: passa o tempo e o script escreve no console */
-    qjs_tique(p, 100);
+    /* o temporizador: passa o tempo e o script escreve no console. Desde a D488 o
+     * bucle usa o relogio do SO: espera-se de verdade (ate 1 s). */
+    for (int k = 0; k < 200 && qjs_espera(p) >= 0; k++) { dormir(5); qjs_tique(p, tempo_ms()); }
     registrar("quickjs: temporizadores ok\n");
 
     qjs_destruir(p);

@@ -85,6 +85,7 @@ _Static_assert(sizeof(gpu3d_vbuf_t) == 32 && sizeof(gpu3d_atrib_t) == 8 && sizeo
                "gpu3d v3: tamaño de la ABI");
 static uint32_t n_tri, n_lotes, n_quadros, n_falhas, n_recusas, us_autoprova, n_desenhos_prova;
 static uint32_t pontos, tri_s, kpix_s;
+static uint32_t n_v4_des, n_v4_limpar, n_v4_subir, n_v4_ler, n_v4_prog, n_v4_rec;   /* D480 */
 static bool desligando;
 /* D432: presentaciones directas a la pantalla, las que el compositor no dejó hacer, veces que retiró la
  * pantalla, si hay que repintar las bandas negras y el último rectángulo de destino. */
@@ -1391,6 +1392,7 @@ static int32_t op_dentro(uint32_t ptr, uint32_t n)
         if (p.a < 8 || p.b < 8 || p.a > GPU3D_MAX_LADO || p.b > GPU3D_MAX_LADO) return GPU3D_SEM_SUPORTE;
         if (estado == GPU3D_SIN_PROBAR && !ligar(NULL)) return GPU3D_SEM_SUPORTE;
         for (int i = 0; i < GPU3D_TEXTURAS; i++) drv->textura(i, 0, 0, NULL);
+        if (drv->v4 && drv->v4->soltar_tudo) drv->v4->soltar_tudo();   /* D480 */
         vb_soltar_todos();   /* D457 */
         n_vb_expulsos = n_vb_subidas = vb_kb_subidos = n_des3 = n_vert3 = 0;
         /* D425: c = bits de Z | bits de esténcil << 8. El esténcil va con un Z de 24 (Z24S8): un driver
@@ -1439,6 +1441,12 @@ static int32_t op_dentro(uint32_t ptr, uint32_t n)
         if (dest_vaga >= 0 && drv->destino) drv->destino(-1, alvo_z, 0);
         dest_vaga = -1;
         for (int i = 0; i < GPU3D_TEXTURAS; i++) drv->textura(i, 0, 0, NULL);
+        if (drv->v4 && drv->v4->soltar_tudo) {
+            if (n_v4_des) klog("[GPU3D] v4 (D480): %u dibujos, %u limpiezas, %u subidas, %u lecturas, %u programas y %u recursos al soltar\n",
+                               n_v4_des, n_v4_limpar, n_v4_subir, n_v4_ler, n_v4_prog, n_v4_rec);
+            drv->v4->soltar_tudo();
+            n_v4_des = n_v4_limpar = n_v4_subir = n_v4_ler = n_v4_prog = n_v4_rec = 0;
+        }
         if (n_des3 || n_vb_subidas)
             klog("[GPU3D] v3 (D457): %u dibujos desde buferes (%u vertices), %u subidas (%u KB), %u buferes (%u KB) al soltar, %u expulsiones\n",
                  n_des3, n_vert3, n_vb_subidas, vb_kb_subidos, vb_n, vb_bytes >> 10, n_vb_expulsos);
@@ -1600,7 +1608,7 @@ static int32_t op_dentro(uint32_t ptr, uint32_t n)
              * próximo cuadro las repinta para borrarla de donde estaba. */
             int cx, cy;
             apres_bandas = video_cursor_exclusiva(&cx, &cy) &&
-                           (cx < g.dx || cy < g.dy || cx + VIDEO_CUR_L > g.dx + g.dl || cy + VIDEO_CUR_A > g.dy + g.da);
+                           (cx < g.dx || cy < g.dy || cx + video_cursor_largura() > g.dx + g.dl || cy + video_cursor_altura() > g.dy + g.da);
         } else if (r == G3D_NAO) {
             gui_exclusiva_soltar(pid, "el driver no puede presentar eso");
             n_apres_nao++;
@@ -1706,6 +1714,108 @@ static int32_t op_dentro(uint32_t ptr, uint32_t n)
         g.e = &est2_atual; g.t = &transf_atual; g.luz = transf_atual.flags & G3D3_LUZ ? &luzes_atuais : NULL;
         r = drv->desenhar3(&g, NULL); que = "dibujar desde los buferes (v3)";
         if (r == G3D_OK) { n_tri += g.d.modo == G3D_PRIM_TRIANGULOS ? g.d.n / 3 : g.d.n - 2; n_lotes++; n_des3++; n_vert3 += g.d.n; }
+        break;
+    }
+    /* ---- D480: gpu3d v4 (sombreadores programables) ---- */
+    case GPU3D_OP_V4_CAPS: {
+        if (!drv->v4 || !drv->v4->caps) return GPU3D_SEM_SUPORTE;
+        if (!usuario_ok((void *)p.ptr, sizeof(gpu3d_v4_caps_t), true)) return ERRO_ENDERECO;
+        gpu3d_v4_caps_t c;
+        memset(&c, 0, sizeof c);
+        c.versao = 4; c.max_lado = GPU3D_MAX_LADO; c.max_recursos = G3D4_RECURSOS; c.max_programas = G3D4_PROGRAMAS; c.max_bytes = G3D4_BYTES_MAX;
+        r = drv->v4->caps(&c); que = "preguntar las capacidades v4";
+        if (r == G3D_OK) { c.bits |= G3D4_C_V4; *(gpu3d_v4_caps_t *)p.ptr = c; }
+        break;
+    }
+    case GPU3D_OP_V4_INFORME:
+        klog("[GPU3D] autoprueba v4 (libsgl, contra la CPU): %s, %u pixeles distintos, caras de frente %s\n", p.a == 1 ? "BIEN" : "MAL", p.b, p.c ? "invertidas por la GPU (se compensa)" : "como en ES 2.0");
+        return 0;
+    case GPU3D_OP_V4_PROGRAMA: {
+        if (!drv->v4 || !drv->v4->programa) return GPU3D_SEM_SUPORTE;
+        if (p.a >= G3D4_PROGRAMAS) return ERRO_INVALIDO;
+        if (!p.ptr) { r = drv->v4->programa(p.a, NULL, 0, NULL, 0); que = "soltar un programa v4"; break; }
+        if (!usuario_ok((void *)p.ptr, sizeof(gpu3d_v4_prog_t), false)) return ERRO_ENDERECO;
+        gpu3d_v4_prog_t g = *(const gpu3d_v4_prog_t *)p.ptr;
+        if (g.nvs < 8 || g.nfs < 8 || g.nvs > G3D4_TGSI_MAX || g.nfs > G3D4_TGSI_MAX) return GPU3D_SEM_SUPORTE;
+        if (!usuario_ok((void *)g.vs, g.nvs, false) || !usuario_ok((void *)g.fs, g.nfs, false)) return ERRO_ENDERECO;
+        if (((const char *)g.vs)[g.nvs - 1] || ((const char *)g.fs)[g.nfs - 1]) return ERRO_INVALIDO;
+        r = drv->v4->programa(p.a, (const char *)g.vs, g.nvs, (const char *)g.fs, g.nfs); que = "crear un programa v4";
+        if (r == G3D_OK) n_v4_prog++;
+        break;
+    }
+    case GPU3D_OP_V4_RECURSO: {
+        if (!drv->v4 || !drv->v4->recurso) return GPU3D_SEM_SUPORTE;
+        if (!usuario_ok((void *)p.ptr, sizeof(gpu3d_v4_rec_t), false)) return ERRO_ENDERECO;
+        gpu3d_v4_rec_t g = *(const gpu3d_v4_rec_t *)p.ptr;
+        if (g.id == 0 || g.id >= G3D4_RECURSOS || g.tipo < G3D4_R_TEX2D || g.tipo > G3D4_R_ZE) return ERRO_INVALIDO;
+        if (g.larg) {
+            if (g.larg > GPU3D_MAX_LADO || g.alt < 1 || g.alt > GPU3D_MAX_LADO || g.niveis < 1 || g.niveis > G3D4_NIVEIS) return GPU3D_SEM_SUPORTE;
+            if (g.tipo == G3D4_R_ZE && ((g.zbits != 16 && g.zbits != 24) || g.estencil > 1)) return ERRO_INVALIDO;
+            if (g.tipo == G3D4_R_CUBO && g.larg != g.alt) return GPU3D_SEM_SUPORTE;
+        }
+        r = drv->v4->recurso(&g); que = "crear un recurso v4";
+        if (r == G3D_OK) n_v4_rec++;
+        break;
+    }
+    case GPU3D_OP_V4_SUBIR: {
+        if (!drv->v4 || !drv->v4->subir) return GPU3D_SEM_SUPORTE;
+        if (!usuario_ok((void *)p.ptr, sizeof(gpu3d_v4_subir_t), false)) return ERRO_ENDERECO;
+        gpu3d_v4_subir_t g = *(const gpu3d_v4_subir_t *)p.ptr;
+        if (g.id == 0 || g.id >= G3D4_RECURSOS || g.nivel >= G3D4_NIVEIS || g.face > 5 || !g.larg || !g.alt || g.larg > GPU3D_MAX_LADO ||
+            g.alt > GPU3D_MAX_LADO || g.x > GPU3D_MAX_LADO || g.y > GPU3D_MAX_LADO || g.passo < g.larg * 4) return ERRO_INVALIDO;
+        if (!usuario_ok((void *)g.dados, (g.alt - 1) * g.passo + g.larg * 4, false)) return ERRO_ENDERECO;
+        r = drv->v4->subir(&g); que = "subir pixeles v4";
+        if (r == G3D_OK) n_v4_subir++;
+        break;
+    }
+    case GPU3D_OP_V4_LIMPAR: {
+        if (!drv->v4 || !drv->v4->limpar) return GPU3D_SEM_SUPORTE;
+        if (!usuario_ok((void *)p.ptr, sizeof(gpu3d_v4_limpar_t), false)) return ERRO_ENDERECO;
+        gpu3d_v4_limpar_t g = *(const gpu3d_v4_limpar_t *)p.ptr;
+        if (g.alvo_cor >= G3D4_RECURSOS || g.alvo_ze >= G3D4_RECURSOS || (g.mascara & ~7u)) return ERRO_INVALIDO;
+        r = drv->v4->limpar(&g); que = "limpiar v4";
+        if (r == G3D_OK) n_v4_limpar++;
+        break;
+    }
+    case GPU3D_OP_V4_LER: {
+        if (!drv->v4 || !drv->v4->ler) return GPU3D_SEM_SUPORTE;
+        if (!usuario_ok((void *)p.ptr, sizeof(gpu3d_v4_ler_t), false)) return ERRO_ENDERECO;
+        gpu3d_v4_ler_t g = *(const gpu3d_v4_ler_t *)p.ptr;
+        if (g.rec == 0 || g.rec >= G3D4_RECURSOS || !g.larg || !g.alt || g.larg > GPU3D_MAX_LADO || g.alt > GPU3D_MAX_LADO ||
+            g.x > GPU3D_MAX_LADO || g.y > GPU3D_MAX_LADO) return ERRO_INVALIDO;
+        /* cada fila dentro de la memoria del programa (el paso puede ser negativo) */
+        for (uint32_t j = 0; j < g.alt; j += (j + 1 < g.alt ? g.alt - 1 : 1))
+            if (!usuario_ok((void *)(g.dest + (uint32_t)((int32_t)j * g.passo)), g.larg * 4, true)) return ERRO_ENDERECO;
+        r = drv->v4->ler(&g); que = "leer un recurso v4";
+        if (r == G3D_OK) n_v4_ler++;
+        break;
+    }
+    case GPU3D_OP_V4_DESENHAR: {
+        if (!drv->v4 || !drv->v4->desenhar) return GPU3D_SEM_SUPORTE;
+        if (!usuario_ok((void *)p.ptr, sizeof(gpu3d_v4_des_t), false)) return ERRO_ENDERECO;
+        const gpu3d_v4_des_t *g = (const gpu3d_v4_des_t *)p.ptr;
+        if (g->programa >= G3D4_PROGRAMAS || g->modo > G3D4_PRIM_LEQUE || g->natrib > G3D4_ATRIBS || g->alvo_cor == 0 ||
+            g->alvo_cor >= G3D4_RECURSOS || g->alvo_ze >= G3D4_RECURSOS || g->namostras[0] > G3D4_AMOSTRAS || g->namostras[1] > G3D4_AMOSTRAS ||
+            g->nunif[0] > G3D4_UNIF_MAX || g->nunif[1] > G3D4_UNIF_MAX || (g->tipo_ind != 0 && g->tipo_ind != 2 && g->tipo_ind != 4))
+            return ERRO_INVALIDO;
+        if (!g->n) return 0;
+        if (g->n > GPU3D_MAX_VERT3 * 4 || g->nverts > GPU3D_MAX_VERT3 * 4 || !g->nverts) return GPU3D_SEM_SUPORTE;
+        uint64_t bytes = (uint64_t)g->n * g->tipo_ind;
+        for (unsigned i = 0; i < g->natrib; i++) {
+            const gpu3d_v4_atrib_t *a = &g->at[i];
+            if (!a->ativo) continue;
+            if (a->comps < 1 || a->comps > 4 || a->passo < a->comps * 4 || (a->passo & 3) || (a->dados & 3)) return ERRO_INVALIDO;
+            uint64_t t = (uint64_t)(g->nverts - 1) * a->passo + a->comps * 4;
+            if (t > G3D4_BYTES_MAX) return GPU3D_SEM_SUPORTE;
+            if (!usuario_ok((void *)a->dados, (uint32_t)t, false)) return ERRO_ENDERECO;
+            bytes += g->nverts * a->comps * 4u;
+        }
+        if (bytes > G3D4_BYTES_MAX) return GPU3D_SEM_SUPORTE;
+        if (g->tipo_ind && (!usuario_ok((void *)g->indices, g->n * g->tipo_ind, false) || (g->indices & 3))) return ERRO_ENDERECO;
+        for (int e = 0; e < 2; e++)
+            if (g->nunif[e] && !usuario_ok((void *)g->unif[e], g->nunif[e] * 16, false)) return ERRO_ENDERECO;
+        r = drv->v4->desenhar(g); que = "dibujar v4";
+        if (r == G3D_OK) { n_v4_des++; n_tri += g->n / 3; n_lotes++; }
         break;
     }
     default:
